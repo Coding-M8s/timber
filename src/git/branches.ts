@@ -52,6 +52,11 @@ function branchRows(repository: RepositoryContext, rows: readonly RefRow[]): Bra
   });
 }
 
+/** Read local and remote-tracking branches without fetching or selecting one. */
+export async function listBranches(repository: RepositoryContext): Promise<readonly Branch[]> {
+  return branchRows(repository, await refs(repository));
+}
+
 function result(candidates: readonly Branch[]): Resolution<Branch> {
   if (candidates.length === 0) return { kind: "not-found" };
   if (candidates.length === 1) return { kind: "found", value: candidates[0]! };
@@ -73,7 +78,7 @@ export async function resolveBranch(
     throw new Error(`Configured remote ${config.remote} does not exist in this repository.`);
   }
   if (!input) return { kind: "not-found" };
-  const branches = branchRows(repository, await refs(repository));
+  const branches = await listBranches(repository);
   const local = branches.filter((branch): branch is Extract<Branch, { kind: "local" }> => branch.kind === "local");
   const remote = branches.filter((branch): branch is RemoteBranch => branch.kind === "remote");
   const explicit = [...repository.remotes].sort((a, b) => b.name.length - a.name.length)
