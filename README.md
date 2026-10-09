@@ -4,7 +4,8 @@ A small CLI for creating, opening, listing, and safely cleaning up Git worktrees
 
 `new` creates a branch and linked worktree, `ls` lists the repository's worktrees,
 and `open` reuses an existing worktree or creates one for a resolved existing
-branch. `done` remains an explicit placeholder until its assigned ticket lands.
+branch. `done` safely removes a linked worktree and, when ancestry permits,
+its local branch.
 
 ## Development
 
@@ -66,6 +67,8 @@ timber open "/absolute/path/to/my-feature-worktree"
 timber open my-feature --no-editor
 timber ls
 timber done my-feature
+timber done my-feature --keep-branch
+timber done "/absolute/path/to/my-feature-worktree" --discard-ignored
 ```
 
 ### Create a worktree
@@ -115,17 +118,45 @@ the configured `worktree_dir` or at the default sibling path
 `worktree_dir` values resolve from the primary repository root, even when
 `open` runs from a nested directory or linked worktree.
 
-### Cleanup services
+### Finish a worktree
 
-TIM-5 implements the `inspectCleanup` and `cleanupWorktree` services that
-prepare safe cleanup. They preserve modified and untracked work, require
-`discardIgnored` for ignored content such as `.env`, and use live upstream or
-validated-base ancestry evidence before removal. `keepBranch` permits removal
-of a clean, published but unmerged worktree while retaining its local branch.
-Deleting a local branch always requires proof that its commits are contained in
-the validated base, and never treats the target branch as its own validated base.
-The `done` command remains a placeholder until TIM-15 wires these services into
-the CLI.
+Run `timber done <branch-or-worktree>` (or `bun run dev done <branch-or-worktree>`)
+with an exact branch name, an absolute registered worktree path, or a unique
+ticket prefix such as `TIM-42`. Target resolution follows `open`, including
+explicit remote selectors that identify a local worktree tracking that remote
+branch. Ambiguous input lists every candidate and requires an exact branch name or
+absolute worktree path; the command never prompts. A branch without a worktree is refused.
+The primary worktree is always protected.
+
+By default, the linked worktree must have no modified or untracked files, no
+ignored content, and its commit must be contained in the validated base before
+Timber removes it and deletes its local branch. The base uses the primary
+checkout's `.timber.toml` and the normal base selection policy. Timber checks
+fresh Git state immediately before removal. Refusals describe the affected
+files, commits, or missing publication/ancestry evidence; they never print file
+contents.
+
+`--keep-branch` retains the local branch and also permits removal of a clean,
+published but unmerged worktree. Publication requires live upstream evidence;
+cached remote-tracking refs or a closed PR alone do not prove safety. Unpublished
+or unknown publication blocks removal unless the commit is already contained
+in the validated base. Squash/rebase merges do not prove ancestry: retain a
+safely published branch with `--keep-branch`, or leave the worktree in place.
+A detached worktree can be removed by absolute path only when its commit is
+contained in the validated base.
+
+Ignored files, including `.env` and ignored directories, are preserved unless
+you explicitly pass `--discard-ignored`. That option allows their removal with
+the selected worktree; it never bypasses modified/untracked or commit safety
+checks. Neither option overrides locks, stale metadata, or identity checks.
+There is no `--force`, automatic stash, remote branch deletion, or process
+killing.
+
+Success names the removed path and the deleted or retained local branch.
+If removal succeeds but branch deletion fails, Timber exits nonzero, reports
+the observed partial result on stderr, and does not claim completion. Inspect
+the reported Git state before retrying. Remote branches, the primary checkout,
+and unrelated worktrees stay intact.
 
 ### List worktrees
 

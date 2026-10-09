@@ -109,8 +109,15 @@ export interface CleanupOptions {
 
 export interface CleanupResult {
   removedWorktreePath: string;
-  /** Null when retained, including --keep-branch. Remote branches are never deleted. */
+  /** Set when the local branch was deleted. Mutually exclusive with retainedLocalBranch. */
   deletedLocalBranch: string | null;
+  /** Set when a local branch existed and was kept. Null for detached HEAD or deleted branches. */
+  retainedLocalBranch: string | null;
+}
+
+/** Openability checks are for `open`; cleanup commands skip them and recheck at mutation time. */
+export interface ResolveOpenTargetOptions {
+  assertOpenable?: boolean;
 }
 
 export type EditorResult =

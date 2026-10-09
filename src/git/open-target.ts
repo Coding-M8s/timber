@@ -2,7 +2,8 @@ import { isAbsolute, resolve } from "node:path";
 import { listBranches, resolveBranch } from "./branches";
 import { assertOpenableWorktree, listWorktrees } from "./worktrees";
 import type {
-  Branch, OpenTarget, RepositoryConfig, RepositoryContext, Resolution, Worktree,
+  Branch, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
+  ResolveOpenTargetOptions, Worktree,
 } from "../types";
 
 function targetKey(target: OpenTarget): string {
@@ -23,13 +24,17 @@ function deduplicateTargets(targets: readonly OpenTarget[]): OpenTarget[] {
 }
 
 async function finish(
-  repository: RepositoryContext, targets: readonly OpenTarget[],
+  repository: RepositoryContext,
+  targets: readonly OpenTarget[],
+  options: ResolveOpenTargetOptions = {},
 ): Promise<Resolution<OpenTarget>> {
   const candidates = deduplicateTargets(targets);
   if (candidates.length === 0) return { kind: "not-found" };
   if (candidates.length > 1) return { kind: "ambiguous", candidates };
   const target = candidates[0]!;
-  if (target.kind === "worktree") await assertOpenableWorktree(repository, target.worktree);
+  if (target.kind === "worktree" && options.assertOpenable !== false) {
+    await assertOpenableWorktree(repository, target.worktree);
+  }
   return { kind: "found", value: target };
 }
 
@@ -58,7 +63,10 @@ function mappedTargets(
 
 /** Resolve a registered worktree first, then TIM-2's exact and ticket-prefix branch policy. */
 export async function resolveOpenTarget(
-  repository: RepositoryContext, input: string, config: RepositoryConfig,
+  repository: RepositoryContext,
+  input: string,
+  config: RepositoryConfig,
+  options: ResolveOpenTargetOptions = {},
 ): Promise<Resolution<OpenTarget>> {
   if (!input) return { kind: "not-found" };
   const worktrees = await listWorktrees(repository);
@@ -66,7 +74,7 @@ export async function resolveOpenTarget(
   if (isAbsolute(input)) {
     const path = resolve(input);
     return finish(repository, worktrees.filter(worktree => resolve(worktree.path) === path)
-      .map(worktree => ({ kind: "worktree", worktree })));
+      .map(worktree => ({ kind: "worktree", worktree })), options);
   }
 
   const hasExplicitRemote = [...repository.remotes]
@@ -74,12 +82,12 @@ export async function resolveOpenTarget(
     .some(remote => input.startsWith(`${remote.name}/`));
   if (!hasExplicitRemote) {
     const exactWorktrees = worktrees.filter(worktree => worktree.branch === input);
-    if (exactWorktrees.length) return finish(repository, worktreeTargets(exactWorktrees));
+    if (exactWorktrees.length) return finish(repository, worktreeTargets(exactWorktrees), options);
   }
 
   const resolution = await resolveBranch(repository, input, config);
   if (resolution.kind === "not-found") return resolution;
   const branches = await listBranches(repository);
   const selected = resolution.kind === "found" ? [resolution.value] : resolution.candidates;
-  return finish(repository, mappedTargets(selected, branches, worktrees));
+  return finish(repository, mappedTargets(selected, branches, worktrees), options);
 }

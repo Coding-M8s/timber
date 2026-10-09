@@ -52,10 +52,20 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
     .action(() => handlers.list(context));
 
   program.command("done <branch-or-worktree>")
-    .description("Safely remove a linked worktree (placeholder; TIM-15)")
-    .option("--keep-branch", "Keep the local branch after safe worktree removal", false)
+    .description("Safely remove a linked worktree and, when permitted, its local branch")
+    .option(
+      "--keep-branch",
+      "Retain the local branch; also allow removing a clean published but unmerged worktree",
+      false,
+    )
     .option("--discard-ignored", "Explicitly allow discarding ignored files, including .env", false)
-    .action((input: string, options: CleanupOptions) => handlers.done(input, options, context));
+    .action((input: string, options: { keepBranch?: boolean; discardIgnored?: boolean }) => {
+      const normalized: CleanupOptions = {
+        keepBranch: options.keepBranch === true,
+        discardIgnored: options.discardIgnored === true,
+      };
+      return handlers.done(input, normalized, context);
+    });
 
   try {
     await program.parseAsync(argv.length === 0 ? ["--help"] : [...argv], { from: "user" });

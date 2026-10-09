@@ -92,7 +92,11 @@ test("default cleanup removes only a merged linked worktree and local branch", a
 
     const result = await cleanup(primary, path);
 
-    expect(result).toEqual({ removedWorktreePath: path, deletedLocalBranch: "feature/remove-me" });
+    expect(result).toEqual({
+      removedWorktreePath: path,
+      deletedLocalBranch: "feature/remove-me",
+      retainedLocalBranch: null,
+    });
     expect(await isAbsent(path)).toBe(true);
     expect(await branchOid(primary, "feature/remove-me")).toBeNull();
     expect(await branchOid(primary, "feature/leave-me")).toBe(unrelatedOid);
@@ -111,7 +115,11 @@ test("keepBranch removes a clean merged worktree and retains its local branch OI
     await addTarget(primary, path, "feature/keep");
     const before = await branchOid(primary, "feature/keep");
     const result = await cleanup(primary, path, keepBranch);
-    expect(result).toEqual({ removedWorktreePath: path, deletedLocalBranch: null });
+    expect(result).toEqual({
+      removedWorktreePath: path,
+      deletedLocalBranch: null,
+      retainedLocalBranch: "feature/keep",
+    });
     expect(await isAbsent(path)).toBe(true);
     expect(await branchOid(primary, "feature/keep")).toBe(before);
     await assertRegistered(primary, path, false);
@@ -179,6 +187,7 @@ test("ignored files and directories require discardIgnored and are removed only 
 
     const result = await cleanup(primary, path, { keepBranch: false, discardIgnored: true });
     expect(result.deletedLocalBranch).toBe("feature/ignored");
+    expect(result.retainedLocalBranch).toBeNull();
     expect(await isAbsent(path)).toBe(true);
     expect(await branchOid(primary, "feature/ignored")).toBeNull();
   });
@@ -240,7 +249,11 @@ test("unmerged published branches require keepBranch and then remain local and r
     expect(await git(remote, "rev-parse", "refs/heads/feature/published")).toBe(remoteOid);
 
     const result = await cleanup(primary, path, keepBranch);
-    expect(result).toEqual({ removedWorktreePath: path, deletedLocalBranch: null });
+    expect(result).toEqual({
+      removedWorktreePath: path,
+      deletedLocalBranch: null,
+      retainedLocalBranch: "feature/published",
+    });
     expect(await isAbsent(path)).toBe(true);
     expect(await branchOid(primary, "feature/published")).toBe(localOid);
     expect(await git(remote, "rev-parse", "refs/heads/feature/published")).toBe(remoteOid);
@@ -302,6 +315,7 @@ test("base containment permits clean removal when publication is unknown", async
     const remoteOid = await git(bare, "rev-parse", "refs/heads/feature/offline-merged");
     const result = await cleanup(primary, path);
     expect(result.deletedLocalBranch).toBe("feature/offline-merged");
+    expect(result.retainedLocalBranch).toBeNull();
     expect(await branchOid(primary, "feature/offline-merged")).toBeNull();
     expect(await git(bare, "rev-parse", "refs/heads/feature/offline-merged")).toBe(remoteOid);
     expect(await isAbsent(path)).toBe(true);
@@ -339,6 +353,7 @@ test("squash-equivalent base commit does not prove ancestry", async () => {
     await assertRetained(primary, path, "feature/squash", featureCommit, refsBefore);
     const result = await cleanup(primary, path, keepBranch);
     expect(result.deletedLocalBranch).toBeNull();
+    expect(result.retainedLocalBranch).toBe("feature/squash");
     expect(await isAbsent(path)).toBe(true);
     expect(await branchOid(primary, "feature/squash")).toBe(featureCommit);
     expect(await git(bare, "rev-parse", "refs/heads/feature/squash")).toBe(featureCommit);
@@ -407,7 +422,11 @@ test("detached contained HEAD can be removed while an uncontained detached commi
     const containedPath = join(directory, "detached contained");
     await addTarget(primary, containedPath, "unused", true);
     const contained = await cleanup(primary, containedPath);
-    expect(contained).toEqual({ removedWorktreePath: containedPath, deletedLocalBranch: null });
+    expect(contained).toEqual({
+      removedWorktreePath: containedPath,
+      deletedLocalBranch: null,
+      retainedLocalBranch: null,
+    });
     expect(await isAbsent(containedPath)).toBe(true);
 
     const uncontainedPath = join(directory, "detached uncontained");

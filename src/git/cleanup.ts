@@ -87,25 +87,26 @@ function refusal(inspection: CleanupInspection, options: CleanupOptions): string
     return `Cannot clean up worktree at ${worktree.path} because file status is unknown: ${worktree.status.reason}.`;
   }
   if (worktree.status.modified.length > 0) {
-    return `Cannot clean up worktree at ${worktree.path} because modified files would be lost. Commit or preserve them first.`;
+    return `Cannot clean up worktree at ${worktree.path} because modified files would be lost: ${worktree.status.modified.map(file => JSON.stringify(file)).join(", ")}. Commit or preserve them first.`;
   }
   if (worktree.status.untracked.length > 0) {
-    return `Cannot clean up worktree at ${worktree.path} because untracked files would be lost. Move or preserve them first.`;
+    return `Cannot clean up worktree at ${worktree.path} because untracked files would be lost: ${worktree.status.untracked.map(file => JSON.stringify(file)).join(", ")}. Move or preserve them first.`;
   }
   if (worktree.status.ignored.length > 0 && !options.discardIgnored) {
-    return `Cannot clean up worktree at ${worktree.path} because ignored files such as .env would be lost; pass --discard-ignored only when you intend to remove them.`;
+    return `Cannot clean up worktree at ${worktree.path} because ignored files such as .env would be lost: ${worktree.status.ignored.map(file => JSON.stringify(file)).join(", ")}; pass --discard-ignored only when you intend to remove them.`;
   }
 
-  const contained = inspection.ancestry.kind === "contained";
-  if (contained) return null;
+  if (inspection.ancestry.kind === "contained") return null;
   if (inspection.publication.kind === "published" && options.keepBranch) return null;
+  const ancestry = inspection.ancestry.kind === "unknown" ? inspection.ancestry.reason
+    : `Commits not contained in ${inspection.ancestry.base.ref}: ${inspection.ancestry.commits.join(", ")}.`;
   if (inspection.publication.kind === "published") {
-    return `Cannot remove this published worktree because its branch is not proven contained in the validated base; pass --keep-branch to remove the worktree and retain the branch.`;
+    return `Cannot remove this published worktree because its branch is not proven contained in the validated base. ${ancestry} Pass --keep-branch to remove the worktree and retain the branch.`;
   }
   if (inspection.publication.kind === "unpublished") {
-    return `Cannot remove this worktree because it has unpublished commits; publish them or prove they are contained in the validated base before retrying.`;
+    return `Cannot remove this worktree because it has unpublished commits: ${inspection.publication.commits.join(", ")}. ${ancestry} Publish them or prove they are contained in the validated base before retrying.`;
   }
-  return `Cannot verify that worktree commits are published or contained in the validated base; leave the worktree in place and refresh repository state before retrying.`;
+  return `Cannot verify that worktree commits are published or contained in the validated base. Publication: ${inspection.publication.reason} Ancestry: ${ancestry} Leave the worktree in place and refresh repository state before retrying.`;
 }
 
 async function deleteContainedBranch(
@@ -238,7 +239,7 @@ export async function cleanupWorktree(
         throw new Error("Local branch deletion requires validated-base ancestry.");
       }
       await deleteContainedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, evidence.inspection.ancestry.base, config);
-      return { removedWorktreePath: path, deletedLocalBranch: branchName };
+      return { removedWorktreePath: path, deletedLocalBranch: branchName, retainedLocalBranch: null };
     } catch (error) {
       const currentOid = await branchObjectId(primaryRepository, evidence.branchRef);
       const state = currentOid === null
@@ -251,5 +252,9 @@ export async function cleanupWorktree(
     }
   }
 
-  return { removedWorktreePath: path, deletedLocalBranch: null };
+  return {
+    removedWorktreePath: path,
+    deletedLocalBranch: null,
+    retainedLocalBranch: branchName,
+  };
 }

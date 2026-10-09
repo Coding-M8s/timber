@@ -1,7 +1,7 @@
 import type {
   Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
   EditorResult, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
-  ValidatedBase, Worktree,
+  ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
 
 /** Function seams for command implementations; no concrete Git engine in TIM-11. */
@@ -17,7 +17,12 @@ export interface CommandServices {
   /** TIM-2: explicit > config > selected remote default > unambiguous main/master. */
   resolveBase(repository: RepositoryContext, config: RepositoryConfig, explicitBase?: string): Promise<ValidatedBase>;
   /** TIM-4: existing worktree > local branch > remote branch; existing worktrees work offline. */
-  resolveOpenTarget(repository: RepositoryContext, input: string, config: RepositoryConfig): Promise<Resolution<OpenTarget>>;
+  resolveOpenTarget(
+    repository: RepositoryContext,
+    input: string,
+    config: RepositoryConfig,
+    options?: ResolveOpenTargetOptions,
+  ): Promise<Resolution<OpenTarget>>;
   /**
    * TIM-3: validate refs/path and reject collisions; refresh the selected remote before
    * remote creation. Failed refresh must reject. Never remove pre-existing files/refs.
