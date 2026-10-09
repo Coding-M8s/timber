@@ -13,3 +13,9 @@ This is a small TypeScript CLI using Bun for development, tests, and optional st
 - Work in independent ticket branches and PRs with one implementer and one reviewer. Review shared-contract changes before incompatible work. Logical lanes do not imply GitHub assignees.
 - Record exact verification commands and observed results. Do not claim passing builds before a scaffold exists.
 - Ship 0.1 before waiting on 0.2 integrations. Measure demonstrated performance problems before considering language changes.
+
+## Commit hygiene
+
+- Keep Superpowers plans, specs, ledgers, and execution artifacts local. Never commit `.superpowers/` or `docs/superpowers/`, including with `git add -f`. This project preference overrides skill instructions to commit those artifacts.
+- Treat commits as potentially public from day one. Do not commit credentials, private keys, real environment files, customer data, or private operational details in code, fixtures, plans, logs, or documentation.
+- Commit shared product contracts and contributor documentation intentionally; review staged changes before committing. Ignore rules do not remove files from existing history.
