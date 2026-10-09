@@ -19,3 +19,7 @@ credentials.json
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local Superpowers plans, specs, and execution artifacts
+/.superpowers/
+/docs/superpowers/
