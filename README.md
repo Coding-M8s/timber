@@ -2,7 +2,7 @@
 
 A small CLI for creating, opening, listing, and safely cleaning up Git worktrees.
 
-**Bootstrap stage:** the CLI runs and displays help. `new`, `open`, `ls`, and `done` are explicit placeholders that exit nonzero without changing Git or files. Worktree operations land in their assigned tickets.
+`ls` lists the repository's worktrees. `new`, `open`, and `done` remain explicit placeholders that exit nonzero without changing Git or files. Worktree operations land in their assigned tickets.
 
 ## Development
 
@@ -53,7 +53,7 @@ Bun shebang and is the package's `timber` bin entry. No global installation is
 needed for development. GitHub CI runs locked installation, typecheck, tests, build
 and bundled help on Ubuntu x86_64. Other platforms are not verified.
 
-## Planned commands
+## Commands
 
 ```bash
 timber new my-feature
@@ -61,6 +61,25 @@ timber open my-feature
 timber ls
 timber done my-feature
 ```
+
+### List worktrees
+
+Run `timber ls` (or `bun run dev ls`) from any nested directory in the primary
+or a linked worktree. Timber reads Git's inventory, including worktrees created
+manually and outside the default Timber directory. It prints a tab-separated
+table with `WORKTREE`, `BRANCH`, `STATUS`, and absolute `PATH` columns, primary
+first and linked paths sorted deterministically.
+
+The primary worktree is marked `primary`; detached HEAD shows `(detached HEAD)`.
+Dirty status includes modified and untracked file counts. Staged and unstaged
+changes to the same file count once; a rename counts as one modified file.
+Ignored content is reported separately and does not by itself make Git status
+dirty. Missing or inaccessible worktrees stay visible with `unknown` status;
+`missing`, `locked`, and `prunable` markers describe their state. Control
+characters in paths are escaped so each worktree occupies one row.
+
+Listing works offline and requires no `.timber.toml`. It does not fetch, prune,
+refresh the index, open an editor, launch an agent, or change files or refs.
 
 ## Repository configuration
 
@@ -114,4 +133,7 @@ TypeScript and Bun are the development direction, with Commander, Execa, Zod, an
 - [Setup mapping and remaining actions](docs/github-project-setup.json)
 - [Development guidance](AGENTS.md)
 
-TIM-11 provides the scaffold and shared contracts. After it merges, Dev 1 starts TIM-1 (Git context), Dev 2 starts TIM-6 (configuration), and Dev 3 prepares TIM-14 (list command) against test doubles, completing it after TIM-1. Use independent ticket branches and PRs with one implementer and one reviewer.
+TIM-11 provides the scaffold and shared contracts. TIM-1 provides Git discovery,
+TIM-6 provides configuration, and TIM-14 implements the list command against
+those service seams. Use independent ticket branches and PRs with one implementer
+and one reviewer.
