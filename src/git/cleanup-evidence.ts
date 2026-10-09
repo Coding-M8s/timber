@@ -1,10 +1,11 @@
 import { isAbsolute, resolve } from "node:path";
 import { execa } from "execa";
 import { resolveBase } from "./branches";
+import { hasIntegratedContent } from "./cleanup-integration";
 import { discoverRepository } from "./repository";
 import { assertWorktreeIdentity, listWorktrees } from "./worktrees";
 import type {
-  AncestryState, CleanupInspection, PublicationState, RepositoryConfig, RepositoryContext,
+  AncestryState, CleanupInspection, ContentIntegrationState, PublicationState, RepositoryConfig, RepositoryContext,
   ValidatedBase, Worktree,
 } from "../types";
 
@@ -282,8 +283,12 @@ async function readCleanupEvidenceImpl(
         upstreamCommit: null,
       }),
   ]);
+  const integration: ContentIntegrationState = branchRef !== null && ancestryState.kind === "not-contained" &&
+    await hasIntegratedContent(freshRepository.primaryWorktreeRoot, ancestryState.base, headFromWorktree)
+    ? { kind: "equivalent", base: ancestryState.base }
+    : { kind: "not-proven" };
   return {
-    inspection: { worktree: tree, publication: publicationEvidence.state, ancestry: ancestryState },
+    inspection: { worktree: tree, publication: publicationEvidence.state, ancestry: ancestryState, integration },
     headCommit: headFromWorktree,
     branchRef,
     upstreamCommit: publicationEvidence.upstreamCommit,

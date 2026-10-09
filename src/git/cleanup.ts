@@ -2,11 +2,12 @@ import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { execa } from "execa";
 import { resolveBase } from "./branches";
+import { hasIntegratedContent, integratedBase } from "./cleanup-integration";
 import { readCleanupEvidence, readCleanupPublication, readCleanupTarget } from "./cleanup-evidence";
 import { discoverRepository } from "./repository";
 import { listWorktrees } from "./worktrees";
 import type {
-  CleanupInspection, CleanupOptions, CleanupResult, RepositoryConfig, RepositoryContext, Worktree,
+  CleanupInspection, CleanupOptions, CleanupResult, RepositoryConfig, RepositoryContext, ValidatedBase, Worktree,
 } from "../types";
 
 type GitResult = { exitCode: number; stdout: string };
@@ -93,25 +94,25 @@ function refusal(inspection: CleanupInspection, options: CleanupOptions): string
     return `Cannot clean up worktree at ${worktree.path} because untracked files would be lost: ${worktree.status.untracked.map(file => JSON.stringify(file)).join(", ")}. Move or preserve them first.`;
   }
   if (worktree.status.ignored.length > 0 && !options.discardIgnored) {
-    return `Cannot clean up worktree at ${worktree.path} because ignored files such as .env would be lost: ${worktree.status.ignored.map(file => JSON.stringify(file)).join(", ")}; pass --discard-ignored only when you intend to remove them.`;
+    return `Cannot clean up worktree at ${worktree.path} because --keep-ignored preserves ignored files such as .env in this worktree: ${worktree.status.ignored.map(file => JSON.stringify(file)).join(", ")}; move or preserve them elsewhere, or retry without --keep-ignored to discard them.`;
   }
 
-  if (inspection.ancestry.kind === "contained") return null;
+  if (inspection.ancestry.kind === "contained" || inspection.integration.kind === "equivalent") return null;
   if (inspection.publication.kind === "published" && options.keepBranch) return null;
   const ancestry = inspection.ancestry.kind === "unknown" ? inspection.ancestry.reason
     : `Commits not contained in ${inspection.ancestry.base.ref}: ${inspection.ancestry.commits.join(", ")}.`;
   if (inspection.publication.kind === "published") {
-    return `Cannot remove this published worktree because its branch is not proven contained in the validated base. ${ancestry} Pass --keep-branch to remove the worktree and retain the branch.`;
+    return `Cannot remove this published worktree because its branch is not proven integrated into the validated base. ${ancestry} Pass --keep-branch to remove the worktree and retain the branch.`;
   }
   if (inspection.publication.kind === "unpublished") {
     return `Cannot remove this worktree because it has unpublished commits: ${inspection.publication.commits.join(", ")}. ${ancestry} Publish them or prove they are contained in the validated base before retrying.`;
   }
-  return `Cannot verify that worktree commits are published or contained in the validated base. Publication: ${inspection.publication.reason} Ancestry: ${ancestry} Leave the worktree in place and refresh repository state before retrying.`;
+  return `Cannot verify that worktree commits are published or integrated into the validated base. Publication: ${inspection.publication.reason} Ancestry: ${ancestry} Git could not prove content integration. Leave the worktree in place and refresh repository state before retrying.`;
 }
 
-async function deleteContainedBranch(
+async function deleteIntegratedBranch(
   repository: RepositoryContext, branchRef: string, expectedOid: string,
-  expectedBase: Extract<CleanupInspection["ancestry"], { kind: "contained" }>["base"], config: RepositoryConfig,
+  expectedBase: ValidatedBase, config: RepositoryConfig,
 ): Promise<void> {
   const branchName = branchRef.slice("refs/heads/".length);
   if (branchRef === expectedBase.ref) {
@@ -136,7 +137,10 @@ async function deleteContainedBranch(
     throw new Error(`Local branch ${branchName} is the validated base and cannot be deleted by cleanup.`);
   }
   const ancestry = await runGit(repository, ["merge-base", "--is-ancestor", expectedOid, base.commit]);
-  if (ancestry.exitCode !== 0) throw new Error("Local branch ancestry could not be reproven after worktree removal.");
+  if (ancestry.exitCode !== 0 && (ancestry.exitCode !== 1 ||
+      !await hasIntegratedContent(repository.primaryWorktreeRoot, base, expectedOid))) {
+    throw new Error("Local branch integration could not be reproven after worktree removal.");
+  }
 
   const inventory = await listWorktrees(repository);
   if (inventory.some(tree => tree.branch === branchName)) {
@@ -188,7 +192,7 @@ export async function cleanupWorktree(
   if (initialFailure) throw new Error(initialFailure);
 
   // Re-read local status, identity, refs, and the validated base first. When removal
-  // depends on live publication rather than containment, recheck publication after
+  // depends on live publication rather than proven integration, recheck publication after
   // those local reads and immediately before crossing Git's remove boundary.
   const finalEvidence = await readCleanupTarget(primaryRepository, worktree, config);
   if (finalEvidence.branchRef !== evidence.branchRef || finalEvidence.headCommit !== evidence.headCommit) {
@@ -199,12 +203,13 @@ export async function cleanupWorktree(
   if ((initialBase === null) !== (finalBase === null) ||
       (initialBase !== null && finalBase !== null &&
         (initialBase.ref !== finalBase.ref || initialBase.commit !== finalBase.commit ||
-          evidence.inspection.ancestry.kind !== finalEvidence.inspection.ancestry.kind))) {
-    throw new Error("Validated base or ancestry changed after cleanup inspection; refresh repository state and retry.");
+          evidence.inspection.ancestry.kind !== finalEvidence.inspection.ancestry.kind)) ||
+      evidence.inspection.integration.kind !== finalEvidence.inspection.integration.kind) {
+    throw new Error("Validated base or integration evidence changed after cleanup inspection; refresh repository state and retry.");
   }
 
   let currentPublication = evidence.inspection.publication;
-  if (finalEvidence.inspection.ancestry.kind !== "contained" && options.keepBranch) {
+  if (integratedBase(finalEvidence.inspection) === null && options.keepBranch) {
     currentPublication = (await readCleanupPublication(
       primaryRepository, finalEvidence.branchRef, finalEvidence.headCommit,
     )).state;
@@ -214,6 +219,7 @@ export async function cleanupWorktree(
     worktree: finalEvidence.inspection.worktree,
     publication: currentPublication,
     ancestry: finalEvidence.inspection.ancestry,
+    integration: finalEvidence.inspection.integration,
   };
   const finalFailure = refusal(finalInspection, options);
   if (finalFailure) throw new Error(finalFailure);
@@ -235,10 +241,9 @@ export async function cleanupWorktree(
 
   if (evidence.branchRef !== null && !options.keepBranch) {
     try {
-      if (evidence.inspection.ancestry.kind !== "contained") {
-        throw new Error("Local branch deletion requires validated-base ancestry.");
-      }
-      await deleteContainedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, evidence.inspection.ancestry.base, config);
+      const base = integratedBase(evidence.inspection);
+      if (base === null) throw new Error("Local branch deletion requires validated-base integration.");
+      await deleteIntegratedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, base, config);
       return { removedWorktreePath: path, deletedLocalBranch: branchName, retainedLocalBranch: null };
     } catch (error) {
       const currentOid = await branchObjectId(primaryRepository, evidence.branchRef);

@@ -52,17 +52,21 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
     .action(() => handlers.list(context));
 
   program.command("done <branch-or-worktree>")
-    .description("Safely remove a linked worktree and, when permitted, its local branch")
+    .description("Remove a linked worktree, discard ignored files, and delete its branch when safely integrated")
     .option(
       "--keep-branch",
       "Retain the local branch; also allow removing a clean published but unmerged worktree",
       false,
     )
-    .option("--discard-ignored", "Explicitly allow discarding ignored files, including .env", false)
-    .action((input: string, options: { keepBranch?: boolean; discardIgnored?: boolean }) => {
+    .option("--keep-ignored", "Refuse removal when ignored files exist; leave them in the worktree", false)
+    .option("--discard-ignored", "Discard ignored files, including .env (the default)")
+    .action((input: string, options: { keepBranch?: boolean; keepIgnored?: boolean; discardIgnored?: boolean }) => {
+      if (options.keepIgnored && options.discardIgnored) {
+        throw new Error("Cannot combine --keep-ignored and --discard-ignored.");
+      }
       const normalized: CleanupOptions = {
         keepBranch: options.keepBranch === true,
-        discardIgnored: options.discardIgnored === true,
+        discardIgnored: options.keepIgnored !== true,
       };
       return handlers.done(input, normalized, context);
     });

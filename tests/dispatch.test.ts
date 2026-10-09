@@ -37,11 +37,11 @@ test("open forwards explicit editor disabling", async () => {
   expect(handler).toHaveBeenCalledWith("ABU-834", { editor: false }, h.context);
 });
 
-test("done defaults to preserving ignored content and requiring safe branch deletion", async () => {
+test("done defaults to discarding ignored content and requiring safe branch deletion", async () => {
   const handler = mock(async () => {});
   const h = harness({ done: handler });
   await runCli(["done", "feature"], h);
-  expect(handler).toHaveBeenCalledWith("feature", { keepBranch: false, discardIgnored: false }, h.context);
+  expect(handler).toHaveBeenCalledWith("feature", { keepBranch: false, discardIgnored: true }, h.context);
   await runCli(["done", "feature", "--keep-branch", "--discard-ignored"], h);
   expect(handler).toHaveBeenLastCalledWith("feature", { keepBranch: true, discardIgnored: true }, h.context);
 });
