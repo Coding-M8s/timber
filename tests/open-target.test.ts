@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, symlink } from "node:fs/promises";
+import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { discoverRepository } from "../src/git/repository";
 import { resolveOpenTarget } from "../src/git/open-target";
@@ -21,6 +21,46 @@ async function addOfflineRemote(primary: string, directory: string, remote: stri
   await git(primary, "remote", "add", remote, join(directory, `${remote} unavailable.git`));
   const head = await git(primary, "rev-parse", "HEAD");
   await git(primary, "update-ref", `refs/remotes/${remote}/${branch}`, head);
+}
+
+interface PreservedWorktreeState {
+  inventory: string;
+  refs: string;
+  index: Uint8Array;
+  tracked: Uint8Array;
+  untracked: Uint8Array;
+  ignored: Uint8Array;
+  head: string;
+}
+
+async function preparePreservedWorktree(primary: string, linked: string, branch: string): Promise<void> {
+  await git(primary, "worktree", "add", "-b", branch, linked);
+  await writeFile(join(linked, "unpublished.txt"), "unpublished commit\n");
+  await git(linked, "add", "unpublished.txt");
+  await git(linked, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "-m", "unpublished");
+  await writeFile(join(linked, "tracked.txt"), "modified tracked content\n");
+  await writeFile(join(linked, "keep.txt"), "untracked sentinel\n");
+  await writeFile(join(linked, ".env"), "ignored fixture only\n");
+  await git(primary, "worktree", "lock", linked, "--reason", "preserve during resolution");
+}
+
+async function preservedState(primary: string, linked: string): Promise<PreservedWorktreeState> {
+  const gitDirectory = await git(linked, "rev-parse", "--absolute-git-dir");
+  return {
+    inventory: await git(primary, "worktree", "list", "--porcelain", "-z"),
+    refs: await git(primary, "show-ref"),
+    index: await readFile(join(gitDirectory, "index")),
+    tracked: await readFile(join(linked, "tracked.txt")),
+    untracked: await readFile(join(linked, "keep.txt")),
+    ignored: await readFile(join(linked, ".env")),
+    head: await git(linked, "rev-parse", "HEAD"),
+  };
+}
+
+async function expectPreservedState(
+  primary: string, linked: string, before: PreservedWorktreeState,
+): Promise<void> {
+  expect(await preservedState(primary, linked)).toEqual(before);
 }
 
 test("an exact checked-out branch returns its manual worktree", async () => {
@@ -349,5 +389,138 @@ test("empty and unknown branch inputs return not-found", async () => {
     const repository = await discoverRepository(primary);
     expect(await resolveOpenTarget(repository, "", config)).toEqual({ kind: "not-found" });
     expect(await resolveOpenTarget(repository, "not-a-branch", config)).toEqual({ kind: "not-found" });
+  });
+});
+
+for (const inputKind of ["exact branch", "absolute path", "unique ticket prefix"] as const) {
+  test(`a uniquely selected missing ${inputKind} rejects without pruning or changing other work`, async () => {
+    await withRepository(async (primary, directory) => {
+      const protectedTree = join(directory, "protected worktree");
+      const stale = join(directory, "stale ABU-834 target");
+      await preparePreservedWorktree(primary, protectedTree, "protected-work");
+      await git(primary, "worktree", "add", "-b", "ABU-834-one", stale);
+      await rm(stale, { recursive: true });
+      const repository = await discoverRepository(primary);
+      const before = await preservedState(primary, protectedTree);
+      const input = inputKind === "exact branch" ? "ABU-834-one"
+        : inputKind === "absolute path" ? stale : "ABU-834";
+
+      await expect(resolveOpenTarget(repository, input, config)).rejects.toThrow(stale);
+      await expect(access(stale)).rejects.toThrow();
+      expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(before.inventory);
+      expect(await git(primary, "show-ref")).toBe(before.refs);
+      await expectPreservedState(primary, protectedTree, before);
+    });
+  });
+}
+
+test("an ambiguous prefix retains healthy and missing worktree candidates", async () => {
+  await withRepository(async (primary, directory) => {
+    const healthy = join(directory, "a healthy prefix worktree");
+    const stale = join(directory, "z stale prefix worktree");
+    await preparePreservedWorktree(primary, healthy, "ABU-834-good");
+    await git(primary, "worktree", "add", "-b", "ABU-834-stale", stale);
+    await rm(stale, { recursive: true });
+    const repository = await discoverRepository(primary);
+    const before = await preservedState(primary, healthy);
+    const result = await resolveOpenTarget(repository, "ABU-834", config);
+
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(targetIdentities(result.candidates)).toEqual([`worktree:${healthy}`, `worktree:${stale}`]);
+      expect(result.candidates).toMatchObject([
+        { kind: "worktree", worktree: { path: healthy, pathExists: true, status: { kind: "known" } } },
+        { kind: "worktree", worktree: { path: stale, pathExists: false, status: { kind: "unknown" } } },
+      ]);
+    }
+    expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(before.inventory);
+    expect(await git(primary, "show-ref")).toBe(before.refs);
+    await expect(access(stale)).rejects.toThrow();
+    await expectPreservedState(primary, healthy, before);
+  });
+});
+
+for (const replacement of ["unrelated repository", "symlink", "copied sibling gitfile"] as const) {
+  test(`opening a selected path replaced by a ${replacement} refuses and preserves both locations`, async () => {
+    await withRepository(async (primary, directory) => {
+      const selected = join(directory, "selected ABU-834 worktree");
+      const sibling = join(directory, "protected sibling worktree");
+      await preparePreservedWorktree(primary, sibling, "protected-sibling");
+      await git(primary, "worktree", "add", "-b", "ABU-834-one", selected);
+      await rm(selected, { recursive: true });
+      const selectedSentinel = join(selected, "selected-sentinel.txt");
+      const siblingSentinel = join(sibling, "sibling-sentinel.txt");
+      await writeFile(siblingSentinel, "sibling sentinel\n");
+      if (replacement === "unrelated repository") {
+        await mkdir(selected);
+        await git(selected, "init", "-b", "unrelated");
+        await writeFile(selectedSentinel, "selected sentinel\n");
+      } else if (replacement === "symlink") {
+        await symlink(sibling, selected);
+        await writeFile(selectedSentinel, "selected sentinel through alias\n");
+      } else {
+        await mkdir(selected);
+        await writeFile(join(selected, ".git"), await readFile(join(sibling, ".git")));
+        await git(selected, "checkout-index", "--all");
+        await writeFile(selectedSentinel, "selected sentinel\n");
+      }
+
+      const repository = await discoverRepository(primary);
+      const before = await preservedState(primary, sibling);
+      await expect(resolveOpenTarget(repository, "ABU-834-one", config)).rejects.toThrow(selected);
+      expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(before.inventory);
+      expect(await git(primary, "show-ref")).toBe(before.refs);
+      expect(await readFile(siblingSentinel, "utf8")).toBe("sibling sentinel\n");
+      expect(await readFile(selectedSentinel, "utf8")).toBe(
+        replacement === "symlink" ? "selected sentinel through alias\n" : "selected sentinel\n",
+      );
+      await expectPreservedState(primary, sibling, before);
+    });
+  });
+}
+
+test("offline exact, path, prefix, and upstream reuse preserve a locked dirty worktree", async () => {
+  await withRepository(async (primary, directory) => {
+    await addOfflineRemote(primary, directory, "upstream", "ABU-834-one");
+    const remoteUrl = join(directory, "upstream unavailable.git");
+    const linked = join(directory, "locked\nwith\tcontrols");
+    await preparePreservedWorktree(primary, linked, "ABU-834-one");
+    await git(primary, "config", "branch.ABU-834-one.remote", "upstream");
+    await git(primary, "config", "branch.ABU-834-one.merge", "refs/heads/ABU-834-one");
+    const gitDirectory = await git(linked, "rev-parse", "--absolute-git-dir");
+    await writeFile(join(gitDirectory, "index"), "corrupt index fixture\n");
+    const repository = await discoverRepository(primary);
+    const before = await preservedState(primary, linked);
+    expect(await git(primary, "remote", "get-url", "upstream")).toBe(remoteUrl);
+
+    for (const input of ["ABU-834-one", linked, "ABU-834", "upstream/ABU-834-one"]) {
+      const result = await resolveOpenTarget(repository, input, withRemote("upstream"));
+      expect(result).toMatchObject({
+        kind: "found", value: { kind: "worktree", worktree: {
+          path: linked, branch: "ABU-834-one", locked: { reason: "preserve during resolution" },
+          status: { kind: "unknown" },
+        } },
+      });
+      await expectPreservedState(primary, linked, before);
+      expect(await git(primary, "remote", "get-url", "upstream")).toBe(remoteUrl);
+    }
+  });
+});
+
+test("an offline remote-only target returns its cached branch without refreshing refs", async () => {
+  await withRepository(async (primary, directory) => {
+    await addOfflineRemote(primary, directory, "upstream", "cached-only");
+    const repository = await discoverRepository(primary);
+    const refsBefore = await git(primary, "show-ref");
+    const remoteUrl = await git(primary, "remote", "get-url", "upstream");
+    await expect(access(remoteUrl)).rejects.toThrow();
+
+    expect(await resolveOpenTarget(repository, "upstream/cached-only", config)).toEqual({
+      kind: "found", value: { kind: "branch", branch: {
+        kind: "remote", remote: "upstream", name: "cached-only", ref: "refs/remotes/upstream/cached-only",
+      } },
+    });
+    expect(await git(primary, "show-ref")).toBe(refsBefore);
+    expect(await git(primary, "remote", "get-url", "upstream")).toBe(remoteUrl);
   });
 });
