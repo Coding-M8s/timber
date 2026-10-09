@@ -23,7 +23,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
   const { context, handlers = placeholderHandlers } = dependencies;
   const program = new Command()
     .name("timber")
-    .description("Manage Git worktrees (bootstrap scaffold; commands are not implemented yet).")
+    .description("Manage Git worktrees.")
     .exitOverride()
     .configureOutput({ writeOut: context.io.stdout, writeErr: context.io.stderr });
 
@@ -48,7 +48,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
     });
 
   program.command("ls")
-    .description("List this repository's worktrees (placeholder; TIM-14)")
+    .description("List this repository's worktrees with branches and file status (read-only)")
     .action(() => handlers.list(context));
 
   program.command("done <branch-or-worktree>")

@@ -7,13 +7,13 @@ const cli = (...args: string[]) => execa(process.execPath, [entry, ...args], {
   reject: false, timeout: 5_000, env: { CI: "true" },
 });
 
-test("help succeeds on stdout and names every explicit placeholder", async () => {
+test("help succeeds on stdout and distinguishes implemented ls from placeholders", async () => {
   const result = await cli("--help");
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("Usage: timber");
   for (const name of ["new", "open", "ls", "done"]) expect(result.stdout).toContain(name);
-  expect(result.stdout.match(/placeholder/g)?.length).toBe(4);
+  expect(result.stdout.match(/placeholder/g)?.length).toBe(3);
 });
 
 test("no arguments displays help without waiting for input", async () => {
@@ -25,7 +25,7 @@ test("no arguments displays help without waiting for input", async () => {
 
 for (const [command, args, ticket] of [
   ["new", ["feature"], "TIM-12"], ["open", ["feature"], "TIM-13"],
-  ["ls", [], "TIM-14"], ["done", ["feature"], "TIM-15"],
+  ["done", ["feature"], "TIM-15"],
 ] as const) {
   test(`${command} placeholder fails honestly without claiming success`, async () => {
     const result = await cli(command, ...args);
@@ -42,6 +42,14 @@ for (const [command, args, ticket] of [
     expect(result.stdout).toContain("placeholder");
   });
 }
+
+test("ls help describes a real read-only worktree command", async () => {
+  const result = await cli("ls", "--help");
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("List this repository's worktrees");
+  expect(result.stdout).not.toContain("placeholder");
+});
 
 for (const args of [
   ["new"], ["open"], ["done"], ["unknown"], ["ls", "extra"],

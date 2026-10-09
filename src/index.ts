@@ -1,7 +1,11 @@
 #!/usr/bin/env bun
-import { runCli } from "./cli";
+import { placeholderHandlers, runCli } from "./cli";
+import { createListHandler } from "./commands/list";
+import { discoverRepository } from "./git/repository";
+import { listWorktrees } from "./git/worktrees";
 
 process.exitCode = await runCli(process.argv.slice(2), {
+  handlers: { ...placeholderHandlers, list: createListHandler({ discoverRepository, listWorktrees }) },
   context: {
     cwd: process.cwd(),
     io: {
