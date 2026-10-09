@@ -2,7 +2,9 @@
 
 A small CLI for creating, opening, listing, and safely cleaning up Git worktrees.
 
-`ls` lists the repository's worktrees. `new`, `open`, and `done` remain explicit placeholders that exit nonzero without changing Git or files. Worktree operations land in their assigned tickets.
+`new` creates a branch and linked worktree; `ls` lists the repository's worktrees.
+`open` and `done` remain explicit placeholders that exit nonzero without changing
+Git or files. Their worktree operations land in TIM-13 and TIM-15.
 
 ## Development
 
@@ -61,6 +63,29 @@ timber open my-feature
 timber ls
 timber done my-feature
 ```
+
+### Create a worktree
+
+Run `timber new <branch>` (or `bun run dev new <branch>`) from the primary
+checkout, a nested directory, or a linked worktree. Timber creates a new local
+branch from `--base <ref>` when supplied, then `base_branch` in the primary
+checkout's `.timber.toml`, then the selected remote's default branch, then a
+single existing local `main` or `master`. Missing or ambiguous bases fail
+without guessing. Git validates the branch name before creation.
+
+By default, Timber places the linked worktree at
+`../<repository-name>-worktrees/<safe-branch-slug>` beside the primary checkout.
+Set `worktree_dir` in `.timber.toml` to choose another root; relative paths
+resolve from the primary checkout. No CLI path override exists. An existing
+branch suggests `timber open`; an occupied destination fails without replacing
+files or refs.
+
+`--no-editor` skips the configured editor. Otherwise Timber starts it after Git
+creates the worktree. Success prints the branch and absolute worktree path. If
+editor startup fails, Timber reports the retained workspace and a
+`timber open -- '<absolute-worktree-path>'` retry command, and exits nonzero.
+`open` remains a TIM-13 placeholder in this checkout; until it lands, open the
+retained path with your editor directly after fixing its configuration.
 
 ### List worktrees
 
