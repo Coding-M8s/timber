@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { execa } from "execa";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { loadRepositoryConfig } from "../src/config";
 import { repositoryFixture } from "./helpers/services";
 
@@ -52,6 +52,116 @@ test("reads the primary root config from nested and linked-worktree contexts", a
     });
     expect((await loadRepositoryConfig(nested)).baseBranch).toBe("main");
     expect((await loadRepositoryConfig(linkedContext)).baseBranch).toBe("main");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("parses editor and agent commands and resolves worktree_dir", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber config "));
+  try {
+    await writeFile(join(root, ".timber.toml"), [
+      'base_branch = "main"',
+      'remote = "upstream"',
+      'worktree_dir = "worktrees with spaces"',
+      "[editor]",
+      'command = "zed"',
+      'args = ["--wait"]',
+      "[agent]",
+      'command = "claude"',
+    ].join("\n"));
+    const repository = repositoryFixture({ primaryWorktreeRoot: root });
+    expect(await loadRepositoryConfig(repository)).toEqual({
+      baseBranch: "main",
+      remote: "upstream",
+      worktreeDir: resolve(root, "worktrees with spaces"),
+      editor: { command: "zed", args: ["--wait"] },
+      agent: { command: "claude", args: [], enabled: false },
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("defaults args and retains an explicitly enabled agent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber config "));
+  try {
+    await writeFile(join(root, ".timber.toml"), '[editor]\ncommand = "zed"\n[agent]\ncommand = "claude"\nenabled = true\n');
+    const config = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }));
+    expect(config.editor).toEqual({ command: "zed", args: [] });
+    expect(config.agent).toEqual({ command: "claude", args: [], enabled: true });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("preserves an absolute worktree_dir", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber config "));
+  const absolute = join(root, "chosen worktrees");
+  try {
+    await writeFile(join(root, ".timber.toml"), `worktree_dir = "${absolute}"\n`);
+    const config = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }));
+    expect(config.worktreeDir).toBe(absolute);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+async function expectConfigError(source: string, expected: string, forbidden: string) {
+  const root = await mkdtemp(join(tmpdir(), "timber config "));
+  const configPath = join(root, ".timber.toml");
+  try {
+    await writeFile(configPath, source);
+    const message = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }))
+      .then(() => "resolved", error => error instanceof Error ? error.message : "unknown error");
+    expect(message).toContain(configPath);
+    expect(message).toContain(expected);
+    if (forbidden.length > 0) expect(message).not.toContain(forbidden);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+for (const example of [
+  { source: "base_branch = 77777", field: "base_branch", value: "77777" },
+  { source: "remote = 77777", field: "remote", value: "77777" },
+  { source: "worktree_dir = 77777", field: "worktree_dir", value: "77777" },
+  { source: 'worktree_dir = " "', field: "worktree_dir", value: "" },
+  { source: '[editor]\ncommand = ""', field: "editor.command", value: "" },
+  { source: '[editor]\ncommand = "zed"\nargs = "--wait"', field: "editor.args", value: "--wait" },
+  { source: '[editor]\ncommand = "zed"\nargs = [77777]', field: "editor.args", value: "77777" },
+  { source: '[agent]\ncommand = "claude"\nenabled = 77777', field: "agent.enabled", value: "77777" },
+  { source: '[agent]\nenabled = false', field: "agent.command", value: "false" },
+  { source: 'api_token = "SECRET_MARKER"', field: "api_token", value: "SECRET_MARKER" },
+  { source: '[agent]\ncommand = "claude"\ntoken = "SECRET_MARKER"', field: "token", value: "SECRET_MARKER" },
+]) {
+  test(`rejects invalid config at ${example.field}`, async () => {
+    await expectConfigError(example.source, example.field, example.value);
+  });
+}
+
+test("does not expose source values when TOML parsing fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber config "));
+  const configPath = join(root, ".timber.toml");
+  try {
+    await writeFile(configPath, 'base_branch = "SECRET_MARKER"\nremote = [\n');
+    const message = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }))
+      .then(() => "resolved", error => error instanceof Error ? error.message : "unknown error");
+    expect(message).toContain(configPath);
+    expect(message).toContain("Invalid TOML");
+    expect(message).not.toContain("SECRET_MARKER");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a config path that is a directory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber config "));
+  const configPath = join(root, ".timber.toml");
+  try {
+    await mkdir(configPath);
+    await expect(loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root })))
+      .rejects.toThrow(configPath);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
