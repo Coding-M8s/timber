@@ -29,9 +29,10 @@ export interface CommandServices {
   /**
    * TIM-5: recheck safety at mutation time, never trust an earlier inspection.
    * Refuse primary, dirty/untracked, unproven/unpublished work, and ignored content
-   * without discardIgnored. Base containment can prove publication safety.
-   * Local branch deletion requires containment; keepBranch skips deletion only.
-   * No destructive force, remote deletion, stash, or process killing.
+   * without discardIgnored. Base containment can prove publication safety, but the
+   * target branch must not be the validated base. Local branch deletion requires
+   * containment; keepBranch skips deletion only. No destructive force, remote
+   * deletion, stash, or process killing.
    */
   cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions): Promise<CleanupResult>;
   /** TIM-8: executable + args, no shell; null config or disabled means skipped. */
