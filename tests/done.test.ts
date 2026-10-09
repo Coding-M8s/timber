@@ -36,10 +36,12 @@ function services(overrides: Partial<CommandServices> = {}) {
 }
 
 test.each([
-  [[], { keepBranch: false, discardIgnored: false }],
-  [["--keep-branch"], { keepBranch: true, discardIgnored: false }],
+  [[], { keepBranch: false, discardIgnored: true }],
+  [["--keep-branch"], { keepBranch: true, discardIgnored: true }],
   [["--discard-ignored"], { keepBranch: false, discardIgnored: true }],
   [["--keep-branch", "--discard-ignored"], { keepBranch: true, discardIgnored: true }],
+  [["--keep-ignored"], { keepBranch: false, discardIgnored: false }],
+  [["--keep-branch", "--keep-ignored"], { keepBranch: true, discardIgnored: false }],
 ] satisfies [string[], CleanupOptions][])("done passes cleanup options %j and reports the verified result", async (flags, options) => {
   const order: string[] = [];
   const result = await invoke(services({
@@ -187,4 +189,12 @@ test("done safely displays terminal controls in results and service diagnostics"
   expect(failed.stdout).toBe("");
   expect(failed.stderr).toContain("/manual\\n\\u001b[31m\\u009b\\u2028feature");
   expect(failed.stderr.split("\n")).toHaveLength(2);
+});
+
+
+test("done rejects contradictory ignored-file options before cleanup", async () => {
+  const result = await invoke(services(), ["done", "feature/one", "--keep-ignored", "--discard-ignored"]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toMatch(/conflict|combine/i);
 });

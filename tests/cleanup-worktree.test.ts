@@ -180,7 +180,7 @@ test("ignored files and directories require discardIgnored and are removed only 
     await writeFile(join(path, "cache", "ignored.txt"), "keep cache bytes\n");
     const refsBefore = await refs(primary);
     const oid = (await branchOid(primary, "feature/ignored"))!;
-    await expect(cleanup(primary, path)).rejects.toThrow(/ignored|\.env|discard-ignored/i);
+    await expect(cleanup(primary, path)).rejects.toThrow(/ignored|\.env|keep-ignored/i);
     await assertRetained(primary, path, "feature/ignored", oid, refsBefore);
     expect(await readFile(join(path, ".env"), "utf8")).toBe("keep secret file bytes\n");
     expect(await readFile(join(path, "cache", "ignored.txt"), "utf8")).toBe("keep cache bytes\n");
@@ -339,7 +339,7 @@ test("unmerged work with unavailable publication cannot be removed", async () =>
   });
 });
 
-test("squash-equivalent base commit does not prove ancestry", async () => {
+test("squash-equivalent base commit permits branch deletion without proving ancestry", async () => {
   await withRepository(async (primary, directory) => {
     const path = join(directory, "squash linked");
     await addTarget(primary, path, "feature/squash");
@@ -348,14 +348,11 @@ test("squash-equivalent base commit does not prove ancestry", async () => {
     await git(path, "push", "squash-remote", "feature/squash");
     await commitFile(primary, "same content.txt", "same patch\n", "squash merge on base");
     expect(await git(primary, "merge-base", "--is-ancestor", featureCommit, "refs/heads/trunk").then(() => true, () => false)).toBe(false);
-    const refsBefore = await refs(primary);
-    await expect(cleanup(primary, path)).rejects.toThrow(/published|keep-branch|base|ancestry/i);
-    await assertRetained(primary, path, "feature/squash", featureCommit, refsBefore);
-    const result = await cleanup(primary, path, keepBranch);
-    expect(result.deletedLocalBranch).toBeNull();
-    expect(result.retainedLocalBranch).toBe("feature/squash");
+    const result = await cleanup(primary, path);
+    expect(result.deletedLocalBranch).toBe("feature/squash");
+    expect(result.retainedLocalBranch).toBeNull();
     expect(await isAbsent(path)).toBe(true);
-    expect(await branchOid(primary, "feature/squash")).toBe(featureCommit);
+    expect(await branchOid(primary, "feature/squash")).toBeNull();
     expect(await git(bare, "rev-parse", "refs/heads/feature/squash")).toBe(featureCommit);
   });
 });

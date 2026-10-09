@@ -95,11 +95,17 @@ export type AncestryState =
   | { kind: "not-contained"; base: ValidatedBase; commits: readonly string[] }
   | { kind: "unknown"; reason: string };
 
+export type ContentIntegrationState =
+  | { kind: "equivalent"; base: ValidatedBase }
+  | { kind: "not-proven" };
+
 /** Evidence for explaining cleanup, never a reusable authorization to delete. */
 export interface CleanupInspection {
   worktree: Worktree;
   publication: PublicationState;
   ancestry: AncestryState;
+  /** Content integration is separate from commit ancestry. Detached HEAD requires ancestry. */
+  integration: ContentIntegrationState;
 }
 
 export interface CleanupOptions {

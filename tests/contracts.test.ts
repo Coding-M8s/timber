@@ -58,6 +58,7 @@ test("shared models preserve uncertainty and distinguish repository paths", () =
     worktree: worktreeFixture({ status: { kind: "unknown", reason: "permission denied" } }),
     publication: { kind: "unknown", reason: "offline" },
     ancestry: { kind: "unknown", reason: "base ambiguous" },
+    integration: { kind: "not-proven" },
   };
   expect(inspection.publication.kind).toBe("unknown");
   const resolution: Resolution<Branch> = { kind: "ambiguous", candidates: [

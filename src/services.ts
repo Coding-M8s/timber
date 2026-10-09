@@ -29,14 +29,15 @@ export interface CommandServices {
    * Default path: ../<repository-name>-worktrees/<safe-branch-slug>.
    */
   createWorktree(repository: RepositoryContext, request: CreateWorktreeRequest, config: RepositoryConfig): Promise<Worktree>;
-  /** TIM-5: inspect all file classes and publication/validated-base ancestry. */
+  /** TIM-5: inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
   /**
    * TIM-5: recheck safety at mutation time, never trust an earlier inspection.
-   * Refuse primary, dirty/untracked, unproven/unpublished work, and ignored content
-   * without discardIgnored. Base containment can prove publication safety, but the
+   * Refuse primary, dirty/untracked, and unintegrated unpublished/unproven work.
+   * Ignored content blocks only when discardIgnored is false (--keep-ignored).
+   * Base ancestry or content integration can prove publication safety, but the
    * target branch must not be the validated base. Local branch deletion requires
-   * containment; keepBranch skips deletion only. No destructive force, remote
+   * integration; keepBranch skips deletion only. No destructive force, remote
    * deletion, stash, or process killing.
    */
   cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions): Promise<CleanupResult>;

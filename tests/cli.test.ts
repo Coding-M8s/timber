@@ -28,8 +28,9 @@ test("done help describes safe cleanup and explicit preservation options", async
   const result = await cli("done", "--help");
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(result.stdout).toContain("Safely remove a linked worktree");
-  expect(result.stdout).toContain("when permitted");
+  expect(result.stdout).toContain("Remove a linked worktree");
+  expect(result.stdout).toContain("safely integrated");
+  expect(result.stdout).toContain("--keep-ignored");
   expect(result.stdout).toContain("--keep-branch");
   expect(result.stdout).toMatch(/published.*unmerged|unmerged.*published/i);
   expect(result.stdout).toContain("--discard-ignored");

@@ -68,7 +68,7 @@ timber open my-feature --no-editor
 timber ls
 timber done my-feature
 timber done my-feature --keep-branch
-timber done "/absolute/path/to/my-feature-worktree" --discard-ignored
+timber done "/absolute/path/to/my-feature-worktree" --keep-ignored
 ```
 
 ### Create a worktree
@@ -128,29 +128,35 @@ branch. Ambiguous input lists every candidate and requires an exact branch name 
 absolute worktree path; the command never prompts. A branch without a worktree is refused.
 The primary worktree is always protected.
 
-By default, the linked worktree must have no modified or untracked files, no
-ignored content, and its commit must be contained in the validated base before
-Timber removes it and deletes its local branch. The base uses the primary
+By default, Timber removes the linked worktree **including ignored files and
+folders such as `.env`, `node_modules`, and build output**, then deletes its local
+branch when Git proves its changes are integrated into the validated base.
+Modified and untracked files always block cleanup. The base uses the primary
 checkout's `.timber.toml` and the normal base selection policy. Timber checks
-fresh Git state immediately before removal. Refusals describe the affected
-files, commits, or missing publication/ancestry evidence; they never print file
-contents.
+fresh Git state immediately before removal.
 
-`--keep-branch` retains the local branch and also permits removal of a clean,
-published but unmerged worktree. Publication requires live upstream evidence;
-cached remote-tracking refs or a closed PR alone do not prove safety. Unpublished
-or unknown publication blocks removal unless the commit is already contained
-in the validated base. Squash/rebase merges do not prove ancestry: retain a
-safely published branch with `--keep-branch`, or leave the worktree in place.
-A detached worktree can be removed by absolute path only when its commit is
-contained in the validated base.
+Normal merges are proven by commit ancestry. For squash/rebase merges, Timber
+also accepts a successful virtual Git merge that would add no file changes to
+the validated base. This works after the feature's remote branch has been
+deleted, or while offline, when the necessary commits are available locally.
+If the base is stale, fetch it explicitly before retrying. A closed PR alone is
+not proof. Custom merge drivers, conflicting changes, unsupported Git versions,
+or an unavailable proof cannot authorize branch deletion. Virtual merges may
+write unreachable Git objects; they do not change files, the index, or refs.
 
-Ignored files, including `.env` and ignored directories, are preserved unless
-you explicitly pass `--discard-ignored`. That option allows their removal with
-the selected worktree; it never bypasses modified/untracked or commit safety
-checks. Neither option overrides locks, stale metadata, or identity checks.
-There is no `--force`, automatic stash, remote branch deletion, or process
-killing.
+`--keep-branch` retains the local branch. It also permits removal of a clean,
+published but unmerged worktree; that path requires live upstream evidence.
+Cached remote-tracking refs alone do not prove publication. A detached worktree
+can be removed by absolute path only when its commit is contained in the base.
+
+`--keep-ignored` refuses cleanup when ignored files exist. The worktree, branch,
+and ignored files remain in their original locations; nothing is copied to a
+backup folder. Move those files yourself or retry without the flag to discard
+them. `--discard-ignored` remains supported for compatibility and expresses the
+default; combining it with `--keep-ignored` is an error. Refusals name affected
+paths or commits without printing file contents. Locks, stale metadata, and
+identity checks remain enforced. There is no `--force`, automatic stash, remote
+branch deletion, or process killing.
 
 Success names the removed path and the deleted or retained local branch.
 If removal succeeds but branch deletion fails, Timber exits nonzero, reports

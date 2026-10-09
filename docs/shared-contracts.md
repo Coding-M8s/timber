@@ -108,22 +108,26 @@ also remains unknown.
 
 Mutation obtains new evidence, then rechecks target identity, status, lock,
 branch/head, and validated-base ref/commit immediately before removal. When
-removal depends on live publication rather than validated-base containment,
+removal depends on live publication rather than validated-base ancestry or proven content integration,
 publication is rechecked after those final local reads and immediately before
 crossing Git's remove boundary. Modified or untracked content always blocks
-removal. Ignored content, including `.env`, blocks removal unless
-`discardIgnored` is explicit. Unpublished or unknown publication blocks removal
-unless the target commit is contained in the validated base. The target branch
+removal. Ignored content, including `.env`, is discarded by default. `--keep-ignored`
+normalizes to `discardIgnored: false` and blocks removal when ignored content exists,
+leaving files in the original worktree. Unpublished or unknown publication blocks
+removal unless the target commit is contained in the validated base or a successful
+virtual merge of the local branch produces exactly the validated base tree.
+Reject custom merge-driver configuration and disable renormalization for this proof;
+unsupported or failed proof never authorizes deletion. The target branch
 must not be the validated base: self-containment against that tip is
 tautological and never authorizes cleanup. A detached worktree has no
 publication or local-branch evidence; it can be removed only when its commit is
 contained in the validated base. `keepBranch` skips branch deletion only and
 permits a clean published but unmerged worktree to be removed while its local
-branch stays. Squash/rebase or closed PR metadata never proves ancestry.
+branch stays. Squash/rebase merges may prove content integration without ancestry; closed PR metadata proves neither.
 
-Local branch deletion always requires validated-base containment and never
+Local branch deletion requires validated-base ancestry or proven content integration and never
 deletes the validated base ref itself. After the worktree is removed, TIM-5
-rechecks the direct local ref, expected commit OID, base, ancestry, and
+rechecks the direct local ref, expected commit OID, base, ancestry or content integration, and
 worktree inventory, then conditionally deletes only the unchanged local ref.
 If another worktree checks out the branch in the inventory-to-delete gap,
 cleanup restores the tip and retains the branch. It never deletes a remote
