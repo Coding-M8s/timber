@@ -44,7 +44,7 @@ test("a list handler can use Git service doubles without Git, config or network"
 test("unspecified service calls fail rather than manufacturing successful Git operations", async () => {
   const services = createServiceDouble();
   await expect(services.discoverRepository("/repo")).rejects.toThrow("Unexpected service call: discoverRepository");
-  const config: RepositoryConfig = { baseBranch: null, remote: null, worktreeDir: null, editor: null };
+  const config: RepositoryConfig = { baseBranch: null, remote: null, worktreeDir: null, editor: null, agent: null };
   await expect(services.cleanupWorktree(repositoryFixture(), worktreeFixture(), config, {
     keepBranch: false, discardIgnored: false,
   })).rejects.toThrow("Unexpected service call: cleanupWorktree");
