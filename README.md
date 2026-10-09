@@ -24,7 +24,7 @@ TypeScript and Bun are the development direction, with Commander, Execa, Zod, an
 ## Planning and contribution
 
 - [Implementation tickets](https://github.com/Coding-M8s/timber/issues)
-- Project board: pending GitHub Project authorization; the verified URL will be added here.
+- [Delivery board](https://github.com/orgs/Coding-M8s/projects/2/views/2) · [Timber CLI Project](https://github.com/orgs/Coding-M8s/projects/2)
 - [Behavioral contract](docs/cli-contract.md)
 - [Full handoff and scheduling](docs/timber-github-handoff.md)
 - [Setup mapping and remaining actions](docs/github-project-setup.json)

@@ -1,6 +1,13 @@
 {
   "repository_url": "https://github.com/Coding-M8s/timber",
-  "project": null,
+  "project": {
+    "id": "PVT_kwDOEHotiM4BmSYV",
+    "title": "Timber CLI",
+    "number": 2,
+    "url": "https://github.com/orgs/Coding-M8s/projects/2",
+    "public": false,
+    "board_url": "https://github.com/orgs/Coding-M8s/projects/2/views/2"
+  },
   "milestones": {
     "v0.1": {
       "id": 18431473,
@@ -41,7 +48,14 @@
       "number": 1,
       "html_url": "https://github.com/Coding-M8s/timber/issues/1",
       "body": "**Goal:** Give all three developers a runnable scaffold and stable contracts.\n\n**Scope:** TypeScript/Bun scaffold, command parser, shared repository/branch/worktree/config types, command service seams, test doubles, and CI. No implementation of the Git engine.\n\n**Acceptance criteria:**\n- [ ] A local command displays `timber --help` and registers new/open/ls/done as explicit placeholders until implemented.\n- [ ] Development, test, typecheck, and build scripts exist.\n- [ ] GitHub CI installs locked dependencies and runs typecheck and tests.\n- [ ] Shared function contracts match `docs/cli-contract.md` and let command development use test doubles.\n- [ ] Repository structure stays small; no monorepo or framework.\n\n**Verification:** Clean checkout install, help invocation, typecheck, tests, and build. Record exact commands and outputs in the PR.\n\n**Dependencies:** None.\n\n**Planning metadata:** Dev 3 | v0.1 | P0 | Size S | Initial status: Ready\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDGU",
+      "project_values": {
+        "Status": "Ready",
+        "Lane": "Dev 3 — CLI and release",
+        "Priority": "P0",
+        "Size": "S"
+      }
     },
     "TIM-1": {
       "tim": "TIM-1",
@@ -64,7 +78,14 @@
       "number": 2,
       "html_url": "https://github.com/Coding-M8s/timber/issues/2",
       "body": "**Goal:** Resolve Git context reliably wherever Timber is run.\n\n**Scope:** Repository root, primary worktree root, common Git directory, current branch, remotes, and default-branch information.\n\n**Acceptance criteria:**\n- [ ] Running from a nested directory or a linked worktree returns the same repository identity.\n- [ ] Current and primary worktree paths remain distinct.\n- [ ] Non-repository paths, detached HEAD, and unsupported bare repositories have clear results.\n- [ ] Paths with spaces work; no hardcoded origin/main/master assumptions.\n\n**Verification:** Temporary real repositories with nested paths, linked worktrees, spaces, and detached HEAD.\n\n**Dependencies:** [TIM-11](https://github.com/Coding-M8s/timber/issues/1).\n\n**Planning metadata:** Dev 1 | v0.1 | P0 | Size S | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDII",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 1 — Git",
+        "Priority": "P0",
+        "Size": "S"
+      }
     },
     "TIM-2": {
       "tim": "TIM-2",
@@ -87,7 +108,14 @@
       "number": 3,
       "html_url": "https://github.com/Coding-M8s/timber/issues/3",
       "body": "**Goal:** Resolve branch inputs without guessing.\n\n**Scope:** Exact local/remote refs, configured remote selection, safe fetching, unique ticket-prefix matches, and base selection.\n\n**Acceptance criteria:**\n- [ ] Exact local, remote-only, and explicit remote inputs resolve correctly.\n- [ ] Prefix matches respect delimiters; ambiguity returns candidates.\n- [ ] Remote refresh failures are visible and prevent stale remote creation.\n- [ ] Base resolution follows the shared contract.\n- [ ] Validate new branch names with Git; pass refs as separate arguments.\n\n**Verification:** Local bare remote fixtures, multiple remotes, duplicate ticket prefixes, missing branches, and failed fetches.\n\n**Dependencies:** [TIM-1](https://github.com/Coding-M8s/timber/issues/2).\n\n**Planning metadata:** Dev 1 | v0.1 | P0 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDJ8",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 1 — Git",
+        "Priority": "P0",
+        "Size": "M"
+      }
     },
     "TIM-3": {
       "tim": "TIM-3",
@@ -110,7 +138,14 @@
       "number": 4,
       "html_url": "https://github.com/Coding-M8s/timber/issues/4",
       "body": "**Goal:** Support creation from a new, local, or remote branch.\n\n**Scope:** Git worktree creation and safe destination handling.\n\n**Acceptance criteria:**\n- [ ] New branch, existing local branch, and remote tracking branch creation all work.\n- [ ] Existing paths and branches checked out elsewhere produce actionable errors.\n- [ ] Generated path slugs cannot escape the configured directory; collisions are rejected.\n- [ ] Failed creation does not leave misleading Timber state.\n- [ ] Never delete a pre-existing directory or branch during recovery.\n\n**Verification:** Real temporary repositories covering all three modes, path collisions, concurrent duplicate creation, and failed Git operations.\n\n**Dependencies:** [TIM-2](https://github.com/Coding-M8s/timber/issues/3).\n\n**Planning metadata:** Dev 1 | v0.1 | P0 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDMQ",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 1 — Git",
+        "Priority": "P0",
+        "Size": "M"
+      }
     },
     "TIM-4": {
       "tim": "TIM-4",
@@ -133,7 +168,14 @@
       "number": 5,
       "html_url": "https://github.com/Coding-M8s/timber/issues/5",
       "body": "**Goal:** Reuse worktrees before attempting new creation.\n\n**Scope:** Parse Git's machine-readable worktree output into shared models and locate matching worktrees.\n\n**Acceptance criteria:**\n- [ ] Discover both Timber-created and manually created worktrees.\n- [ ] Match exact branches and unique ticket prefixes consistently.\n- [ ] Handle paths with spaces, detached worktrees, and missing/prunable entries explicitly.\n- [ ] Already-checked-out branches identify their existing path.\n- [ ] No database or substring-based porcelain parsing.\n\n**Verification:** Real Git fixtures with multiple worktrees and stale entries.\n\n**Dependencies:** [TIM-2](https://github.com/Coding-M8s/timber/issues/3).\n\n**Planning metadata:** Dev 1 | v0.1 | P0 | Size S | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDNw",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 1 — Git",
+        "Priority": "P0",
+        "Size": "S"
+      }
     },
     "TIM-5": {
       "tim": "TIM-5",
@@ -156,7 +198,14 @@
       "number": 6,
       "html_url": "https://github.com/Coding-M8s/timber/issues/6",
       "body": "**Goal:** Preserve work when removing a worktree or branch.\n\n**Scope:** Cleanup inspection, clear reasons for refusal, worktree removal, and optional safe local branch deletion.\n\n**Acceptance criteria:**\n- [ ] Refuse dirty and untracked content; detect ignored content and require explicit `--discard-ignored` before discarding it.\n- [ ] Refuse unpublished commits or unknown publication state unless commits are already contained in the validated base.\n- [ ] Delete local branches only after proving ancestry into the validated base.\n- [ ] `--keep-branch` supports clean, safely published worktree removal without deleting an unmerged branch.\n- [ ] Never remove the primary, locked, or unrelated worktree.\n- [ ] Recheck state immediately before mutation and handle partial failures clearly.\n- [ ] No force bypass, remote deletion, automatic stash, or process killing.\n\n**Verification:** Matrix of modified/untracked/ignored files, ahead branches, no upstream, merged branches, squash-merged branches, locked worktrees, and partial failure. Assert preserved files/refs after refusals.\n\n**Dependencies:** [TIM-3](https://github.com/Coding-M8s/timber/issues/4).\n\n**Planning metadata:** Dev 1 | v0.1 | P0 | Size L | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDPw",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 1 — Git",
+        "Priority": "P0",
+        "Size": "L"
+      }
     },
     "TIM-6": {
       "tim": "TIM-6",
@@ -179,7 +228,14 @@
       "number": 7,
       "html_url": "https://github.com/Coding-M8s/timber/issues/7",
       "body": "**Goal:** Make project defaults predictable with one small config file.\n\n**Scope:** `.timber.toml` at the primary repository root, schema validation, defaults, and CLI overrides. Global config is deferred.\n\n**Acceptance criteria:**\n- [ ] Config loads identically from the primary repo, nested directories, and linked worktrees.\n- [ ] Explicit CLI values override config; config overrides documented defaults.\n- [ ] Relative worktree paths resolve against the primary root.\n- [ ] Malformed TOML and invalid values identify the failing file/field.\n- [ ] Secrets are not stored in config; absent config requires no external services.\n- [ ] Editor/agent entries use executable names and argument arrays.\n\n**Verification:** Focused parser tests for precedence, relative paths, invalid values, and missing config.\n\n**Dependencies:** [TIM-11](https://github.com/Coding-M8s/timber/issues/1).\n\n**Planning metadata:** Dev 2 | v0.1 | P0 | Size S | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDSk",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 2 — Config and integrations",
+        "Priority": "P0",
+        "Size": "S"
+      }
     },
     "TIM-8": {
       "tim": "TIM-8",
@@ -202,7 +258,14 @@
       "number": 8,
       "html_url": "https://github.com/Coding-M8s/timber/issues/8",
       "body": "**Goal:** Open the selected worktree in the user's editor.\n\n**Scope:** Executable-plus-args launcher, with documented Zed and VS Code examples.\n\n**Acceptance criteria:**\n- [ ] Correct worktree path is appended as a separate argument.\n- [ ] No editor is launched when unconfigured or when `--no-editor` is given.\n- [ ] Executable failures are caught; the worktree remains available.\n- [ ] Launch returns without waiting for the editor window to close.\n- [ ] No shell interpolation; no editor plugin framework.\n\n**Verification:** Stub executables capture arguments and simulate launch failure; smoke-test an installed editor when available.\n\n**Dependencies:** [TIM-6](https://github.com/Coding-M8s/timber/issues/7).\n\n**Planning metadata:** Dev 2 | v0.1 | P1 | Size S | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDVE",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 2 — Config and integrations",
+        "Priority": "P1",
+        "Size": "S"
+      }
     },
     "TIM-12": {
       "tim": "TIM-12",
@@ -227,7 +290,14 @@
       "number": 9,
       "html_url": "https://github.com/Coding-M8s/timber/issues/9",
       "body": "**Goal:** Create a useful workspace in one command.\n\n**Scope:** Wire config, base selection, branch/worktree creation, and optional editor opening.\n\n**Acceptance criteria:**\n- [ ] `timber new <branch>` creates the expected branch and worktree.\n- [ ] `--base`, `--no-editor`, and documented path options work.\n- [ ] Existing branch/path errors suggest the appropriate next command.\n- [ ] Optional launch failure reports the retained workspace and retry instructions.\n- [ ] No Jira or agent setup is required for 0.1.\n\n**Verification:** CLI integration tests with real Git and a stub editor, including duplicate invocation and creation failure.\n\n**Dependencies:** [TIM-3](https://github.com/Coding-M8s/timber/issues/4), [TIM-6](https://github.com/Coding-M8s/timber/issues/7), [TIM-8](https://github.com/Coding-M8s/timber/issues/8).\n\n**Planning metadata:** Dev 3 | v0.1 | P0 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDW4",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 3 — CLI and release",
+        "Priority": "P0",
+        "Size": "M"
+      }
     },
     "TIM-13": {
       "tim": "TIM-13",
@@ -253,7 +323,14 @@
       "number": 10,
       "html_url": "https://github.com/Coding-M8s/timber/issues/10",
       "body": "**Goal:** Open or materialize the correct existing branch.\n\n**Scope:** Existing worktree → local branch → refreshed remote branch resolution.\n\n**Acceptance criteria:**\n- [ ] Reopening an existing worktree does not create another one.\n- [ ] A local branch without a worktree gets one.\n- [ ] A remote-only branch gets a tracking branch and worktree.\n- [ ] Exact remote and unique ticket-prefix inputs work; ambiguous inputs do not guess.\n- [ ] Existing local worktrees open offline; remote refresh errors remain visible.\n- [ ] Missing input produces a clear error, not silent task creation.\n\n**Verification:** End-to-end fixtures for each resolution path, ambiguity, offline reuse, and unavailable remotes.\n\n**Dependencies:** [TIM-3](https://github.com/Coding-M8s/timber/issues/4), [TIM-4](https://github.com/Coding-M8s/timber/issues/5), [TIM-6](https://github.com/Coding-M8s/timber/issues/7), [TIM-8](https://github.com/Coding-M8s/timber/issues/8).\n\n**Planning metadata:** Dev 3 | v0.1 | P0 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDYw",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 3 — CLI and release",
+        "Priority": "P0",
+        "Size": "M"
+      }
     },
     "TIM-14": {
       "tim": "TIM-14",
@@ -276,7 +353,14 @@
       "number": 11,
       "html_url": "https://github.com/Coding-M8s/timber/issues/11",
       "body": "**Goal:** Show the repository's worktrees at a glance.\n\n**Scope:** Paths, branches, primary-worktree marker, and clean/dirty status.\n\n**Acceptance criteria:**\n- [ ] Lists manually created and Timber-created worktrees.\n- [ ] Marks the primary worktree and handles detached HEAD.\n- [ ] Dirty and untracked counts reflect Git status.\n- [ ] Stale/missing paths produce a useful row or warning without crashing the entire list.\n- [ ] No fetch, mutation, or persistent registry is needed.\n\n**Verification:** Temporary repository with primary, linked, dirty, detached, and stale worktrees.\n\n**Dependencies:** [TIM-1](https://github.com/Coding-M8s/timber/issues/2).\n\n**Planning metadata:** Dev 3 | v0.1 | P0 | Size S | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDaY",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 3 — CLI and release",
+        "Priority": "P0",
+        "Size": "S"
+      }
     },
     "TIM-15": {
       "tim": "TIM-15",
@@ -300,7 +384,14 @@
       "number": 12,
       "html_url": "https://github.com/Coding-M8s/timber/issues/12",
       "body": "**Goal:** Expose safe cleanup through an understandable command.\n\n**Scope:** Target resolution, cleanup checks, `--keep-branch`, and `--discard-ignored`.\n\n**Acceptance criteria:**\n- [ ] `timber done <branch-or-worktree>` selects exactly one linked worktree.\n- [ ] Refusals explain files/commits or ancestry/publication uncertainty.\n- [ ] Safe completion removes the worktree and, when permitted, its local branch.\n- [ ] Ignored-file discard is an explicit option, not an implicit consequence of cleanup.\n- [ ] Success output describes only completed actions.\n- [ ] Remote branches and unrelated files stay intact.\n\n**Verification:** CLI tests reuse the cleanup safety matrix and assert filesystem/ref state after every result.\n\n**Dependencies:** [TIM-5](https://github.com/Coding-M8s/timber/issues/6), [TIM-6](https://github.com/Coding-M8s/timber/issues/7).\n\n**Planning metadata:** Dev 3 | v0.1 | P0 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDcw",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 3 — CLI and release",
+        "Priority": "P0",
+        "Size": "M"
+      }
     },
     "TIM-7": {
       "tim": "TIM-7",
@@ -325,7 +416,14 @@
       "number": 13,
       "html_url": "https://github.com/Coding-M8s/timber/issues/13",
       "body": "**Goal:** Automate project setup without hiding failures.\n\n**Scope:** `post_create` hooks only, explicit retry through `timber open <target> --setup`, and command integration.\n\n**Acceptance criteria:**\n- [ ] Hooks run sequentially in the created worktree with TIMBER_REPO, TIMBER_WORKTREE, TIMBER_BRANCH, and optional TIMBER_TASK_ID environment variables.\n- [ ] Shell choice and trusted config behavior are documented for the initial Linux target.\n- [ ] Hook failure stops later hooks and editor/agent launch; the branch/worktree remains.\n- [ ] Failure output states which step failed and how to retry.\n- [ ] Normal `open` does not rerun setup; `--setup` does so explicitly.\n- [ ] No auto rollback that risks deleting user work.\n\n**Verification:** Temporary hooks test cwd/context, ordering, failure, retry, and hostile characters in context values.\n\n**Dependencies:** [TIM-6](https://github.com/Coding-M8s/timber/issues/7), [TIM-12](https://github.com/Coding-M8s/timber/issues/9), [TIM-13](https://github.com/Coding-M8s/timber/issues/10).\n\n**Planning metadata:** Dev 2 | v0.2 | P1 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDeY",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 2 — Config and integrations",
+        "Priority": "P1",
+        "Size": "M"
+      }
     },
     "TIM-9": {
       "tim": "TIM-9",
@@ -350,7 +448,14 @@
       "number": 14,
       "html_url": "https://github.com/Coding-M8s/timber/issues/14",
       "body": "**Goal:** Start the user's installed agent in the correct worktree.\n\n**Scope:** Small interactive command launcher for Claude and Codex; no API subscription management.\n\n**Acceptance criteria:**\n- [ ] Launch is opt-in via config or CLI; documented disabling works.\n- [ ] Agent inherits the invoking terminal and worktree cwd.\n- [ ] Editor launches first; agent invocation follows successful setup.\n- [ ] Missing executables fail clearly without removing the workspace.\n- [ ] Interrupts and exit codes are handled; no orphan background agent is started.\n- [ ] No session manager, agent framework, or dependency on Jira.\n\n**Verification:** Stub agents record cwd/args and simulate errors/exits; optional manual smoke tests for installed tools.\n\n**Dependencies:** [TIM-8](https://github.com/Coding-M8s/timber/issues/8), [TIM-12](https://github.com/Coding-M8s/timber/issues/9), [TIM-13](https://github.com/Coding-M8s/timber/issues/10).\n\n**Planning metadata:** Dev 2 | v0.2 | P1 | Size S | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDgM",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 2 — Config and integrations",
+        "Priority": "P1",
+        "Size": "S"
+      }
     },
     "TIM-10": {
       "tim": "TIM-10",
@@ -375,7 +480,14 @@
       "number": 15,
       "html_url": "https://github.com/Coding-M8s/timber/issues/15",
       "body": "**Goal:** Turn a Jira ticket ID into a descriptive branch/worktree.\n\n**Scope:** One Jira Cloud integration, title/URL lookup, basic title slugging, and `new` integration. Other ticket systems are deferred.\n\n**Acceptance criteria:**\n- [ ] Configured `timber new ABU-834` resolves the title and produces `ABU-834-<title-slug>`.\n- [ ] Credential environment variables are documented; tokens never enter repository config, logs, or issue bodies.\n- [ ] Missing credentials, timeouts, unavailable issues, and authorization errors have distinct useful errors.\n- [ ] A recognized configured Jira input fails visibly when resolution fails; no silent fallback that creates the wrong branch.\n- [ ] Plain branch input still works without Jira.\n- [ ] Generated names pass Git validation and path-collision checks.\n- [ ] Existing `open ABU-834` uses branch resolution without needing Jira API access.\n\n**Verification:** Mock HTTP responses for success and failures; CLI creation fixture with deterministic ticket data. Verify current Jira API behavior using official documentation during implementation.\n\n**Dependencies:** [TIM-2](https://github.com/Coding-M8s/timber/issues/3), [TIM-6](https://github.com/Coding-M8s/timber/issues/7), [TIM-12](https://github.com/Coding-M8s/timber/issues/9).\n\n**Planning metadata:** Dev 2 | v0.2 | P1 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDiM",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 2 — Config and integrations",
+        "Priority": "P1",
+        "Size": "M"
+      }
     },
     "TIM-16": {
       "tim": "TIM-16",
@@ -402,7 +514,14 @@
       "number": 16,
       "html_url": "https://github.com/Coding-M8s/timber/issues/16",
       "body": "**Goal:** Make the implemented tool predictable in daily use.\n\n**Scope:** Consistent output, actionable errors, documentation corrections, and fixes from team dogfooding.\n\n**Acceptance criteria:**\n- [ ] All commands have useful help and correct stdout/stderr/exit behavior.\n- [ ] Unattended commands do not wait for interactive input.\n- [ ] The team exercises a real create → setup → open → list → safe finish workflow.\n- [ ] Editor/agent/hook/network failures describe retained state and recovery.\n- [ ] Cleanup refusals demonstrably preserve work.\n- [ ] Changes stay within the approved CLI scope; additional features become separate future proposals.\n\n**Verification:** Existing integration suite plus a recorded manual dogfooding checklist. File concrete bugs and resolve release blockers.\n\n**Dependencies:** [TIM-7](https://github.com/Coding-M8s/timber/issues/13), [TIM-9](https://github.com/Coding-M8s/timber/issues/14), [TIM-10](https://github.com/Coding-M8s/timber/issues/15), [TIM-14](https://github.com/Coding-M8s/timber/issues/11), [TIM-15](https://github.com/Coding-M8s/timber/issues/12).\n\n**Planning metadata:** Dev 3 | v1.0 | P1 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDkw",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 3 — CLI and release",
+        "Priority": "P1",
+        "Size": "M"
+      }
     },
     "TIM-17": {
       "tim": "TIM-17",
@@ -426,12 +545,177 @@
       "number": 17,
       "html_url": "https://github.com/Coding-M8s/timber/issues/17",
       "body": "**Goal:** Ship a reproducible installation that matches the completed release scope.\n\n**Scope:** Standalone Bun builds, tagged GitHub releases, install/config/troubleshooting docs, and final acceptance.\n\n**Acceptance criteria:**\n- [ ] Release pipeline builds a Linux x86_64 executable from a tagged commit.\n- [ ] Clean environment smoke test runs help and real worktree commands without requiring Bun/Node installed by the user.\n- [ ] Document Git and configured editor/agent prerequisites.\n- [ ] Publish checksums and the actual supported platform list; do not claim untested compatibility.\n- [ ] README documents installation, four commands, config, hooks, Jira credentials, launch options, and cleanup limitations.\n- [ ] Demonstrate 0.1 without integrations, 0.2 integration flows, and 1.0 acceptance after [TIM-16](https://github.com/Coding-M8s/timber/issues/16).\n- [ ] No GUI, IDE, Rust rewrite, or universal packaging requirement blocks the initial release.\n\n**Verification:** Downloaded-artifact smoke test in an isolated environment; release pipeline test; end-to-end lifecycle and failure-recovery suite.\n\n**Dependencies:** [TIM-16](https://github.com/Coding-M8s/timber/issues/16) for final 1.0 acceptance. Preparation of the 0.1 packaging path may start earlier.\n\n**Planning metadata:** Dev 3 | v1.0 | P1 | Size M | Initial status: Backlog\n",
-      "native_dependencies_created": true
+      "native_dependencies_created": true,
+      "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDmM",
+      "project_values": {
+        "Status": "Backlog",
+        "Lane": "Dev 3 — CLI and release",
+        "Priority": "P1",
+        "Size": "M"
+      }
     }
   },
-  "project_fields": {},
+  "project_fields": {
+    "Title": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8ApM",
+      "name": "Title"
+    },
+    "Assignees": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8ApQ",
+      "name": "Assignees"
+    },
+    "Status": {
+      "id": "PVTSSF_lADOEHotiM4BmSYVzhk8ApU",
+      "name": "Status",
+      "options": [
+        {
+          "id": "1003412a",
+          "name": "Backlog",
+          "color": "GRAY",
+          "description": ""
+        },
+        {
+          "id": "00f97021",
+          "name": "Ready",
+          "color": "BLUE",
+          "description": ""
+        },
+        {
+          "id": "47fc9ee4",
+          "name": "In Progress",
+          "color": "YELLOW",
+          "description": "This is actively being worked on"
+        },
+        {
+          "id": "13facbb9",
+          "name": "In Review",
+          "color": "PURPLE",
+          "description": ""
+        },
+        {
+          "id": "29041c22",
+          "name": "Blocked",
+          "color": "RED",
+          "description": ""
+        },
+        {
+          "id": "98236657",
+          "name": "Done",
+          "color": "PURPLE",
+          "description": "This has been completed"
+        }
+      ]
+    },
+    "Labels": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8ApY",
+      "name": "Labels"
+    },
+    "Linked pull requests": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8Apc",
+      "name": "Linked pull requests"
+    },
+    "Milestone": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8Apg",
+      "name": "Milestone"
+    },
+    "Repository": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8Apk",
+      "name": "Repository"
+    },
+    "Reviewers": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8Aps",
+      "name": "Reviewers"
+    },
+    "Parent issue": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8Apw",
+      "name": "Parent issue"
+    },
+    "Sub-issues progress": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8Ap0",
+      "name": "Sub-issues progress"
+    },
+    "Created": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8Ap4",
+      "name": "Created"
+    },
+    "Updated": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8Ap8",
+      "name": "Updated"
+    },
+    "Closed": {
+      "id": "PVTF_lADOEHotiM4BmSYVzhk8AqA",
+      "name": "Closed"
+    },
+    "Lane": {
+      "id": "PVTSSF_lADOEHotiM4BmSYVzhk8AqY",
+      "name": "Lane",
+      "options": [
+        {
+          "id": "50285cf9",
+          "name": "Dev 1 — Git",
+          "color": "BLUE",
+          "description": ""
+        },
+        {
+          "id": "7e4c2839",
+          "name": "Dev 2 — Config and integrations",
+          "color": "BLUE",
+          "description": ""
+        },
+        {
+          "id": "73385ea0",
+          "name": "Dev 3 — CLI and release",
+          "color": "BLUE",
+          "description": ""
+        }
+      ]
+    },
+    "Priority": {
+      "id": "PVTSSF_lADOEHotiM4BmSYVzhk8Aqc",
+      "name": "Priority",
+      "options": [
+        {
+          "id": "9b37ffad",
+          "name": "P0",
+          "color": "BLUE",
+          "description": ""
+        },
+        {
+          "id": "1f287b74",
+          "name": "P1",
+          "color": "BLUE",
+          "description": ""
+        }
+      ]
+    },
+    "Size": {
+      "id": "PVTSSF_lADOEHotiM4BmSYVzhk8Aqg",
+      "name": "Size",
+      "options": [
+        {
+          "id": "273d4ad7",
+          "name": "S",
+          "color": "BLUE",
+          "description": ""
+        },
+        {
+          "id": "2d808f1c",
+          "name": "M",
+          "color": "BLUE",
+          "description": ""
+        },
+        {
+          "id": "96cdba16",
+          "name": "L",
+          "color": "BLUE",
+          "description": ""
+        }
+      ]
+    }
+  },
   "incomplete_actions": [
-    "Authorize gh project scope; create/reuse private Timber CLI organization Project, fields, items and views."
+    "In Developer lanes (view 3), select Group by → Lane and save the view. The supported API exposes no grouping mutation.",
+    "In Project Workflows, verify Item closed targets Done (workflow is enabled) and configure reopened issues → Backlog. The supported API exposes no workflow creation/update or action target configuration."
   ],
   "repository_id": 1411187533,
   "repository_node_id": "R_kgDOVB0DTQ",
@@ -439,6 +723,82 @@
     "repository_issues_dependencies": "passed",
     "issue_count": 17,
     "dependency_edges": 32,
-    "application_implemented": false
-  }
+    "application_implemented": false,
+    "project": "passed: private organization Project, 17 unique issue items, every Status/Lane/Priority/Size value, both named view layouts",
+    "delivery_board_grouped_by": "Status"
+  },
+  "project_views": [
+    {
+      "id": "PVTV_lADOEHotiM4BmSYVzgL-v4A",
+      "name": "View 1",
+      "number": 1,
+      "layout": "TABLE_LAYOUT",
+      "groupByFields": {
+        "nodes": []
+      },
+      "verticalGroupByFields": {
+        "nodes": []
+      }
+    },
+    {
+      "id": "PVTV_lADOEHotiM4BmSYVzgL-v6E",
+      "name": "Delivery board",
+      "number": 2,
+      "layout": "BOARD_LAYOUT",
+      "groupByFields": {
+        "nodes": []
+      },
+      "verticalGroupByFields": {
+        "nodes": [
+          {
+            "name": "Status"
+          }
+        ]
+      }
+    },
+    {
+      "id": "PVTV_lADOEHotiM4BmSYVzgL-v6I",
+      "name": "Developer lanes",
+      "number": 3,
+      "layout": "TABLE_LAYOUT",
+      "groupByFields": {
+        "nodes": []
+      },
+      "verticalGroupByFields": {
+        "nodes": []
+      }
+    }
+  ],
+  "project_workflows": [
+    {
+      "id": "PWF_lADOEHotiM4BmSYVzgdFULY",
+      "name": "Auto-add sub-issues to project",
+      "enabled": true
+    },
+    {
+      "id": "PWF_lADOEHotiM4BmSYVzgdFULU",
+      "name": "Auto-close issue",
+      "enabled": true
+    },
+    {
+      "id": "PWF_lADOEHotiM4BmSYVzgdFULg",
+      "name": "Item added to project",
+      "enabled": false
+    },
+    {
+      "id": "PWF_lADOEHotiM4BmSYVzgdFULM",
+      "name": "Item closed",
+      "enabled": true
+    },
+    {
+      "id": "PWF_lADOEHotiM4BmSYVzgdFULc",
+      "name": "Pull request linked to issue",
+      "enabled": true
+    },
+    {
+      "id": "PWF_lADOEHotiM4BmSYVzgdFULQ",
+      "name": "Pull request merged",
+      "enabled": true
+    }
+  ]
 }

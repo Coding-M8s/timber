@@ -42,4 +42,3 @@ project = "ABU"
 ```
 
 Editor/agent commands are executable names plus argument arrays, not shell strings. Hooks deliberately run trusted shell commands and receive context through environment variables. Do not substitute branch names or ticket text directly into shell source. Secrets stay outside repository config.
-
