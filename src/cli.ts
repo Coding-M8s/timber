@@ -28,7 +28,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
     .configureOutput({ writeOut: context.io.stdout, writeErr: context.io.stderr });
 
   program.command("new <branch>")
-    .description("Create a new branch and worktree (placeholder; TIM-12)")
+    .description("Create a new branch and worktree")
     .option("--base <ref>", "Override the configured base branch")
     .option("--no-editor", "Skip opening the configured editor")
     .action((branch: string, options: { base?: string; editor: boolean }) => {
