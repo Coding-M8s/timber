@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { discoverRepository } from "../src/git/repository";
-import { refreshRemoteBranch, resolveBase, resolveBranch, validateNewBranchName } from "../src/git/branches";
+import { listBranches, refreshRemoteBranch, resolveBase, resolveBranch, validateNewBranchName } from "../src/git/branches";
 import type { RepositoryConfig } from "../src/types";
 
 const config = (remote: string | null = null): RepositoryConfig => ({
@@ -27,6 +27,27 @@ async function fixture(run: (repo: string, directory: string) => Promise<void>):
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+test("branch inventory exposes exact upstream refs and excludes symbolic remote HEAD", async () => {
+  await fixture(async (repo, directory) => {
+    const unavailableRemote = join(directory, "offline upstream.git");
+    await git(repo, "remote", "add", "upstream", unavailableRemote);
+    await git(repo, "branch", "feature");
+    const head = await git(repo, "rev-parse", "HEAD");
+    await git(repo, "update-ref", "refs/remotes/upstream/feature", head);
+    await git(repo, "config", "branch.feature.remote", "upstream");
+    await git(repo, "config", "branch.feature.merge", "refs/heads/feature");
+    await git(repo, "symbolic-ref", "refs/remotes/upstream/HEAD", "refs/remotes/upstream/feature");
+
+    const branches = await listBranches(await discoverRepository(repo));
+
+    expect(branches).toContainEqual({
+      kind: "local", name: "feature", ref: "refs/heads/feature",
+      upstream: { kind: "remote", remote: "upstream", name: "feature", ref: "refs/remotes/upstream/feature" },
+    });
+    expect(branches.some(branch => branch.kind === "remote" && branch.name === "HEAD")).toBe(false);
+  });
+});
 
 test("exact local wins; ticket prefix respects delimiter and reports all matches", async () => {
   await fixture(async repo => {

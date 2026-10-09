@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { discoverRepository } from "../src/git/repository";
-import { listWorktrees } from "../src/git/worktrees";
+import { assertOpenableWorktree, assertWorktreeIdentity, listWorktrees } from "../src/git/worktrees";
 import { git, withRepository } from "./helpers/git";
 
 test("reads all Git worktrees, counts filenames once, and preserves stale entries and repository state", async () => {
@@ -157,3 +157,86 @@ test("separate Git metadata still marks and inspects the primary working files",
     }]);
   });
 });
+
+test("identity checks permit a dirty, locked linked worktree", async () => {
+  await withRepository(async (primary, directory) => {
+    const linked = join(directory, "locked dirty worktree");
+    await git(primary, "worktree", "add", "-b", "locked-dirty", linked);
+    await git(primary, "worktree", "lock", linked, "--reason", "keep open");
+    await writeFile(join(linked, "tracked.txt"), "modified\n");
+    await writeFile(join(linked, "keep.txt"), "untracked\n");
+
+    const repository = await discoverRepository(primary);
+    const tree = (await listWorktrees(repository)).find(candidate => candidate.path === linked)!;
+    expect(tree).toMatchObject({
+      locked: { reason: "keep open" },
+      status: { kind: "known", modified: ["tracked.txt"], untracked: ["keep.txt"] },
+    });
+    await expect(assertWorktreeIdentity(repository, tree)).resolves.toBeUndefined();
+    await expect(assertOpenableWorktree(repository, tree)).resolves.toBeUndefined();
+  });
+});
+
+test("identity and openability checks reject missing prunable worktrees without changing Git state", async () => {
+  await withRepository(async (primary, directory) => {
+    const stale = join(directory, "missing stale worktree");
+    await git(primary, "worktree", "add", "-b", "missing-stale", stale);
+    await rm(stale, { recursive: true });
+
+    const repository = await discoverRepository(primary);
+    const tree = (await listWorktrees(repository)).find(candidate => candidate.path === stale)!;
+    const inventoryBefore = await git(primary, "worktree", "list", "--porcelain", "-z");
+    const refsBefore = await git(primary, "show-ref");
+    expect(tree).toMatchObject({ pathExists: false, prunable: expect.anything() });
+    await expect(assertWorktreeIdentity(repository, tree)).rejects.toThrow(stale);
+    await expect(assertOpenableWorktree(repository, tree)).rejects.toThrow(stale);
+    expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(inventoryBefore);
+    expect(await git(primary, "show-ref")).toBe(refsBefore);
+    expect(await readFile(primary + "/tracked.txt", "utf8")).toBe("original\n");
+  });
+});
+
+for (const replacement of ["unrelated repository", "symlink", "copied gitfile", "file"] as const) {
+  test(`identity and openability checks reject a stale path replaced by a ${replacement}`, async () => {
+    await withRepository(async (primary, directory) => {
+      const stale = join(directory, "stale target");
+      const sibling = join(directory, "healthy sibling");
+      await git(primary, "worktree", "add", "-b", "stale-target", stale);
+      await git(primary, "worktree", "add", "-b", "healthy-sibling", sibling);
+      const sentinel = join(sibling, "keep.txt");
+      await writeFile(sentinel, "preserve sibling\n");
+      await rm(stale, { recursive: true });
+      if (replacement === "unrelated repository") {
+        await mkdir(stale);
+        await git(stale, "init", "-b", "unrelated");
+        await writeFile(join(stale, "keep.txt"), "preserve replacement\n");
+      } else if (replacement === "symlink") {
+        await symlink(sibling, stale);
+      } else if (replacement === "copied gitfile") {
+        await mkdir(stale);
+        await writeFile(join(stale, ".git"), await readFile(join(sibling, ".git")));
+        await git(stale, "checkout-index", "--all");
+      } else {
+        await writeFile(stale, "preserve replacement\n");
+      }
+
+      const repository = await discoverRepository(primary);
+      const tree = (await listWorktrees(repository)).find(candidate => candidate.path === stale)!;
+      const inventoryBefore = await git(primary, "worktree", "list", "--porcelain", "-z");
+      const refsBefore = await git(primary, "show-ref");
+      const sentinelPath = replacement === "file" ? stale : join(
+        replacement === "unrelated repository" ? stale : sibling, "keep.txt",
+      );
+      await expect(assertWorktreeIdentity(repository, tree)).rejects.toThrow(stale);
+      await expect(assertWorktreeIdentity(repository, tree)).rejects.toThrow(/restore|repair/i);
+      await expect(assertOpenableWorktree(repository, tree)).rejects.toThrow(stale);
+      await expect(assertOpenableWorktree(repository, tree)).rejects.toThrow(/restore|repair|prune/i);
+      expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(inventoryBefore);
+      expect(await git(primary, "show-ref")).toBe(refsBefore);
+      expect(await readFile(sentinelPath, "utf8")).toBe(
+        replacement === "symlink" || replacement === "copied gitfile"
+          ? "preserve sibling\n" : "preserve replacement\n",
+      );
+    });
+  });
+}

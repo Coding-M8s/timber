@@ -52,6 +52,24 @@ slugs and destination containment, rejecting existing paths, collisions and the
 primary repository. Relative configuration paths use the primary root, with the
 default sibling layout from the behavioral contract.
 
+`src/git/open-target.ts` implements `resolveOpenTarget` for TIM-4 without changing
+the `CommandServices` or domain unions. An absolute input matches only a registered
+worktree path after lexical path normalization. For unqualified inputs, an exact
+checked-out local branch resolves to its worktree before branch lookup. Other branch
+inputs delegate to TIM-2's exact local/remote and delimiter-boundary prefix policy.
+A known explicit remote name selects that remote even when a local branch has the
+same spelling.
+
+A remote branch reuses a local worktree only when that local branch records the
+same full upstream ref. Ambiguity contains every distinct path or full branch ref
+in stable order, including missing and prunable worktrees. A uniquely selected
+missing, prunable, or identity-mismatched worktree rejects with its path and
+recovery guidance. Dirty, ignored, unpublished, or locked worktrees remain
+openable; unknown status stays unknown. `resolveOpenTarget` never fetches or
+mutates Git state. TIM-13 consumes the `OpenTarget` union to open a worktree or
+materialize a branch; TIM-3 refreshes a selected remote only before remote branch
+creation.
+
 `Worktree` retains primary, locked, missing and prunable states, including entries
 created outside Timber. Status is either known file lists or an explicit unknown
 reason. Count each modified/untracked file once when formatting TIM-14 output;

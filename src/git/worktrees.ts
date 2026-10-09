@@ -30,6 +30,108 @@ function parseStatus(output: string): WorktreeStatus {
   return { kind: "known", modified: [...modified], untracked: [...untracked], ignored: [...ignored] };
 }
 
+class WorktreeIdentityError extends Error {
+  constructor(message: string, readonly statusReason: string) {
+    super(message);
+    this.name = "WorktreeIdentityError";
+  }
+}
+
+const IDENTITY_RECOVERY = "Restore the original worktree or repair its Git metadata explicitly before retrying.";
+
+function identityFailure(message: string, statusReason: string): WorktreeIdentityError {
+  return new WorktreeIdentityError(`${message} ${IDENTITY_RECOVERY}`, statusReason);
+}
+
+/** Recheck the filesystem and Git metadata for a registered worktree path. */
+export async function assertWorktreeIdentity(
+  repository: RepositoryContext, tree: Worktree,
+): Promise<void> {
+  let info;
+  try {
+    info = await stat(tree.path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      throw identityFailure(`Worktree path is missing: ${tree.path}`, "Worktree path is missing");
+    }
+    throw identityFailure(
+      `Cannot inspect worktree at ${tree.path}; check directory access.`,
+      "Cannot inspect worktree; check directory access",
+    );
+  }
+  if (!info.isDirectory()) {
+    throw identityFailure(`Worktree path is not a directory: ${tree.path}`, "Worktree path is not a directory");
+  }
+
+  let identity;
+  let prefix;
+  try {
+    identity = await runGit(tree.path, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    prefix = await runGit(tree.path, ["rev-parse", "--show-prefix"]);
+  } catch {
+    throw identityFailure(
+      `Cannot verify Git identity for worktree at ${tree.path}.`,
+      "Cannot inspect worktree; check Git metadata and access",
+    );
+  }
+  if (identity.exitCode !== 0 || prefix.exitCode !== 0 || prefix.stdout !== "" ||
+      resolve(identity.stdout) !== resolve(repository.commonGitDir)) {
+    throw identityFailure(
+      `Worktree at ${tree.path} no longer identifies this repository.`,
+      "Path no longer identifies this Git worktree",
+    );
+  }
+
+  let gitDirectory;
+  try {
+    gitDirectory = await runGit(tree.path, ["rev-parse", "--absolute-git-dir"]);
+  } catch {
+    throw identityFailure(
+      `Cannot verify Git metadata for worktree at ${tree.path}.`,
+      "Cannot inspect worktree; check Git metadata and access",
+    );
+  }
+  if (gitDirectory.exitCode !== 0) {
+    throw identityFailure(
+      `Cannot verify Git metadata for worktree at ${tree.path}.`,
+      "Cannot inspect worktree; check Git metadata and access",
+    );
+  }
+
+  let matchesWorktree: boolean;
+  try {
+    matchesWorktree = tree.isPrimary
+      ? resolve(gitDirectory.stdout) === resolve(repository.commonGitDir)
+      : resolve((await readFile(join(gitDirectory.stdout, "gitdir"), "utf8")).replace(/\r?\n$/, "")) ===
+        resolve(tree.path, ".git");
+  } catch {
+    throw identityFailure(
+      `Cannot verify Git metadata for worktree at ${tree.path}.`,
+      "Cannot inspect worktree; check Git metadata and access",
+    );
+  }
+  if (!matchesWorktree) {
+    throw identityFailure(
+      `Git metadata for worktree at ${tree.path} belongs to a different path.`,
+      "Git metadata belongs to a different worktree path",
+    );
+  }
+}
+
+/** A stale selected target must be repaired or pruned explicitly before opening. */
+export async function assertOpenableWorktree(
+  repository: RepositoryContext, worktree: Worktree,
+): Promise<void> {
+  if (!worktree.pathExists) {
+    throw new Error(`Cannot open missing worktree at ${worktree.path}; restore it or prune it explicitly first.`);
+  }
+  if (worktree.prunable !== null) {
+    throw new Error(`Cannot open prunable worktree at ${worktree.path}; repair or prune it explicitly first.`);
+  }
+  await assertWorktreeIdentity(repository, worktree);
+}
+
 async function inspectWorktree(tree: Worktree, repository: RepositoryContext): Promise<Worktree> {
   try {
     const info = await stat(tree.path);
@@ -47,24 +149,19 @@ async function inspectWorktree(tree: Worktree, repository: RepositoryContext): P
     };
     return tree;
   }
+
   try {
-    const identity = await runGit(tree.path, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    const prefix = await runGit(tree.path, ["rev-parse", "--show-prefix"]);
-    if (identity.exitCode !== 0 || prefix.exitCode !== 0 || prefix.stdout !== "" ||
-        resolve(identity.stdout) !== resolve(repository.commonGitDir)) {
-      tree.status = { kind: "unknown", reason: "Path no longer identifies this Git worktree" };
-      return tree;
-    }
-    const gitDirectory = await runGit(tree.path, ["rev-parse", "--absolute-git-dir"]);
-    if (gitDirectory.exitCode !== 0) throw new Error("Cannot read worktree Git directory");
-    const matchesWorktree = tree.isPrimary
-      ? resolve(gitDirectory.stdout) === resolve(repository.commonGitDir)
-      : resolve((await readFile(join(gitDirectory.stdout, "gitdir"), "utf8")).replace(/\r?\n$/, "")) ===
-        resolve(tree.path, ".git");
-    if (!matchesWorktree) {
-      tree.status = { kind: "unknown", reason: "Git metadata belongs to a different worktree path" };
-      return tree;
-    }
+    await assertWorktreeIdentity(repository, tree);
+  } catch (error) {
+    tree.status = {
+      kind: "unknown",
+      reason: error instanceof WorktreeIdentityError
+        ? error.statusReason : "Cannot inspect worktree; check Git metadata and access",
+    };
+    return tree;
+  }
+
+  try {
     const result = await runGit(tree.path, [
       "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "status.renames=true",
       "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored", "--ignore-submodules=none",
