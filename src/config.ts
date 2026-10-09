@@ -20,7 +20,7 @@ const executableSchema = z.strictObject({
 const configFileSchema = z.strictObject({
   base_branch: z.string().trim().min(1).optional(),
   remote: z.string().trim().min(1).optional(),
-  worktree_dir: z.string().trim().min(1).optional(),
+  worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
   editor: executableSchema.optional(),
   agent: z.strictObject({
     command: z.string().trim().min(1),

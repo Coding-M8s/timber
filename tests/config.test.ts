@@ -107,6 +107,18 @@ test("preserves an absolute worktree_dir", async () => {
   }
 });
 
+test("preserves surrounding spaces in worktree_dir", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber config "));
+  const relative = " worktrees ";
+  try {
+    await writeFile(join(root, ".timber.toml"), `worktree_dir = "${relative}"\n`);
+    const config = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }));
+    expect(config.worktreeDir).toBe(resolve(root, relative));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 async function expectConfigError(source: string, expected: string, forbidden: string) {
   const root = await mkdtemp(join(tmpdir(), "timber config "));
   const configPath = join(root, ".timber.toml");
