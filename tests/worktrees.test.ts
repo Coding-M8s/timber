@@ -228,7 +228,9 @@ for (const replacement of ["unrelated repository", "symlink", "copied gitfile", 
         replacement === "unrelated repository" ? stale : sibling, "keep.txt",
       );
       await expect(assertWorktreeIdentity(repository, tree)).rejects.toThrow(stale);
+      await expect(assertWorktreeIdentity(repository, tree)).rejects.toThrow(/restore|repair/i);
       await expect(assertOpenableWorktree(repository, tree)).rejects.toThrow(stale);
+      await expect(assertOpenableWorktree(repository, tree)).rejects.toThrow(/restore|repair|prune/i);
       expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(inventoryBefore);
       expect(await git(primary, "show-ref")).toBe(refsBefore);
       expect(await readFile(sentinelPath, "utf8")).toBe(

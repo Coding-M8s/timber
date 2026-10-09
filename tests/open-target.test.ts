@@ -175,7 +175,7 @@ test("an exact remote branch wins over a checked-out ticket-prefix branch", asyn
     await git(primary, "worktree", "add", "-b", "ABU-834-one", join(directory, "prefix worktree"));
     const repository = await discoverRepository(primary);
 
-    expect(await resolveOpenTarget(repository, "upstream/ABU-834", config)).toEqual({
+    expect(await resolveOpenTarget(repository, "ABU-834", config)).toEqual({
       kind: "found", value: { kind: "branch", branch: {
         kind: "remote", remote: "upstream", name: "ABU-834", ref: "refs/remotes/upstream/ABU-834",
       } },
@@ -245,7 +245,7 @@ test("ticket matching rejects numeric, nested, and leading substring collisions"
 test("a known remote prefix takes precedence over a same-named local branch", async () => {
   await withRepository(async (primary, directory) => {
     await addOfflineRemote(primary, directory, "origin", "feature");
-    await git(primary, "branch", "origin/feature");
+    await git(primary, "worktree", "add", "-b", "origin/feature", join(directory, "checked out local remote-name branch"));
     const repository = await discoverRepository(primary);
 
     expect(await resolveOpenTarget(repository, "origin/feature", config)).toMatchObject({

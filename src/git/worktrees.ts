@@ -37,6 +37,12 @@ class WorktreeIdentityError extends Error {
   }
 }
 
+const IDENTITY_RECOVERY = "Restore the original worktree or repair its Git metadata explicitly before retrying.";
+
+function identityFailure(message: string, statusReason: string): WorktreeIdentityError {
+  return new WorktreeIdentityError(`${message} ${IDENTITY_RECOVERY}`, statusReason);
+}
+
 /** Recheck the filesystem and Git metadata for a registered worktree path. */
 export async function assertWorktreeIdentity(
   repository: RepositoryContext, tree: Worktree,
@@ -47,15 +53,15 @@ export async function assertWorktreeIdentity(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") {
-      throw new WorktreeIdentityError(`Worktree path is missing: ${tree.path}`, "Worktree path is missing");
+      throw identityFailure(`Worktree path is missing: ${tree.path}`, "Worktree path is missing");
     }
-    throw new WorktreeIdentityError(
+    throw identityFailure(
       `Cannot inspect worktree at ${tree.path}; check directory access.`,
       "Cannot inspect worktree; check directory access",
     );
   }
   if (!info.isDirectory()) {
-    throw new WorktreeIdentityError(`Worktree path is not a directory: ${tree.path}`, "Worktree path is not a directory");
+    throw identityFailure(`Worktree path is not a directory: ${tree.path}`, "Worktree path is not a directory");
   }
 
   let identity;
@@ -64,14 +70,14 @@ export async function assertWorktreeIdentity(
     identity = await runGit(tree.path, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
     prefix = await runGit(tree.path, ["rev-parse", "--show-prefix"]);
   } catch {
-    throw new WorktreeIdentityError(
+    throw identityFailure(
       `Cannot verify Git identity for worktree at ${tree.path}.`,
       "Cannot inspect worktree; check Git metadata and access",
     );
   }
   if (identity.exitCode !== 0 || prefix.exitCode !== 0 || prefix.stdout !== "" ||
       resolve(identity.stdout) !== resolve(repository.commonGitDir)) {
-    throw new WorktreeIdentityError(
+    throw identityFailure(
       `Worktree at ${tree.path} no longer identifies this repository.`,
       "Path no longer identifies this Git worktree",
     );
@@ -81,13 +87,13 @@ export async function assertWorktreeIdentity(
   try {
     gitDirectory = await runGit(tree.path, ["rev-parse", "--absolute-git-dir"]);
   } catch {
-    throw new WorktreeIdentityError(
+    throw identityFailure(
       `Cannot verify Git metadata for worktree at ${tree.path}.`,
       "Cannot inspect worktree; check Git metadata and access",
     );
   }
   if (gitDirectory.exitCode !== 0) {
-    throw new WorktreeIdentityError(
+    throw identityFailure(
       `Cannot verify Git metadata for worktree at ${tree.path}.`,
       "Cannot inspect worktree; check Git metadata and access",
     );
@@ -100,13 +106,13 @@ export async function assertWorktreeIdentity(
       : resolve((await readFile(join(gitDirectory.stdout, "gitdir"), "utf8")).replace(/\r?\n$/, "")) ===
         resolve(tree.path, ".git");
   } catch {
-    throw new WorktreeIdentityError(
+    throw identityFailure(
       `Cannot verify Git metadata for worktree at ${tree.path}.`,
       "Cannot inspect worktree; check Git metadata and access",
     );
   }
   if (!matchesWorktree) {
-    throw new WorktreeIdentityError(
+    throw identityFailure(
       `Git metadata for worktree at ${tree.path} belongs to a different path.`,
       "Git metadata belongs to a different worktree path",
     );
