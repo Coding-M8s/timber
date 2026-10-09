@@ -66,19 +66,35 @@ timber done my-feature
 
 Timber reads `.timber.toml` from the primary worktree root. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent settings can be configured and retained in 0.1, but launching remains deferred to 0.2. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
 
+Editor opening stays off when `[editor]` is absent. When a `new` or `open` workflow selects a worktree, Timber starts the configured editor after the required Git work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
+
+### Zed
+
 ```toml
 base_branch = "main"
 worktree_dir = "../timber-worktrees"
 
 [editor]
 command = "zed"
-args = ["--wait"]
+args = ["--new"]
 
 [agent]
 enabled = false
 command = "claude"
 args = []
 ```
+
+### Visual Studio Code
+
+Use this `[editor]` table instead when you want Visual Studio Code:
+
+```toml
+[editor]
+command = "code"
+args = ["--new-window"]
+```
+
+Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree and prints a safe retry command such as `timber open -- '<worktree path>'`. Fix the editor command or `PATH`, then run that command to reopen the existing worktree; the retry does not create another one. An editor startup failure does not undo completed Git/setup work.
 
 ## Release scope
 

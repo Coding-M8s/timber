@@ -13,8 +13,8 @@
 11. Delete a local branch only when its commits are contained in the validated base. `--keep-branch` permits clean, safely published worktree removal without requiring branch merge. If squash/rebase merging prevents proving ancestry, retain the branch or explain the refusal; do not infer safety from a closed PR.
 12. No destructive `--force` in 0.1. No remote branch deletion, automatic stash, or implicit process killing.
 13. Automatic cleanup must account for ignored files: preserve a worktree when ignored content exists unless the user explicitly chooses `--discard-ignored`. Explain this requirement for common ignored files such as `.env`. Do not silently erase them.
-14. Editors default to off until configured. Support `--no-editor`. Agent settings are parsed and retained in 0.1; launching remains 0.2. When implemented, launching is opt-in, follows the editor, and owns the invoking terminal.
-15. CLI success means required Git/setup work completed. If editor/agent launch fails after creation, retain the workspace and explain how to retry.
+14. Editors default to off until configured. Support `--no-editor`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2. When implemented, agent launching is opt-in, follows the editor, and owns the invoking terminal.
+15. CLI success means required Git/setup work completed. If editor/agent startup fails after creation, retain the workspace and explain how to retry. Editor launch success is process startup only: Timber returns promptly and does not report a later nonzero editor exit, even when editor args include `--wait`.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
 
 ## Repository configuration
@@ -32,7 +32,7 @@ worktree_dir = "../timber-worktrees"
 
 [editor]
 command = "zed"
-args = ["--wait"]
+args = ["--new"]
 
 [agent]
 enabled = false
@@ -40,4 +40,12 @@ command = "claude"
 args = []
 ```
 
-Editor and agent commands are executable names plus argument arrays, never shell command strings. Trusted shell hooks, when implemented, receive context through environment variables; do not substitute branch names or ticket text into shell source.
+An alternative for Visual Studio Code is:
+
+```toml
+[editor]
+command = "code"
+args = ["--new-window"]
+```
+
+The editor executable must be available on `PATH` or configured by absolute path. Editor and agent commands are executable names plus argument arrays, never shell command strings. Pass editor arguments literally and append the absolute selected worktree path as the final argument. On startup failure after worktree creation, retain the worktree and provide a retry command of the form `timber open -- '<absolute-worktree-path>'`; retry opens the existing worktree after the user fixes the editor configuration or `PATH`. The retry string is display text and must not be executed internally. Trusted shell hooks, when implemented, receive context through environment variables; do not substitute branch names or ticket text into shell source.
