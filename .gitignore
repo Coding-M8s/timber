@@ -1,0 +1,21 @@
+# TypeScript / Bun
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+*.log
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+.timber.toml
+.timber.local.toml
+*.pem
+*.key
+credentials.json
+# Local editor and operating system state
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
