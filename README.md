@@ -5,6 +5,7 @@ A small CLI for creating, opening, listing, and safely cleaning up Git worktrees
 `new` creates a branch and linked worktree; `ls` lists the repository's worktrees.
 `open` and `done` remain explicit placeholders that exit nonzero without changing
 Git or files. Their worktree operations land in TIM-13 and TIM-15.
+`ls` lists the repository's worktrees, and `open` reuses an existing worktree or creates one for a resolved existing branch. `new` and `done` remain explicit placeholders until their assigned tickets land.
 
 ## Development
 
@@ -60,6 +61,10 @@ and bundled help on Ubuntu x86_64. Other platforms are not verified.
 ```bash
 timber new my-feature
 timber open my-feature
+timber open origin/my-feature
+timber open TIM-42
+timber open "/absolute/path/to/my-feature-worktree"
+timber open my-feature --no-editor
 timber ls
 timber done my-feature
 ```
@@ -86,6 +91,31 @@ editor startup fails, Timber reports the retained workspace and a
 `timber open -- '<absolute-worktree-path>'` retry command, and exits nonzero.
 `open` remains a TIM-13 placeholder in this checkout; until it lands, open the
 retained path with your editor directly after fixing its configuration.
+### Open a branch or worktree
+
+`timber open <input>` opens a registered worktree when the input identifies one.
+Otherwise it resolves an exact local branch, then an exact remote branch, and
+then a unique ticket prefix at a delimiter boundary such as `TIM-42-...` or
+`TIM-42_...`. An absolute path must identify a registered worktree. If a ticket
+prefix matches multiple branches or worktrees, Timber prints every exact
+selector and asks you to run `open` again with one of them. An unknown input
+returns an error; `open` never invents a branch.
+
+An explicit remote such as `origin/my-feature` selects that remote even when a
+local branch has the same name. Unqualified remote branches use `remote` from
+`.timber.toml`, or the only configured Git remote when there is exactly one.
+Otherwise Timber reports ambiguity. Branch discovery reads Git's cached refs;
+an unseen remote branch must be fetched before it can be selected. When Timber
+creates a worktree from a remote branch, it refreshes only that selected remote
+branch first. Refresh failures remain errors and leave the selected branch
+uncreated. An already registered worktree opens offline, including a dirty or
+locked worktree; Timber preserves its contents and Git state.
+
+When an existing local or remote branch has no worktree, `open` creates one at
+the configured `worktree_dir` or at the default sibling path
+`../<repository-name>-worktrees/<safe-branch-slug>`. Relative
+`worktree_dir` values resolve from the primary repository root, even when
+`open` runs from a nested directory or linked worktree.
 
 ### List worktrees
 
@@ -110,7 +140,7 @@ refresh the index, open an editor, launch an agent, or change files or refs.
 
 Timber reads `.timber.toml` from the primary worktree root. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent settings can be configured and retained in 0.1, but launching remains deferred to 0.2. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
 
-Editor opening stays off when `[editor]` is absent. When a `new` or `open` workflow selects a worktree, Timber starts the configured editor after the required Git work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
+Editor opening stays off when `[editor]` is absent. When `open` selects or creates a worktree, Timber starts the configured editor after the required Git work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
 
 ### Zed
 
@@ -138,7 +168,7 @@ command = "code"
 args = ["--new-window"]
 ```
 
-Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree and prints a safe retry command such as `timber open -- '<worktree path>'`. Fix the editor command or `PATH`, then run that command to reopen the existing worktree; the retry does not create another one. An editor startup failure does not undo completed Git/setup work.
+Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree, reports the problem on stderr, and prints a safe retry command such as `timber open -- '<worktree path>'`. Since Git work completed, the command still succeeds. Fix the editor command or `PATH`, then run that command to reopen the existing worktree; the retry does not create another one.
 
 ## Release scope
 
