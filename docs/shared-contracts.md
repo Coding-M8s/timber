@@ -1,9 +1,9 @@
 # Shared TypeScript contracts
 
-TIM-11 establishes `src/types.ts` and `src/services.ts` against
-[the behavioral contract](cli-contract.md). They define interfaces, not a Git
-engine or implemented worktree commands. Changes that would break another lane
-need a reviewed contract change first.
+TIM-11 established `src/types.ts` and `src/services.ts` against
+[the behavioral contract](cli-contract.md). The service table below records
+which tickets implement each seam. Changes that would break another lane need
+a reviewed contract change first.
 
 ## Modules and ownership
 
@@ -88,18 +88,50 @@ and `enabled` defaults to `false`. TIM-6 parses and retains this setting in 0.1;
 TIM-9 owns launching in 0.2. No agent launches from config loading, and this shape
 does not create a provider framework. Hooks and Jira remain 0.2 integrations.
 
-`CleanupInspection` is explanatory evidence, not deletion authority. Publication
-and ancestry each distinguish known from unknown. Mutation must recheck status,
-primary identity and commit evidence at the point of removal; an earlier inspection
-can become stale. Refuse dirty/untracked content. Refuse ignored content unless
-`discardIgnored` is explicit, including `.env`. Unpublished or unknown publication
-blocks removal unless the validated base contains all branch commits. Deleting a
-local branch always requires base containment. `keepBranch` only skips branch
-deletion; it bypasses no worktree preservation check. Squash/rebase or closed PR
-metadata never proves ancestry. Refuse locks or stale/unknown filesystem state
-when safety cannot be proven. There is no force, remote deletion, stash or process
-killing seam. Return `CleanupResult` only after completed operations; partial
-failures must explain retained/removed state through an actionable error.
+`src/git/cleanup.ts` implements `inspectCleanup` and `cleanupWorktree` for
+TIM-5. The user-facing `done` command remains a TIM-15 placeholder until that
+ticket wires the services. `CleanupInspection` is explanatory evidence, not
+deletion authority. Publication and ancestry each distinguish known from
+unknown. Inspection reads current worktree status and ancestry against the
+validated base. It checks the configured upstream's live branch tip; cached
+remote-tracking refs alone do not prove publication. Inspection does not fetch
+or update tracking refs. Missing, inaccessible, ambiguous, or locally
+unavailable upstream evidence remains unknown. An invalid or ambiguous base
+also remains unknown.
+
+Mutation obtains new evidence, then rechecks target identity, status, lock,
+branch/head, and validated-base ref/commit immediately before removal. When
+removal depends on live publication rather than validated-base containment,
+publication is rechecked after those final local reads and immediately before
+crossing Git's remove boundary. Modified or untracked content always blocks
+removal. Ignored content, including `.env`, blocks removal unless
+`discardIgnored` is explicit. Unpublished or unknown publication blocks removal
+unless the target commit is contained in the validated base. The target branch
+must not be the validated base: self-containment against that tip is
+tautological and never authorizes cleanup. A detached worktree has no
+publication or local-branch evidence; it can be removed only when its commit is
+contained in the validated base. `keepBranch` skips branch deletion only and
+permits a clean published but unmerged worktree to be removed while its local
+branch stays. Squash/rebase or closed PR metadata never proves ancestry.
+
+Local branch deletion always requires validated-base containment and never
+deletes the validated base ref itself. After the worktree is removed, TIM-5
+rechecks the direct local ref, expected commit OID, base, ancestry, and
+worktree inventory, then conditionally deletes only the unchanged local ref.
+If another worktree checks out the branch in the inventory-to-delete gap,
+cleanup restores the tip and retains the branch. It never deletes a remote
+branch. If removal succeeds but branch deletion or its verification fails, the
+service rejects with the observed removed path and retained or unknown branch
+state. Filesystem removal and ref deletion cannot share one Git transaction. A
+concurrent write after the final status read but before Git removes the
+worktree is an unavoidable window: Git's non-force guard catches new modified
+or untracked files, but an ignored file created in that gap can be removed with
+the worktree. A concurrent remote tip rewrite after the final publication
+recheck can still permit `keepBranch` worktree removal while the local branch
+remains. A concurrent branch or base change after removal can leave the
+worktree gone while the local branch remains. There is no force bypass, remote
+deletion, stash, or process killing seam. `CleanupResult` is returned only
+after all requested operations are verified.
 
 Service promises reject on operational failures; errors must be actionable and
 safe to print (no credentials, config dumps or secret subprocess output). Expected

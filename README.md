@@ -115,6 +115,18 @@ the configured `worktree_dir` or at the default sibling path
 `worktree_dir` values resolve from the primary repository root, even when
 `open` runs from a nested directory or linked worktree.
 
+### Cleanup services
+
+TIM-5 implements the `inspectCleanup` and `cleanupWorktree` services that
+prepare safe cleanup. They preserve modified and untracked work, require
+`discardIgnored` for ignored content such as `.env`, and use live upstream or
+validated-base ancestry evidence before removal. `keepBranch` permits removal
+of a clean, published but unmerged worktree while retaining its local branch.
+Deleting a local branch always requires proof that its commits are contained in
+the validated base, and never treats the target branch as its own validated base.
+The `done` command remains a placeholder until TIM-15 wires these services into
+the CLI.
+
 ### List worktrees
 
 Run `timber ls` (or `bun run dev ls`) from any nested directory in the primary
