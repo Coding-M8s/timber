@@ -6,8 +6,37 @@ A small CLI for creating, opening, listing, and safely cleaning up Git worktrees
 
 ## Development
 
-Use Bun **1.4.2** (pinned in `.bun-version`) on Linux x86_64. Git is required for
-future worktree operations. Node is not required to run the CLI through Bun.
+Each developer needs Bun **1.4.2** (pinned in `.bun-version` and `package.json`)
+and Git on their `PATH`. The version declarations do not install Bun. Linux
+x86_64 is the verified development target; Node and Docker are not required.
+
+### Install prerequisites
+
+On Ubuntu/Debian, install Git and the utilities needed by Bun's installer:
+
+```bash
+sudo apt update
+sudo apt install git curl unzip
+```
+
+On other Linux distributions, install those packages with your distribution's
+package manager. Install the pinned Bun version using the
+[official Bun installer](https://bun.com/docs/installation):
+
+```bash
+curl -fsSL https://bun.com/install | bash -s "bun-v1.4.2"
+export PATH="$HOME/.bun/bin:$PATH"
+bun --version # expected: 1.4.2
+git --version
+```
+
+For Bash, add `export PATH="$HOME/.bun/bin:$PATH"` to `~/.bashrc` so new terminals
+can find Bun; use the equivalent startup file for your shell. Restart any running
+development or agent terminal after changing its environment.
+
+### Install dependencies and verify
+
+From the repository root:
 
 ```bash
 bun install --frozen-lockfile

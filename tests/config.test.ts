@@ -107,6 +107,30 @@ test("preserves an absolute worktree_dir", async () => {
   }
 });
 
+test("preserves surrounding whitespace in editor and agent executable paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber config "));
+  try {
+    await writeFile(join(root, ".timber.toml"), '[editor]\ncommand = " /tmp/editor "\n[agent]\ncommand = " /tmp/agent "\n');
+    const config = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }));
+    expect(config.editor?.command).toBe(" /tmp/editor ");
+    expect(config.agent?.command).toBe(" /tmp/agent ");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const section of ["", "editor", "agent"]) {
+  test(`reports each unsupported key separately in ${section || "root"}`, async () => {
+    const prefix = section === "" ? "" : `${section}.`;
+    const source = section === "" ? "" : `[${section}]\ncommand = "tool"\n`;
+    await expectConfigError(
+      `${source}foo = "SECRET_MARKER"\nbar = "SECRET_MARKER"\n`,
+      `${prefix}foo is not supported; ${prefix}bar is not supported`,
+      "SECRET_MARKER",
+    );
+  });
+}
+
 test("preserves surrounding spaces in worktree_dir", async () => {
   const root = await mkdtemp(join(tmpdir(), "timber config "));
   const relative = " worktrees ";
@@ -140,10 +164,12 @@ for (const example of [
   { source: "worktree_dir = 77777", field: "worktree_dir", value: "77777" },
   { source: 'worktree_dir = " "', field: "worktree_dir", value: "" },
   { source: '[editor]\ncommand = ""', field: "editor.command", value: "" },
+  { source: '[editor]\ncommand = " "', field: "editor.command", value: "" },
   { source: '[editor]\ncommand = "zed"\nargs = "--wait"', field: "editor.args", value: "--wait" },
   { source: '[editor]\ncommand = "zed"\nargs = [77777]', field: "editor.args", value: "77777" },
   { source: '[agent]\ncommand = "claude"\nenabled = 77777', field: "agent.enabled", value: "77777" },
   { source: '[agent]\nenabled = false', field: "agent.command", value: "false" },
+  { source: '[agent]\ncommand = " "', field: "agent.command", value: "" },
   { source: 'api_token = "SECRET_MARKER"', field: "api_token", value: "SECRET_MARKER" },
   { source: '[agent]\ncommand = "claude"\ntoken = "SECRET_MARKER"', field: "token", value: "SECRET_MARKER" },
 ]) {

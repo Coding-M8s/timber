@@ -13,7 +13,7 @@ const defaults: RepositoryConfig = {
 };
 
 const executableSchema = z.strictObject({
-  command: z.string().trim().min(1),
+  command: z.string().refine(value => value.trim().length > 0),
   args: z.array(z.string()).default([]),
 });
 
@@ -23,7 +23,7 @@ const configFileSchema = z.strictObject({
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
   editor: executableSchema.optional(),
   agent: z.strictObject({
-    command: z.string().trim().min(1),
+    command: z.string().refine(value => value.trim().length > 0),
     args: z.array(z.string()).default([]),
     enabled: z.boolean().default(false),
   }).optional(),
@@ -49,11 +49,15 @@ export async function loadRepositoryConfig(repository: RepositoryContext): Promi
 
   const result = configFileSchema.safeParse(input);
   if (!result.success) {
-    const details = result.error.issues.map(issue => {
-      const path = issue.code === "unrecognized_keys" ? [...issue.path, ...issue.keys] : issue.path;
-      const field = path.map(String).join(".") || "<root>";
+    const details = result.error.issues.flatMap(issue => {
+      const paths = issue.code === "unrecognized_keys"
+        ? issue.keys.map(key => [...issue.path, key])
+        : [issue.path];
       const problem = issue.code === "unrecognized_keys" ? "is not supported" : "is invalid";
-      return `${field} ${problem}`;
+      return paths.map(path => {
+        const field = path.map(String).join(".") || "<root>";
+        return `${field} ${problem}`;
+      });
     });
     throw new Error(`Invalid repository config ${configPath}: ${details.join("; ")}`);
   }
