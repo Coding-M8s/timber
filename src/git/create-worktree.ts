@@ -86,11 +86,7 @@ export async function createWorktree(
   if (within(physicalRoot, primary) || within(await physicalPath(path), primary)) {
     throw new Error(`Worktree directory would target the primary repository: ${root}`);
   }
-  if (await exists(path)) throw new Error(`Worktree path already exists: ${path}. Choose another branch or worktree directory.`);
-
   const trees = await listWorktrees(repository);
-  const occupied = trees.find(tree => tree.path === path);
-  if (occupied) throw new Error(`Worktree path is already registered in Git: ${path}. Inspect the existing worktree before retrying.`);
   const checkedOut = trees.find(tree => tree.branch === name);
   if (checkedOut) throw new Error(`Branch ${name} is already checked out at ${checkedOut.path}. Use timber open instead.`);
 
@@ -102,6 +98,9 @@ export async function createWorktree(
   } else if (await refExists(repository, localRef)) {
     throw new Error(`Branch ${name} already exists. Use timber open instead.`);
   }
+  if (await exists(path)) throw new Error(`Worktree path already exists: ${path}. Choose another branch or worktree directory.`);
+  const occupied = trees.find(tree => tree.path === path);
+  if (occupied) throw new Error(`Worktree path is already registered in Git: ${path}. Inspect the existing worktree before retrying.`);
 
   if (request.kind === "remote") await refreshRemoteBranch(repository, request.branch);
   await mkdir(physicalRoot, { recursive: true });
