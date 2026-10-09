@@ -7,13 +7,13 @@ const cli = (...args: string[]) => execa(process.execPath, [entry, ...args], {
   reject: false, timeout: 5_000, env: { CI: "true" },
 });
 
-test("help succeeds on stdout and distinguishes implemented commands from placeholders", async () => {
+test("help succeeds on stdout and describes all implemented commands", async () => {
   const result = await cli("--help");
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("Usage: timber");
   for (const name of ["new", "open", "ls", "done"]) expect(result.stdout).toContain(name);
-  expect(result.stdout.match(/placeholder/g)?.length).toBe(1);
+  expect(result.stdout).not.toContain("placeholder");
   expect(result.stdout).toContain("Open an existing branch or worktree");
 });
 
@@ -24,24 +24,18 @@ test("no arguments displays help without waiting for input", async () => {
   expect(result.stderr).toBe("");
 });
 
-for (const [command, args, ticket] of [
-  ["done", ["feature"], "TIM-15"],
-] as const) {
-  test(`${command} placeholder fails honestly without claiming success`, async () => {
-    const result = await cli(command, ...args);
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("not implemented");
-    expect(result.stderr).toContain(ticket);
-    expect(result.stderr).not.toContain(" at ");
-  });
-  test(`${command} help succeeds`, async () => {
-    const result = await cli(command, "--help");
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("placeholder");
-  });
-}
+test("done help describes safe cleanup and explicit preservation options", async () => {
+  const result = await cli("done", "--help");
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("Safely remove a linked worktree");
+  expect(result.stdout).toContain("when permitted");
+  expect(result.stdout).toContain("--keep-branch");
+  expect(result.stdout).toMatch(/published.*unmerged|unmerged.*published/i);
+  expect(result.stdout).toContain("--discard-ignored");
+  expect(result.stdout).not.toContain("--force");
+  expect(result.stdout).not.toContain("placeholder");
+});
 
 test("new help describes implemented command and supported options", async () => {
   const result = await cli("new", "--help");

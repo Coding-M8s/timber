@@ -89,9 +89,16 @@ TIM-9 owns launching in 0.2. No agent launches from config loading, and this sha
 does not create a provider framework. Hooks and Jira remain 0.2 integrations.
 
 `src/git/cleanup.ts` implements `inspectCleanup` and `cleanupWorktree` for
-TIM-5. The user-facing `done` command remains a TIM-15 placeholder until that
-ticket wires the services. `CleanupInspection` is explanatory evidence, not
-deletion authority. Publication and ancestry each distinguish known from
+TIM-5. TIM-15's `createDoneHandler` reuses `resolveOpenTarget` with openability
+checks disabled, rejects unchecked branches and the primary worktree, and
+delegates fresh safety checks and mutations to `cleanupWorktree`. It never
+creates a worktree or launches an editor or agent. Ambiguity lists distinct
+worktree paths and branch refs without guessing and asks for an exact branch
+name or absolute worktree path; success output comes only from a verified
+`CleanupResult`, including `deletedLocalBranch` or `retainedLocalBranch`. `CleanupInspection` is explanatory evidence, not
+deletion authority. Refusals identify affected file paths and commit OIDs or
+explain missing publication and ancestry evidence, without exposing file contents.
+Publication and ancestry each distinguish known from
 unknown. Inspection reads current worktree status and ancestry against the
 validated base. It checks the configured upstream's live branch tip; cached
 remote-tracking refs alone do not prove publication. Inspection does not fetch
