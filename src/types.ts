@@ -62,12 +62,18 @@ export interface ExecutableCommand {
 }
 
 /** Normalized 0.1 configuration. Relative paths resolve from primaryWorktreeRoot. */
+export interface AgentConfig extends ExecutableCommand {
+  enabled: boolean;
+}
+
 export interface RepositoryConfig {
   baseBranch: string | null;
   remote: string | null;
   worktreeDir: string | null;
   /** Null means off; no default executable. */
   editor: ExecutableCommand | null;
+  /** Parsed in 0.1, but launched only starting in 0.2. */
+  agent: AgentConfig | null;
 }
 
 export type OpenTarget =
