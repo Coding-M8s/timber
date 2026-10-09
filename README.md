@@ -33,6 +33,24 @@ timber ls
 timber done my-feature
 ```
 
+## Repository configuration
+
+Timber reads `.timber.toml` from the primary worktree root. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent settings can be configured and retained in 0.1, but launching remains deferred to 0.2. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
+
+```toml
+base_branch = "main"
+worktree_dir = "../timber-worktrees"
+
+[editor]
+command = "zed"
+args = ["--wait"]
+
+[agent]
+enabled = false
+command = "claude"
+args = []
+```
+
 ## Release scope
 
 - **0.1 — Worktree CLI:** repository discovery, local/remote branch resolution, four commands, repository configuration, optional editor opening, conservative cleanup.

@@ -59,11 +59,16 @@ unknown status must not appear clean. Missing/stale rows must remain visible.
 
 `RepositoryConfig` is the normalized 0.1 shape. Null base/remote/worktree directory
 means absent and requires the documented resolution/default policy. Null editor
-means off. TOML keys such as `base_branch` map to `baseBranch`; loading/validation
-belongs to TIM-6. Only `--no-editor` produces `editor: false` in command options;
-omission leaves that property absent, deferring to configuration. Editor commands
-are executable names plus argument arrays. Hooks, agents and Jira are 0.2 work and
-are not activated or modeled as a provider framework here.
+means off. TOML keys such as `base_branch` map to `baseBranch`; loading and strict
+validation belong to TIM-6. Only `--no-editor` produces `editor: false` in command
+options; omission leaves that property absent, deferring to configuration. Editor
+commands are executable names plus argument arrays.
+
+`RepositoryConfig.agent` is `AgentConfig | null`. When `[agent]` is present, its
+non-empty executable `command` is required, `args` defaults to a string array `[]`,
+and `enabled` defaults to `false`. TIM-6 parses and retains this setting in 0.1;
+TIM-9 owns launching in 0.2. No agent launches from config loading, and this shape
+does not create a provider framework. Hooks and Jira remain 0.2 integrations.
 
 `CleanupInspection` is explanatory evidence, not deletion authority. Publication
 and ancestry each distinguish known from unknown. Mutation must recheck status,

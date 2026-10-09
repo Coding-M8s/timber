@@ -122,7 +122,7 @@ Write this contract to `docs/cli-contract.md` during setup so the developers can
 15. CLI success means required Git/setup work completed. If editor/agent launch fails after creation, retain the workspace and explain how to retry.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
 
-Example configuration; hook and agent sections become active in 0.2:
+The 0.1 `.timber.toml` schema is strict and accepts `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`. The file is read only from the primary worktree root; relative worktree paths resolve against it. Editor and agent commands are executable names plus argument arrays, never shell strings. The `[agent]` table requires `command`, defaults `args` to `[]` and `enabled` to `false`, and is retained in 0.1; launch behavior remains in 0.2. Hooks and Jira are not supported config keys in 0.1. Keep secrets outside repository config.
 
 ```toml
 base_branch = "main"
@@ -131,22 +131,15 @@ worktree_dir = "../my-repo-worktrees"
 
 [editor]
 command = "zed"
-args = []
+args = ["--wait"]
 
 [agent]
 enabled = false
 command = "claude"
 args = []
-
-[hooks]
-post_create = ["cp \"$TIMBER_REPO/.env\" .env"]
-
-[jira]
-url = "https://example.atlassian.net"
-project = "ABU"
 ```
 
-Editor/agent commands are executable names plus argument arrays, not shell strings. Hooks deliberately run trusted shell commands and receive context through environment variables. Do not substitute branch names or ticket text directly into shell source. Secrets stay outside repository config.
+Trusted shell hooks, when implemented, receive context through environment variables. Do not substitute branch names or ticket text directly into shell source.
 
 ## 3. Initialize the repository
 
@@ -350,12 +343,12 @@ Use each section below as the corresponding issue body, adding its metadata from
 **Scope:** `.timber.toml` at the primary repository root, schema validation, defaults, and CLI overrides. Global config is deferred.
 
 **Acceptance criteria:**
-- [ ] Config loads identically from the primary repo, nested directories, and linked worktrees.
-- [ ] Explicit CLI values override config; config overrides documented defaults.
-- [ ] Relative worktree paths resolve against the primary root.
-- [ ] Malformed TOML and invalid values identify the failing file/field.
+- [ ] Read only `.timber.toml` at the primary root; load it identically from the primary repo, nested directories, and linked worktrees. A missing file returns documented defaults.
+- [ ] Strictly validate `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`; reject unsupported keys and invalid values with file/field diagnostics that do not print config values.
+- [ ] Explicit CLI values override config; config overrides documented defaults. Relative worktree paths resolve against the primary root.
+- [ ] Editor and agent `command` values are non-empty executable names; `args` is a string array defaulting to `[]`.
+- [ ] Parse and retain `[agent]` in 0.1 with boolean `enabled` defaulting to `false`; do not launch agents in TIM-6 (launching belongs to TIM-9 in 0.2).
 - [ ] Secrets are not stored in config; absent config requires no external services.
-- [ ] Editor/agent entries use executable names and argument arrays.
 
 **Verification:** Focused parser tests for precedence, relative paths, invalid values, and missing config.
 
@@ -473,8 +466,9 @@ Use each section below as the corresponding issue body, adding its metadata from
 **Scope:** Small interactive command launcher for Claude and Codex; no API subscription management.
 
 **Acceptance criteria:**
-- [ ] Launch is opt-in via config or CLI; documented disabling works.
-- [ ] Agent inherits the invoking terminal and worktree cwd.
+- [ ] Consume the validated `RepositoryConfig.agent` from TIM-6; launch is opt-in via its `enabled` setting or an explicit CLI choice, and documented disabling works.
+- [ ] Pass the configured executable and each argument separately, without shell interpolation.
+- [ ] Agent inherits the invoking terminal and selected worktree cwd.
 - [ ] Editor launches first; agent invocation follows successful setup.
 - [ ] Missing executables fail clearly without removing the workspace.
 - [ ] Interrupts and exit codes are handled; no orphan background agent is started.

@@ -13,32 +13,31 @@
 11. Delete a local branch only when its commits are contained in the validated base. `--keep-branch` permits clean, safely published worktree removal without requiring branch merge. If squash/rebase merging prevents proving ancestry, retain the branch or explain the refusal; do not infer safety from a closed PR.
 12. No destructive `--force` in 0.1. No remote branch deletion, automatic stash, or implicit process killing.
 13. Automatic cleanup must account for ignored files: preserve a worktree when ignored content exists unless the user explicitly chooses `--discard-ignored`. Explain this requirement for common ignored files such as `.env`. Do not silently erase them.
-14. Editors default to off until configured. Support `--no-editor`. Agent launching is opt-in; editor opens first and the agent then owns the invoking terminal.
+14. Editors default to off until configured. Support `--no-editor`. Agent settings are parsed and retained in 0.1; launching remains 0.2. When implemented, launching is opt-in, follows the editor, and owns the invoking terminal.
 15. CLI success means required Git/setup work completed. If editor/agent launch fails after creation, retain the workspace and explain how to retry.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
 
-Example configuration; hook and agent sections become active in 0.2:
+## Repository configuration
+
+Read only `.timber.toml` from the primary worktree root. Do not search nested or linked-worktree directories, the caller's current directory, or global config. A missing file uses the defaults below; unknown keys and invalid values are errors. Global config is deferred.
+
+The supported 0.1 keys are `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2.
+
+Explicit CLI values take precedence over config, and config takes precedence over documented service defaults. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira settings are not supported config keys in 0.1.
 
 ```toml
 base_branch = "main"
 remote = "origin"
-worktree_dir = "../my-repo-worktrees"
+worktree_dir = "../timber-worktrees"
 
 [editor]
 command = "zed"
-args = []
+args = ["--wait"]
 
 [agent]
 enabled = false
 command = "claude"
 args = []
-
-[hooks]
-post_create = ["cp \"$TIMBER_REPO/.env\" .env"]
-
-[jira]
-url = "https://example.atlassian.net"
-project = "ABU"
 ```
 
-Editor/agent commands are executable names plus argument arrays, not shell strings. Hooks deliberately run trusted shell commands and receive context through environment variables. Do not substitute branch names or ticket text directly into shell source. Secrets stay outside repository config.
+Editor and agent commands are executable names plus argument arrays, never shell command strings. Trusted shell hooks, when implemented, receive context through environment variables; do not substitute branch names or ticket text into shell source.
