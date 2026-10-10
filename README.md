@@ -216,7 +216,9 @@ The primary worktree is always protected.
 
 By default, Timber removes the linked worktree **including ignored files and
 folders such as `.env`, `node_modules`, and build output**, then deletes its local
-branch when Git proves its changes are integrated into the validated base.
+branch when Git proves its commits are preserved either on the live upstream or
+in the validated base. This supports cleaning up an unmerged review checkout;
+no separate review flag is required, and the remote branch and PR stay untouched.
 Modified and untracked files always block cleanup. The base uses the primary
 checkout's `.timber.toml` and the normal base selection policy. Timber checks
 fresh Git state immediately before removal.
@@ -227,12 +229,19 @@ the validated base. This works after the feature's remote branch has been
 deleted, or while offline, when the necessary commits are available locally.
 If the base is stale, fetch it explicitly before retrying. A closed PR alone is
 not proof. Custom merge drivers, conflicting changes, unsupported Git versions,
-or an unavailable proof cannot authorize branch deletion. Virtual merges may
+or an unavailable proof cannot authorize deletion through the integration path. Virtual merges may
 write unreachable Git objects; they do not change files, the index, or refs.
 
-`--keep-branch` retains the local branch. It also permits removal of a clean,
-published but unmerged worktree; that path requires live upstream evidence.
-Cached remote-tracking refs alone do not prove publication. A detached worktree
+For published review work, Timber verifies every local commit is reachable from
+the live upstream, rechecks that evidence before removing the worktree, then
+checks again before deleting the local branch. A deleted or unreachable upstream,
+or a rewrite that no longer preserves all local commits, blocks this path.
+Unverifiable publication also blocks cleanup. If publication becomes unproven after
+worktree removal, Timber retains the local branch and reports the partial result.
+A missing creation base does not block cleanup when publication is proven.
+
+`--keep-branch` retains the local branch. Cached remote-tracking refs alone do not
+prove publication. A detached worktree
 can be removed by absolute path only when its commit is contained in the base.
 
 `--keep-ignored` refuses cleanup when ignored files exist. The worktree, branch,

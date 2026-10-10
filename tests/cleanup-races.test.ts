@@ -39,6 +39,17 @@ const wrapperSource = [
   'esac',
   'if [ "$1" = worktree ] && [ "$2" = remove ]; then',
   '  case "$TIMBER_RACE_ACTION" in',
+  '    rewrite-remote-after-remove|delete-remote-after-remove)',
+  '      "$TIMBER_REAL_GIT" "$@"',
+  '      remove_status=$?',
+  '      if [ "$remove_status" -eq 0 ]; then',
+  '        if [ "$TIMBER_RACE_ACTION" = rewrite-remote-after-remove ]; then',
+  '          "$TIMBER_REAL_GIT" -C "$TIMBER_RACE_REMOTE" update-ref "refs/heads/$TIMBER_RACE_REMOTE_BRANCH" "$TIMBER_RACE_REMOTE_OID"',
+  '        else',
+  '          "$TIMBER_REAL_GIT" -C "$TIMBER_RACE_REMOTE" update-ref -d "refs/heads/$TIMBER_RACE_REMOTE_BRANCH"',
+  '        fi',
+  '      fi',
+  '      exit "$remove_status" ;;',
   '    fail-remove-before) printf "RAW_WRAPPER_DIAGNOSTIC\\n" >&2; exit 17 ;;',
   '    fail-remove-after) "$TIMBER_REAL_GIT" "$@"; exit 17 ;;',
   '    dirty-at-remove) printf "raced untracked bytes\\n" > "$TIMBER_RACE_TARGET/raced.txt"; exec "$TIMBER_REAL_GIT" "$@" ;;',
@@ -408,7 +419,7 @@ test("branch checked out in the inventory-to-delete gap is restored and retained
   });
 });
 
-test("cleanup rechecks live publication after the final local safety read", async () => {
+test.each([false, true])("cleanup rechecks live publication after final local safety reads with keepBranch=%s", async keep => {
   await withRepository(async (primary, directory) => {
     const path = join(directory, "final publication linked");
     await addTarget(primary, path, "feature/final-publication");
@@ -426,7 +437,7 @@ test("cleanup rechecks live publication after the final local safety read", asyn
       TIMBER_RACE_REMOTE_BRANCH: "feature/final-publication",
       TIMBER_RACE_REMOTE_OID: base,
       TIMBER_RACE_STATUS_MARKER: join(directory, "race status marker final-publication"),
-    }, keepBranch);
+    }, keep ? keepBranch : noDiscard);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toMatch(/publication|unpublished|upstream/i);
     expect(await isAbsent(path)).toBe(false);
@@ -434,5 +445,33 @@ test("cleanup rechecks live publication after the final local safety read", asyn
     expect(await refs(primary)).toBe(refsBefore);
     expect(await git(remote, "rev-parse", "refs/heads/feature/final-publication")).toBe(base);
     expect(await readFile(join(path, "feature.txt"), "utf8")).toBe("published for final recheck\n");
+  });
+});
+
+test.each(["rewrite", "delete"] as const)("review cleanup retains the local branch if the remote changes after removal: %s", async action => {
+  await withRepository(async (primary, directory) => {
+    const path = join(directory, "review linked");
+    const branch = "feature/review-race";
+    await addTarget(primary, path, branch);
+    const oid = await commitFile(path, "review.txt", "published review\n", "review commit");
+    const remote = await configureRemote(primary, directory, path, branch, "review");
+    const base = await git(primary, "rev-parse", "trunk");
+    const beforeRefs = await refs(primary);
+    const repository = await discoverRepository(primary);
+    const selection = await selectedTree(primary, path);
+    const result = await runWithGitRace(primary, directory, repository, selection, `${action}-remote-after-remove`, {
+      TIMBER_RACE_REMOTE: remote,
+      TIMBER_RACE_REMOTE_BRANCH: branch,
+      TIMBER_RACE_REMOTE_OID: base,
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("worktree was removed");
+    expect(result.stderr).toContain("Live upstream publication could not be reproven");
+    expect(result.stderr).toContain(`retained at ${oid}`);
+    expect(await isAbsent(path)).toBe(true);
+    expect(await branchOid(primary, branch)).toBe(oid);
+    expect(await refs(primary)).toBe(beforeRefs);
+    expect(await git(primary, "show", `${branch}:review.txt`)).toBe("published review");
+    expect(await readFile(join(primary, "tracked.txt"), "utf8")).toBe("original\n");
   });
 });

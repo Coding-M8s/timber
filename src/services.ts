@@ -42,7 +42,7 @@ export interface CommandServices {
    * Ignored content blocks only when discardIgnored is false (--keep-ignored).
    * Base ancestry or content integration can prove publication safety, but the
    * target branch must not be the validated base. Local branch deletion requires
-   * integration; keepBranch skips deletion only. No destructive force, remote
+   * integration or verified live upstream publication; keepBranch skips deletion only. No destructive force, remote
    * deletion, stash, or process killing.
    */
   cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions): Promise<CleanupResult>;
