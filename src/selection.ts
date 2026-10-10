@@ -45,6 +45,8 @@ export function createTerminalChooser(input: Readable, output: Writable): Termin
       readline.close();
     };
     readline.on("SIGINT", cancelOnInterrupt);
+    // In cooked terminal mode, Ctrl-C signals the process rather than readline.
+    process.on("SIGINT", cancelOnInterrupt);
 
     try {
       const lines = readline[Symbol.asyncIterator]();
@@ -85,6 +87,7 @@ export function createTerminalChooser(input: Readable, output: Writable): Termin
         output.write("Invalid choice.\n");
       }
     } finally {
+      process.removeListener("SIGINT", cancelOnInterrupt);
       readline.removeListener("SIGINT", cancelOnInterrupt);
       readline.close();
     }
