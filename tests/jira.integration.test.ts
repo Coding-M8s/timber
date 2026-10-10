@@ -11,7 +11,7 @@ import { createWorktree } from "../src/git/create-worktree";
 import { resolveOpenTarget } from "../src/git/open-target";
 import { discoverRepository } from "../src/git/repository";
 import { runSetup } from "../src/hooks";
-import { resolveJiraTicket, type JiraRuntime } from "../src/jira/client";
+import { findJiraSuggestions, resolveJiraTicket, type JiraRuntime } from "../src/jira/client";
 import type { CommandHandlers } from "../src/services";
 import type { RepositoryContext } from "../src/types";
 import { git, withRepository } from "./helpers/git";
@@ -19,7 +19,133 @@ import { git, withRepository } from "./helpers/git";
 const jiraSite = "https://example.atlassian.net";
 const jiraUrl = `${jiraSite}/browse/ABU-834`;
 
-function jiraHarness(response: () => Response, credentials = true) {
+async function publishRemoteBranches(primary: string, directory: string, names: string[]) {
+  const remote = join(directory, "origin.git");
+  const producer = join(directory, "producer");
+  await git(directory, "clone", "--bare", primary, remote);
+  await git(primary, "remote", "add", "origin", remote);
+  await git(directory, "clone", remote, producer);
+  for (const name of names) {
+    await git(producer, "checkout", "-b", name, "trunk");
+    await writeFile(join(producer, "remote-work.txt"), `Existing work on ${name}\n`);
+    await git(producer, "add", "remote-work.txt");
+    await git(producer, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "-m", "Remote work");
+    await git(producer, "push", "origin", name);
+  }
+  return { remote, producer };
+}
+
+test("open discovers an unfetched remote ticket branch and tracks its commits without Jira", async () => {
+  await withRepository(async (primary, directory) => {
+    await configureJira(primary, ["", "[hooks]", 'post_create = ["touch setup-sentinel.txt"]']);
+    const name = "ABU-834-original-title";
+    const { producer } = await publishRemoteBranches(primary, directory, [name]);
+    const tip = await git(producer, "rev-parse", name);
+    expect(await git(primary, "for-each-ref", "refs/remotes")).toBe("");
+    await writeFile(join(primary, "tracked.txt"), "dirty primary\n");
+    await writeFile(join(primary, ".env"), "ignored primary\n");
+    const harness = jiraHarness(() => successfulIssue("Completely changed title"));
+    const lifecycle = { setup: 0, editor: 0 };
+    const result = await command(primary, handlersFor(harness.runtime, lifecycle), "open", "ABU-834", "--no-editor");
+    const target = join(directory, "primary repo-worktrees", name);
+
+    expect(result).toEqual({ code: 0, stdout: `Created worktree at ${target}\n`, stderr: "" });
+    expect(await git(target, "rev-parse", "HEAD")).toBe(tip);
+    expect(await git(target, "rev-parse", "--symbolic-full-name", "@{upstream}")).toBe(`refs/remotes/origin/${name}`);
+    expect(await readFile(join(target, "remote-work.txt"), "utf8")).toBe(`Existing work on ${name}\n`);
+    expect(await git(primary, "for-each-ref", "refs/heads/ABU-834-completely-changed-title")).toBe("");
+    expect(await readFile(join(primary, "tracked.txt"), "utf8")).toBe("dirty primary\n");
+    expect(await readFile(join(primary, ".env"), "utf8")).toBe("ignored primary\n");
+    expect(lifecycle.setup).toBe(1);
+    expect(harness.requests).toHaveLength(0);
+  });
+});
+
+test("open resumes an exact remote branch without Jira or a usable creation base", async () => {
+  await withRepository(async (primary, directory) => {
+    const name = "feature/existing";
+    const { producer } = await publishRemoteBranches(primary, directory, [name]);
+    await writeFile(join(primary, ".timber.toml"), 'base_branch = "missing"\n');
+    const harness = jiraHarness(() => { throw new Error("Jira must not run"); }, false);
+    const result = await command(primary, handlersFor(harness.runtime), "open", name, "--no-editor");
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(await git(primary, "rev-parse", name)).toBe(await git(producer, "rev-parse", name));
+    expect(harness.requests).toHaveLength(0);
+  });
+});
+
+test("cancelling multiple live remote matches preserves refs, worktrees and user files without fetching", async () => {
+  await withRepository(async (primary, directory) => {
+    await configureJira(primary);
+    await publishRemoteBranches(primary, directory, ["ABU-834-one", "ABU-834-two"]);
+    await writeFile(join(primary, "tracked.txt"), "dirty primary\n");
+    await writeFile(join(primary, "untracked.txt"), "untracked primary\n");
+    await writeFile(join(primary, ".env"), "ignored primary\n");
+    const root = join(directory, "primary repo-worktrees");
+    const snapshot = () => gitState(primary, primary, join(primary, "tracked.txt"),
+      [join(primary, "untracked.txt"), join(primary, ".env")], [root]);
+    const before = await snapshot();
+    const harness = jiraHarness(() => successfulIssue("Fresh title"));
+    const lifecycle = { setup: 0, editor: 0 };
+    const result = await commandWithChooser(primary, handlersFor(harness.runtime, lifecycle), async (_message, choices) => {
+      expect(choices).toHaveLength(2);
+      expect(choices.map(choice => choice.label).join(" ")).toContain("origin/ABU-834-one");
+      return null;
+    }, "open", "ABU-834", "--no-editor");
+    expect(result).toEqual({ code: 0, stdout: "Cancelled.\n", stderr: "" });
+    expect(lifecycle).toEqual({ setup: 0, editor: 0 });
+    expect(await snapshot()).toEqual(before);
+  });
+});
+
+test("failed live remote discovery does not create a replacement branch or alter user files", async () => {
+  await withRepository(async (primary, directory) => {
+    await configureJira(primary);
+    await git(primary, "remote", "add", "origin", join(directory, "unavailable.git"));
+    await writeFile(join(primary, "tracked.txt"), "dirty primary\n");
+    const root = join(directory, "primary repo-worktrees");
+    const snapshot = () => gitState(primary, primary, join(primary, "tracked.txt"), [], [root]);
+    const before = await snapshot();
+    const harness = jiraHarness(() => successfulIssue("Fresh title"));
+    const lifecycle = { setup: 0, editor: 0 };
+    const result = await command(primary, handlersFor(harness.runtime, lifecycle), "open", "ABU-834", "--no-editor");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Could not check existing remote branches");
+    expect(result.stdout).toBe("");
+    expect(lifecycle).toEqual({ setup: 0, editor: 0 });
+    expect(await snapshot()).toEqual(before);
+  });
+});
+
+test.each([false, true])("open revalidates a chosen live remote branch before fetching (deleted: %s)", async deleted => {
+  await withRepository(async (primary, directory) => {
+    await configureJira(primary);
+    const chosen = "ABU-834-two";
+    const { producer } = await publishRemoteBranches(primary, directory, ["ABU-834-one", chosen]);
+    const harness = jiraHarness(() => successfulIssue("Fresh title"));
+    const beforeRefs = await git(primary, "show-ref");
+    const beforeTrees = await git(primary, "worktree", "list", "--porcelain");
+    const result = await commandWithChooser(primary, handlersFor(harness.runtime), async (_message, choices) => {
+      if (deleted) await git(producer, "push", "origin", "--delete", chosen);
+      return choices.find(choice => choice.value.endsWith(chosen))!.value;
+    }, "open", "ABU-834", "--no-editor");
+    if (deleted) {
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("no longer uniquely available");
+      expect(await git(primary, "show-ref")).toBe(beforeRefs);
+      expect(await git(primary, "worktree", "list", "--porcelain")).toBe(beforeTrees);
+      expect(await pathExists(join(directory, "primary repo-worktrees"))).toBe(false);
+    } else {
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(await git(primary, "rev-parse", chosen)).toBe(await git(producer, "rev-parse", chosen));
+      expect(await git(primary, "for-each-ref", "refs/heads/ABU-834-one", "refs/remotes/origin/ABU-834-one")).toBe("");
+    }
+  });
+});
+
+function jiraHarness(response: (url: string, init: RequestInit) => Response, credentials = true) {
   const requests: Array<{ url: string; init: RequestInit }> = [];
   const runtime: JiraRuntime = {
     env: credentials
@@ -28,14 +154,17 @@ function jiraHarness(response: () => Response, credentials = true) {
     timeoutMs: 1_000,
     fetch: async (url, init) => {
       requests.push({ url, init });
-      return response();
+      return response(url, init);
     },
   };
   return { runtime, requests };
 }
 
 function successfulIssue(title: string): Response {
-  return Response.json({ key: "ABU-834", fields: { summary: title } });
+  return Response.json({ key: "ABU-834", fields: {
+    summary: title,
+    status: { name: "In Progress", statusCategory: { key: "indeterminate", name: "In Progress" } },
+  } });
 }
 
 function timeoutHarness() {
@@ -59,13 +188,22 @@ function timeoutHarness() {
   return { runtime, requests };
 }
 
-function handlersFor(runtime: JiraRuntime): CommandHandlers {
+function handlersFor(
+  runtime: JiraRuntime,
+  lifecycle?: { setup: number; editor: number },
+): CommandHandlers {
   const shared = {
     discoverRepository,
     loadConfig: loadRepositoryConfig,
     createWorktree,
-    runSetup,
-    launchEditor,
+    runSetup: async (...args: Parameters<typeof runSetup>) => {
+      if (lifecycle) lifecycle.setup += 1;
+      return runSetup(...args);
+    },
+    launchEditor: async (...args: Parameters<typeof launchEditor>) => {
+      if (lifecycle) lifecycle.editor += 1;
+      return launchEditor(...args);
+    },
   };
   return {
     ...placeholderHandlers,
@@ -73,6 +211,7 @@ function handlersFor(runtime: JiraRuntime): CommandHandlers {
       ...shared,
       resolveBase,
       resolveJiraTicket: (config, key) => resolveJiraTicket(config, key, runtime),
+      findJiraSuggestions: (config, key) => findJiraSuggestions(config, key, runtime),
     }),
     open: createOpenHandler({
       ...shared,
@@ -84,6 +223,15 @@ function handlersFor(runtime: JiraRuntime): CommandHandlers {
 async function command(
   cwd: string, handlers: CommandHandlers, ...args: string[]
 ): Promise<{ code: number; stdout: string; stderr: string }> {
+  return commandWithChooser(cwd, handlers, undefined, ...args);
+}
+
+async function commandWithChooser(
+  cwd: string,
+  handlers: CommandHandlers,
+  choose: ((message: string, choices: readonly { value: string; label: string }[]) => Promise<string | null>) | undefined,
+  ...args: string[]
+): Promise<{ code: number; stdout: string; stderr: string }> {
   let stdout = "";
   let stderr = "";
   const code = await runCli(args, {
@@ -94,6 +242,7 @@ async function command(
         stdout: text => { stdout += text; },
         stderr: text => { stderr += text; },
       },
+      ...(choose === undefined ? {} : { choose }),
     },
   });
   return { code, stdout, stderr };
@@ -157,7 +306,10 @@ test("new resolves a moved Jira issue from nested linked worktree using canonica
     await mkdir(nested, { recursive: true });
 
     const harness = jiraHarness(() => Response.json({
-      key: "XYZ-91", fields: { summary: "Fix café / login!" },
+      key: "XYZ-91", fields: {
+        summary: "Fix café / login!",
+        status: { name: "In Progress", statusCategory: { key: "indeterminate", name: "In Progress" } },
+      },
     }));
     const result = await command(nested, handlersFor(harness.runtime), "new", "ABU-834", "--no-editor");
     const target = join(directory, "primary repo-worktrees", "XYZ-91-fix-cafe-login");
@@ -170,6 +322,7 @@ test("new resolves a moved Jira issue from nested linked worktree using canonica
     });
     expect(harness.requests).toHaveLength(1);
     expect(new URL(harness.requests[0]!.url).pathname).toBe("/rest/api/3/issue/ABU-834");
+    expect(new URL(harness.requests[0]!.url).searchParams.get("fields")).toBe("summary,status");
     expect(await git(primary, "rev-parse", "refs/heads/XYZ-91-fix-cafe-login")).toBe(base);
     expect(await git(target, "rev-parse", "HEAD")).toBe(base);
     expect(await readFile(join(target, "tracked.txt"), "utf8")).toBe("original\n");
@@ -179,7 +332,7 @@ test("new resolves a moved Jira issue from nested linked worktree using canonica
 
 test("each Jira lookup failure preserves dirty, untracked, ignored, ref, worktree, and destination state", async () => {
   await withRepository(async (primary, directory) => {
-    await configureJira(primary);
+    await configureJira(primary, ["", "[hooks]", 'post_create = ["touch hook-sentinel.txt"]']);
     await writeFile(join(primary, "tracked.txt"), "dirty tracked sentinel\n");
     await writeFile(join(primary, "untracked-sentinel.txt"), "keep untracked\n");
     await writeFile(join(primary, ".env"), "keep ignored\n");
@@ -210,9 +363,11 @@ test("each Jira lookup failure preserves dirty, untracked, ignored, ref, worktre
       },
       {
         name: "404 unavailable issue",
-        harness: jiraHarness(() => Response.json({ syntheticBodyMarker: "must stay hidden" }, { status: 404 })),
+        harness: jiraHarness(url => url.includes("/search/jql")
+          ? Response.json({ issues: [], isLast: true })
+          : Response.json({ syntheticBodyMarker: "must stay hidden" }, { status: 404 })),
         message: "unavailable or not visible (404)",
-        requests: 1,
+        requests: 2,
       },
       {
         name: "429 rate limit",
@@ -238,10 +393,42 @@ test("each Jira lookup failure preserves dirty, untracked, ignored, ref, worktre
         message: "timed out after 10 ms",
         requests: 1,
       },
+      {
+        name: "completed issue with a custom status name",
+        harness: jiraHarness(url => url.includes("/search/jql")
+          ? Response.json({ issues: [], isLast: true })
+          : Response.json({
+            key: "XYZ-91",
+            fields: {
+              summary: "PRIVATE_SUMMARY_MARKER",
+              status: { name: "Clôturé", statusCategory: { key: "done", name: "Done" } },
+            },
+          })),
+        message: "Jira issue XYZ-91 is complete",
+        requests: 2,
+      },
+      {
+        name: "missing status category",
+        harness: jiraHarness(() => Response.json({
+          key: "XYZ-92", fields: { summary: "Fix login" },
+        })),
+        message: "Jira issue XYZ-92 has an unknown status category",
+        requests: 1,
+      },
+      {
+        name: "unknown status category even when display name says Done",
+        harness: jiraHarness(() => Response.json({
+          key: "XYZ-93",
+          fields: { summary: "Fix login", status: { name: "Done", statusCategory: { key: "custom", name: "Done" } } },
+        })),
+        message: "Jira issue XYZ-93 has an unknown status category",
+        requests: 1,
+      },
     ];
 
     for (const failure of failures) {
-      const result = await command(primary, handlersFor(failure.harness.runtime), "new", "ABU-834", "--no-editor");
+      const lifecycle = { setup: 0, editor: 0 };
+      const result = await command(primary, handlersFor(failure.harness.runtime, lifecycle), "new", "ABU-834", "--no-editor");
 
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
@@ -249,12 +436,174 @@ test("each Jira lookup failure preserves dirty, untracked, ignored, ref, worktre
       expect(result.stderr).not.toContain("syntheticBodyMarker");
       expect(result.stderr).not.toContain("synthetic-jira-token");
       expect(result.stderr).not.toContain("synthetic network marker");
+      expect(result.stderr).not.toContain("PRIVATE_SUMMARY_MARKER");
+      expect(lifecycle).toEqual({ setup: 0, editor: 0 });
       expect(await gitState(
         primary, primary, join(primary, "tracked.txt"),
         [join(primary, "untracked-sentinel.txt"), join(primary, ".env")], [root, target],
       )).toEqual(before);
       expect(failure.harness.requests).toHaveLength(failure.requests);
     }
+  });
+});
+
+test("declining a Jira prefix suggestion preserves the real repository and all user files", async () => {
+  await withRepository(async (primary, directory) => {
+    await configureJira(primary, ["", "[hooks]", 'post_create = ["touch hook-sentinel.txt"]']);
+    await writeFile(join(primary, "tracked.txt"), "dirty tracked sentinel\n");
+    await writeFile(join(primary, "untracked-sentinel.txt"), "keep untracked\n");
+    await writeFile(join(primary, ".env"), "keep ignored\n");
+    const root = join(directory, "primary repo-worktrees");
+    const target = join(root, "ABU-40-candidate-title");
+    const before = await gitState(
+      primary, primary, join(primary, "tracked.txt"),
+      [join(primary, "untracked-sentinel.txt"), join(primary, ".env")], [root, target],
+    );
+    const harness = jiraHarness(url => url.includes("/search/jql")
+      ? Response.json({ issues: [{
+        key: "ABU-40",
+        fields: {
+          summary: "Candidate title",
+          status: { statusCategory: { key: "indeterminate" } },
+        },
+      }], isLast: true })
+      : new Response(null, { status: 404 }));
+    let chooserCalls = 0;
+    const lifecycle = { setup: 0, editor: 0 };
+    const result = await commandWithChooser(
+      primary,
+      handlersFor(harness.runtime, lifecycle),
+      async (_message, choices) => {
+        chooserCalls += 1;
+        expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 — Candidate title" }]);
+        return null;
+      },
+      "new", "ABU-4", "--no-editor",
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("Cancelled.\n");
+    expect(result.stderr).toBe("");
+    expect(chooserCalls).toBe(1);
+    expect(harness.requests).toHaveLength(2);
+    expect(lifecycle).toEqual({ setup: 0, editor: 0 });
+    expect(await gitState(
+      primary, primary, join(primary, "tracked.txt"),
+      [join(primary, "untracked-sentinel.txt"), join(primary, ".env")], [root, target],
+    )).toEqual(before);
+  });
+});
+
+test("revalidates a chosen Jira suggestion and preserves Git state if it becomes Done", async () => {
+  await withRepository(async (primary, directory) => {
+    await configureJira(primary, ["", "[hooks]", 'post_create = ["touch hook-sentinel.txt"]']);
+    await writeFile(join(primary, "tracked.txt"), "dirty tracked sentinel\n");
+    await writeFile(join(primary, "untracked-sentinel.txt"), "keep untracked\n");
+    await writeFile(join(primary, ".env"), "keep ignored\n");
+    const root = join(directory, "primary repo-worktrees");
+    const target = join(root, "ABU-40-candidate-title");
+    const before = await gitState(
+      primary, primary, join(primary, "tracked.txt"),
+      [join(primary, "untracked-sentinel.txt"), join(primary, ".env")], [root, target],
+    );
+    const harness = jiraHarness(url => {
+      const request = new URL(url);
+      if (request.pathname.endsWith("/search/jql")) {
+        return Response.json({ issues: [{
+          key: "ABU-40",
+          fields: {
+            summary: "Candidate title",
+            status: { statusCategory: { key: "new" } },
+          },
+        }], isLast: true });
+      }
+      if (request.pathname.endsWith("/issue/ABU-4")) return new Response(null, { status: 404 });
+      return Response.json({ key: "ABU-40", fields: {
+        summary: "PRIVATE_SUMMARY_MARKER",
+        status: { name: "Clôturé", statusCategory: { key: "done", name: "Done" } },
+      } });
+    });
+    let chooserCalls = 0;
+    const lifecycle = { setup: 0, editor: 0 };
+    const result = await commandWithChooser(
+      primary,
+      handlersFor(harness.runtime, lifecycle),
+      async (_message, choices) => {
+        chooserCalls += 1;
+        expect(choices).toHaveLength(1);
+        return "ABU-40";
+      },
+      "new", "ABU-4", "--no-editor",
+    );
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Jira issue ABU-40 is complete");
+    expect(result.stderr).not.toContain("PRIVATE_SUMMARY_MARKER");
+    expect(result.stderr).not.toContain("Clôturé");
+    expect(chooserCalls).toBe(1);
+    expect(harness.requests).toHaveLength(3);
+    expect(new URL(harness.requests[2]!.url).pathname).toBe("/rest/api/3/issue/ABU-40");
+    expect(lifecycle).toEqual({ setup: 0, editor: 0 });
+    expect(await gitState(
+      primary, primary, join(primary, "tracked.txt"),
+      [join(primary, "untracked-sentinel.txt"), join(primary, ".env")], [root, target],
+    )).toEqual(before);
+  });
+});
+
+test("creates from a single Jira suggestion only after explicit selection and exact revalidation", async () => {
+  await withRepository(async (primary, directory) => {
+    await configureJira(primary);
+    const base = await git(primary, "rev-parse", "trunk");
+    const harness = jiraHarness(url => {
+      const request = new URL(url);
+      if (request.pathname.endsWith("/search/jql")) {
+        return Response.json({ issues: [{
+          key: "ABU-40",
+          fields: {
+            summary: "Stale search title",
+            status: { statusCategory: { key: "indeterminate" } },
+          },
+        }], isLast: true });
+      }
+      if (request.pathname.endsWith("/issue/ABU-4")) return new Response(null, { status: 404 });
+      return Response.json({
+        key: "ABU-40",
+        fields: {
+          summary: "Fresh title",
+          status: { name: "In Progress", statusCategory: { key: "new", name: "To Do" } },
+        },
+      });
+    });
+    const target = join(directory, "primary repo-worktrees", "ABU-40-fresh-title");
+    let chooserCalls = 0;
+    const result = await commandWithChooser(
+      primary,
+      handlersFor(harness.runtime),
+      async (message, choices) => {
+        chooserCalls += 1;
+        expect(message).toMatch(/unavailable or not visible[\s\S]*Did you mean/i);
+        expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 — Stale search title" }]);
+        return "ABU-40";
+      },
+      "new", "ABU-4", "--no-editor",
+    );
+
+    expect(result).toEqual({
+      code: 0,
+      stdout: `Created ABU-40-fresh-title at ${target}\nJira: ${jiraSite}/browse/ABU-40\n`,
+      stderr: "",
+    });
+    expect(chooserCalls).toBe(1);
+    expect(harness.requests).toHaveLength(3);
+    expect(new URL(harness.requests[0]!.url).pathname).toBe("/rest/api/3/issue/ABU-4");
+    const search = new URL(harness.requests[1]!.url);
+    expect(search.pathname).toBe("/rest/api/3/search/jql");
+    expect(search.searchParams.get("jql")).toBe('project = "ABU" AND statusCategory != Done ORDER BY key ASC');
+    expect(new URL(harness.requests[2]!.url).pathname).toBe("/rest/api/3/issue/ABU-40");
+    expect(await git(primary, "rev-parse", "refs/heads/ABU-40-fresh-title")).toBe(base);
+    expect(await git(target, "rev-parse", "HEAD")).toBe(base);
   });
 });
 

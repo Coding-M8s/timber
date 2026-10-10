@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { placeholderHandlers, runCli } from "../src/cli";
 import { createDoneHandler } from "../src/commands/done";
+import type { TerminalChooser } from "../src/selection";
 import type { CommandServices } from "../src/services";
 import type { CleanupOptions, OpenTarget, RepositoryConfig, Resolution } from "../src/types";
 import { createServiceDouble, repositoryFixture, worktreeFixture } from "./helpers/services";
@@ -13,13 +14,14 @@ const config: RepositoryConfig = {
 const tree = worktreeFixture({ path: "/manual feature", branch: "feature/one", isPrimary: false });
 const selected: Resolution<OpenTarget> = { kind: "found", value: { kind: "worktree", worktree: tree } };
 
-async function invoke(services: CommandServices, args = ["done", "feature/one"]) {
+async function invoke(services: CommandServices, args = ["done", "feature/one"], choose?: TerminalChooser) {
   let stdout = "";
   let stderr = "";
   const exitCode = await runCli(args, {
     handlers: { ...placeholderHandlers, done: createDoneHandler(services) },
     context: {
       cwd: "/repo-worktrees/current/nested",
+      ...(choose ? { choose } : {}),
       io: { stdout: text => { stdout += text; }, stderr: text => { stderr += text; } },
     },
   });
@@ -145,7 +147,7 @@ test("done refuses the primary worktree before the cleanup boundary", async () =
   expect(result.stderr).not.toContain("Unexpected service call");
 });
 
-test("ambiguity preserves every candidate identity and gives exact selectors without guessing", async () => {
+test("ambiguity lists only registered worktrees and gives exact selectors without guessing", async () => {
   const result = await invoke(services({
     resolveOpenTarget: async () => ({ kind: "ambiguous", candidates: [
       { kind: "worktree", worktree: { ...tree, path: "/z path", branch: "TIM-42-last" } },
@@ -158,9 +160,11 @@ test("ambiguity preserves every candidate identity and gives exact selectors wit
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("multiple");
   expect(result.stderr).toContain("exact branch name or absolute worktree path");
-  for (const identity of ["/a path", "/z path", "refs/heads/backup/TIM-42", "refs/remotes/backup/TIM-42"]) {
+  for (const identity of ["/a path", "/z path"]) {
     expect(result.stderr).toContain(identity);
   }
+  expect(result.stderr).not.toContain("refs/heads/backup/TIM-42");
+  expect(result.stderr).not.toContain("refs/remotes/backup/TIM-42");
   expect(result.stderr.indexOf("/a path")).toBeLessThan(result.stderr.indexOf("/z path"));
   expect(result.stderr).not.toContain("Unexpected service call");
 });
@@ -171,6 +175,45 @@ for (const seam of ["discoverRepository", "loadConfig", "resolveOpenTarget", "cl
     expect(result).toEqual({ exitCode: 1, stdout: "", stderr: "error: operation failed\n" });
   });
 }
+
+test.each(["choose", "cancel", "invalid", "changed"] as const)("done chooser %s validates selection before cleanup", async scenario => {
+  const candidates = Array.from({ length: 8 }, (_, index) => ({ ...tree, path: `/tree-${index}`, branch: `TIM-42-${index}` }));
+  let cleaned: string | undefined;
+  let resolutions = 0;
+  const result = await invoke(services({
+    resolveOpenTarget: async (_repo, input, _config, options) => {
+      expect(options).toEqual({ assertOpenable: false });
+      resolutions++;
+      if (input === "TIM-42") return { kind: "ambiguous", candidates: candidates.map(worktree => ({ kind: "worktree", worktree })) };
+      expect(input).toBe("/tree-6");
+      return scenario === "changed" ? { kind: "not-found" } : { kind: "found", value: { kind: "worktree", worktree: candidates[6]! } };
+    },
+    cleanupWorktree: async (_repo, worktree) => {
+      cleaned = worktree.path;
+      return { removedWorktreePath: worktree.path, deletedLocalBranch: worktree.branch, retainedLocalBranch: null };
+    },
+  }), ["done", "TIM-42"], async (_message, choices) => {
+    expect(cleaned).toBeUndefined();
+    expect(choices).toHaveLength(8);
+    return scenario === "cancel" ? null : scenario === "invalid" ? "/unknown" : "/tree-6";
+  });
+  expect(result.exitCode).toBe(scenario === "choose" || scenario === "cancel" ? 0 : 1);
+  expect(cleaned).toBe(scenario === "choose" ? "/tree-6" : undefined);
+  expect(resolutions).toBe(scenario === "choose" || scenario === "changed" ? 2 : 1);
+  if (scenario === "cancel") expect(result).toEqual({ exitCode: 0, stdout: "Cancelled.\n", stderr: "" });
+});
+
+test("done without a chooser caps worktree matches at five and reports the total", async () => {
+  const result = await invoke(services({
+    resolveOpenTarget: async () => ({ kind: "ambiguous", candidates: Array.from({ length: 8 }, (_, index) => ({
+      kind: "worktree", worktree: { ...tree, path: `/tree-${index}`, branch: `TIM-42-${index}` },
+    })) }),
+  }), ["done", "TIM-42"]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("8; showing 5");
+  expect(result.stderr).toContain("/tree-4");
+  expect(result.stderr).not.toContain("/tree-5");
+});
 
 test("done safely displays terminal controls in results and service diagnostics", async () => {
   const path = "/manual\n\u001b[31m\u009b\u2028feature";

@@ -3,6 +3,7 @@ import type {
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
+import type { TerminalChooser } from "./selection";
 
 /** Function seams for command implementations; no concrete Git engine in TIM-11. */
 export interface CommandServices {
@@ -12,6 +13,8 @@ export interface CommandServices {
   loadConfig(repository: RepositoryContext): Promise<RepositoryConfig>;
   /** TIM-10: resolve one configured Jira Cloud issue; never fall back to a literal branch. */
   resolveJiraTicket(config: JiraConfig, key: string): Promise<JiraTicket>;
+  /** TIM-10: return only validated active ticket alternatives for an exact missing/done key. */
+  findJiraSuggestions(config: JiraConfig, key: string): Promise<readonly JiraTicket[]>;
   /** TIM-1/TIM-4: installed Git is authoritative; include manual, detached, stale entries. */
   listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]>;
   /** TIM-2: exact local, exact remote, then delimiter-boundary prefix; no guessing. */
@@ -57,6 +60,8 @@ export interface CommandIO {
 export interface CommandContext {
   cwd: string;
   io: CommandIO;
+  /** Present only when stdin and stdout are interactive terminals and CI is disabled. */
+  choose?: TerminalChooser;
 }
 
 export interface NewOptions {

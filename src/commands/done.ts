@@ -1,5 +1,5 @@
 import type { CommandHandlers, CommandServices } from "../services";
-import type { OpenTarget } from "../types";
+import type { Worktree } from "../types";
 
 const controls = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu;
 
@@ -25,22 +25,13 @@ async function safely<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-function ambiguousMessage(input: string, candidates: readonly OpenTarget[]): string {
-  const unique = new Map<string, string>();
-  for (const candidate of candidates) {
-    if (candidate.kind === "worktree") {
-      const tree = candidate.worktree;
-      unique.set(`worktree:${tree.path}`,
-        `  Worktree ${quoted(tree.path)} (${tree.branch === null ? "detached HEAD" : display(tree.branch)})`);
-    } else {
-      const branch = candidate.branch;
-      unique.set(`branch:${branch.ref}`,
-        `  ${branch.kind === "local" ? "Local" : "Remote"} branch ${display(branch.ref)} — no registered worktree`);
-    }
-  }
-  const rows = [...unique].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([, row]) => row);
-  return `Input ${quoted(input)} matches multiple targets. Choose an exact branch name or absolute worktree path and run timber done again:\n${rows.join("\n")}`;
+function worktreeLabel(tree: Worktree): string {
+  return `Worktree ${quoted(tree.path)} (${tree.branch === null ? "detached HEAD" : display(tree.branch)})`;
+}
+
+function ambiguousMessage(input: string, candidates: readonly Worktree[]): string {
+  const rows = candidates.slice(0, 5).map(tree => `  ${worktreeLabel(tree)}`);
+  return `Input ${quoted(input)} matches multiple worktrees (${candidates.length}; showing ${rows.length}). Choose an exact branch name or absolute worktree path and run timber done again:\n${rows.join("\n")}\nRerun in an interactive terminal to choose from all matches.`;
 }
 
 /** Resolve one existing worktree; fresh safety checks and all mutations belong to cleanup. */
@@ -57,8 +48,38 @@ export function createDoneHandler(
     if (resolution.kind === "not-found") {
       throw new Error(`No existing worktree or branch matches ${quoted(input)}. Check timber ls and use an exact branch or absolute worktree path.`);
     }
-    if (resolution.kind === "ambiguous") throw new Error(ambiguousMessage(input, resolution.candidates));
-    const selected = resolution.value;
+    let selected;
+    if (resolution.kind === "ambiguous") {
+      const candidates = [...new Map(resolution.candidates.flatMap(target => target.kind === "worktree"
+        ? [[target.worktree.path, target.worktree] as const] : [])).values()]
+        .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+      if (candidates.length === 0) {
+        throw new Error(`No registered worktree matches ${quoted(input)}; no branch was deleted.`);
+      }
+      let worktree = candidates[0]!;
+      if (candidates.length > 1) {
+        if (!context.choose) throw new Error(ambiguousMessage(input, candidates));
+        const choice = await safely(() => context.choose!(
+          `Input ${quoted(input)} matches ${candidates.length} worktrees. Which one should be cleaned up?`,
+          candidates.map(tree => ({ value: tree.path, label: worktreeLabel(tree) })),
+        ));
+        if (choice === null) {
+          context.io.stdout("Cancelled.\n");
+          return;
+        }
+        const chosen = candidates.find(tree => tree.path === choice);
+        if (!chosen) throw new Error("Invalid selection; no worktree was removed.");
+        worktree = chosen;
+      }
+      const verified = await safely(() => services.resolveOpenTarget(repository, worktree.path, config, { assertOpenable: false }));
+      if (verified.kind !== "found" || verified.value.kind !== "worktree"
+        || verified.value.worktree.path !== worktree.path || verified.value.worktree.branch !== worktree.branch) {
+        throw new Error("Selected worktree changed or is no longer available; run timber done again.");
+      }
+      selected = verified.value;
+    } else {
+      selected = resolution.value;
+    }
     if (selected.kind === "branch") {
       throw new Error(`Branch ${display(selected.branch.ref)} has no registered worktree to remove. timber done only cleans up existing linked worktrees; no branch was deleted.`);
     }

@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
-import { listBranches, resolveBranch } from "./branches";
+import { listBranches, listLiveRemoteBranches, resolveBranch } from "./branches";
 import { assertOpenableWorktree, listWorktrees } from "./worktrees";
 import type {
   Branch, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
@@ -85,9 +85,23 @@ export async function resolveOpenTarget(
     if (exactWorktrees.length) return finish(repository, worktreeTargets(exactWorktrees), options);
   }
 
-  const resolution = await resolveBranch(repository, input, config);
+  const localBranches = await listBranches(repository);
+  if (options.discoverRemote) {
+    const cached = await resolveBranch(repository, input, config, localBranches);
+    if (cached.kind !== "not-found") {
+      const targets = await finish(repository, mappedTargets(
+        cached.kind === "found" ? [cached.value] : cached.candidates, localBranches, worktrees,
+      ), options);
+      if (targets.kind === "found" && (targets.value.kind === "worktree" || targets.value.branch.kind === "local")) {
+        return targets;
+      }
+    }
+  }
+  const branches = options.discoverRemote
+    ? [...localBranches.filter(branch => branch.kind === "local"), ...await listLiveRemoteBranches(repository, input, config)]
+    : localBranches;
+  const resolution = await resolveBranch(repository, input, config, branches);
   if (resolution.kind === "not-found") return resolution;
-  const branches = await listBranches(repository);
   const selected = resolution.kind === "found" ? [resolution.value] : resolution.candidates;
   return finish(repository, mappedTargets(selected, branches, worktrees), options);
 }

@@ -57,6 +57,38 @@ export async function listBranches(repository: RepositoryContext): Promise<reado
   return branchRows(repository, await refs(repository));
 }
 
+/** Read advertised remote heads without fetching objects or changing any refs. */
+export async function listLiveRemoteBranches(
+  repository: RepositoryContext, input: string, config: RepositoryConfig,
+): Promise<readonly RemoteBranch[]> {
+  const explicit = [...repository.remotes].sort((a, b) => b.name.length - a.name.length)
+    .find(remote => input.startsWith(`${remote.name}/`));
+  const selected = explicit?.name ?? config.remote;
+  if (selected !== null && !repository.remotes.some(remote => remote.name === selected)) {
+    throw new Error("Configured remote does not exist in this repository.");
+  }
+  const branches: RemoteBranch[] = [];
+  for (const remote of repository.remotes.filter(remote => selected === null || remote.name === selected)) {
+    let result;
+    try {
+      result = await execa("git", ["ls-remote", "--heads", "--", remote.name], {
+        cwd: repository.primaryWorktreeRoot, reject: false, timeout: 10_000,
+        env: { GIT_TERMINAL_PROMPT: "0" },
+      });
+    } catch {
+      throw new Error("Could not check existing remote branches; no workspace was created.");
+    }
+    if (result.exitCode !== 0) throw new Error("Could not check existing remote branches; no workspace was created.");
+    for (const line of result.stdout.split("\n").filter(Boolean)) {
+      const match = /^[0-9a-f]{40,64}\trefs\/heads\/(.+)$/u.exec(line);
+      if (!match) throw new Error("Could not parse remote branches; no workspace was created.");
+      const name = match[1]!;
+      branches.push({ kind: "remote", remote: remote.name, name, ref: `refs/remotes/${remote.name}/${name}` });
+    }
+  }
+  return branches;
+}
+
 function result(candidates: readonly Branch[]): Resolution<Branch> {
   if (candidates.length === 0) return { kind: "not-found" };
   if (candidates.length === 1) return { kind: "found", value: candidates[0]! };
@@ -73,12 +105,13 @@ function ticketMatch(name: string, input: string): boolean {
 /** Read local and remote-tracking refs; no network call or branch mutation. */
 export async function resolveBranch(
   repository: RepositoryContext, input: string, config: RepositoryConfig,
+  availableBranches?: readonly Branch[],
 ): Promise<Resolution<Branch>> {
   if (config.remote !== null && !repository.remotes.some(remote => remote.name === config.remote)) {
     throw new Error(`Configured remote ${config.remote} does not exist in this repository.`);
   }
   if (!input) return { kind: "not-found" };
-  const branches = await listBranches(repository);
+  const branches = availableBranches ?? await listBranches(repository);
   const local = branches.filter((branch): branch is Extract<Branch, { kind: "local" }> => branch.kind === "local");
   const remote = branches.filter((branch): branch is RemoteBranch => branch.kind === "remote");
   const explicit = [...repository.remotes].sort((a, b) => b.name.length - a.name.length)

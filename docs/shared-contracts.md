@@ -15,7 +15,7 @@ a reviewed contract change first.
 | `src/services.ts` | Plain asynchronous command service functions |
 | `discoverRepository`, `listWorktrees` | TIM-1; TIM-4 extends worktree targeting |
 | `loadConfig` | TIM-6 |
-| `resolveJiraTicket` | TIM-10 |
+| `resolveJiraTicket`, `findJiraSuggestions` | TIM-10 |
 | `resolveBranch`, `resolveBase` | TIM-2 |
 | `resolveOpenTarget` | TIM-4 |
 | `createWorktree` | TIM-3 |
@@ -32,6 +32,11 @@ handler, and returns a numeric exit status without exiting the process.
 `context.cwd` is only the discovery starting point. All subsequent Git services
 receive the discovered `RepositoryContext`; they must invoke `git` with an argument
 array and an explicit cwd from that context.
+`context.choose` is optional and is available only when stdin and stdout are TTYs
+and `CI` is unset or equals `false` case-insensitively. A chooser receives a message and unique stable
+values paired with display labels; it returns one offered value or `null` for
+cancellation. Commands validate returned values against the offered choices.
+All chooser cancellations print `Cancelled.` and return success without mutation.
 
 ## Values and safety requirements
 
@@ -46,6 +51,13 @@ bare repositories and non-repository paths with actionable errors.
 `Resolution<T>` carries found, not-found, or ambiguous candidates. Resolution is
 exact worktree/local/remote first, followed by delimiter-boundary ticket matching;
 explicit remote input selects that remote. Existing worktrees open offline.
+`open` opts into `resolveOpenTarget(..., { discoverRemote: true })`. A unique
+local branch or registered worktree resolves offline. Otherwise advertised remote
+heads replace cached remote refs for discovery, using `git ls-remote` without
+mutating refs. The explicit/configured remote limits discovery; otherwise all
+remotes are checked. Each query has a 10-second timeout; errors block creation.
+Only the selected remote is fetched by the existing creation service. `new`
+retains its creation-only behavior and Jira status validation.
 Creation from a remote must refresh that remote and reject on failure, including
 when called directly through the service. A validated base records its commit and
 selection source. Base precedence remains explicit, config, selected remote's
@@ -68,9 +80,13 @@ in stable order, including missing and prunable worktrees. A uniquely selected
 missing, prunable, or identity-mismatched worktree rejects with its path and
 recovery guidance. Dirty, ignored, unpublished, or locked worktrees remain
 openable; unknown status stays unknown. `resolveOpenTarget` never fetches or
-mutates Git state. TIM-13 consumes the `OpenTarget` union to open a worktree or
-materialize a branch; TIM-3 refreshes a selected remote only before remote branch
-creation.
+mutates Git state. TIM-13 puts every ambiguous candidate in one chooser; labels
+mark candidates that require manual path/branch selection, and selecting one
+returns its safe guidance without creating or opening anything. Without a chooser,
+report no more than the first five sorted candidates and the total count with exact
+manual-selection guidance. TIM-13 consumes the `OpenTarget` union to open a
+worktree or materialize a branch; TIM-3 refreshes a selected remote only before
+remote branch creation.
 
 `Worktree` retains primary, locked, missing and prunable states, including entries
 created outside Timber. Status is either known file lists or an explicit unknown
@@ -97,14 +113,32 @@ UUID `cloudId`. Config loading accepts only `site_url` and `cloud_id` in that st
 table. Site URLs must be tenant origins on `*.atlassian.net`, with no credentials,
 nondefault port, query, fragment, or path other than `/`. Credentials are never
 configuration values: `resolveJiraTicket(config, key)` reads `JIRA_EMAIL` and
-`JIRA_API_TOKEN` lazily when called. It uses the configured site URL for unscoped
+`JIRA_API_TOKEN` lazily when called. Timber adds no `.env` loader and reads its
+process environment; Bun may populate that environment before startup unless run
+with `bun --no-env-file`. The client uses the configured site URL for unscoped
 tokens, or the fixed Atlassian Jira Cloud gateway selected by `cloudId` for scoped
-tokens. It makes one bounded request, does not follow redirects or retry, validates
-the returned canonical key and nonblank summary, and constructs the browse URL
-locally. Errors are safe categories and do not include response bodies, credentials,
-raw transport exceptions, or full configuration values. Ticket-key recognition and
-branch naming are pure Jira helpers consumed by TIM-10; the Git creation service
-continues to validate refs and paths and remains authoritative for collisions.
+tokens. It rejects redirects, does not retry, validates the returned canonical key
+and nonblank summary, and constructs the browse URL locally. It requests the Jira
+status and accepts only the known category keys `new`, `indeterminate`, or `done`;
+`done` rejects before creation, and missing, null, or unknown categories fail
+closed. Status display names and resolution fields do not determine the category.
+
+`findJiraSuggestions(config, key)` uses Jira's [enhanced JQL search endpoint](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/)
+with a fixed same-project query, `summary,status`, and token-based pagination. Every
+page and body shares one 10-second deadline; redirects and retries are disabled.
+Missing or repeated continuation tokens and any failed or malformed page reject the
+whole search, so commands never show a partial list or count. The client validates
+keys, locally keeps only known active categories (`new` or `indeterminate`) whose
+full key starts with the requested key, excludes the exact key, deduplicates, and
+sorts results. Only `new` falls back to this seam, and only after an exact
+not-found or done reason. It requires an explicit chooser response even for one
+candidate, then calls `resolveJiraTicket` again for that selected key before Git
+creation. An absent chooser reports at most five sorted candidates and the exact
+eligible count; cancellation or failed revalidation makes no Git mutation. Errors
+are safe categories and do not include response bodies, credentials, raw transport
+exceptions, or full configuration values. Ticket-key recognition and branch
+naming are pure Jira helpers consumed by TIM-10; the Git creation service continues
+to validate refs and paths and remains authoritative for collisions.
 
 `src/git/cleanup.ts` implements `inspectCleanup` and `cleanupWorktree` for
 TIM-5. TIM-15's `createDoneHandler` reuses `resolveOpenTarget` with openability
@@ -168,7 +202,14 @@ lookup absence/ambiguity are values. `EditorResult.failed` describes a retained
 workspace and retry instructions; command handlers must report launch failure
 without deleting completed Git work. The parser writes handler errors once to
 stderr and returns 1; handlers write human results through `context.io.stdout`.
-No command may wait for interactive input in CI.
+No command may wait for interactive input in CI. Noninteractive open ambiguity
+and Jira suggestions show no more than the first five sorted candidates and the
+exact total with guidance for explicit selection or a terminal rerun. The terminal
+chooser initially renders five entries; `a` shows all candidates only after the
+warning `This will display all N matches. Continue? [y/N]` is confirmed with `y`.
+Cancellation and manual-only selections stop before side effects. Cancelling either
+chooser prints `Cancelled.` to stdout and returns success; manual-only selections
+remain errors with actionable guidance.
 
 TIM-7 adds optional `RepositoryConfig.hooks` with `postCreate: readonly string[]`.
 TOML `[hooks].post_create` maps to that field; absent hooks leave existing
@@ -185,6 +226,14 @@ there are no configured steps. Setup rejection stops launch and becomes a
 nonzero CLI result. Existing-worktree `open` skips setup by default; `--setup`
 retries all steps once. TIM-9's agent launcher must follow successful setup and
 editor startup. No setup state registry or implicit rollback is introduced.
+
+`done` filters ambiguous resolutions to unique registered worktrees. A sole
+worktree is selected even if unchecked local or remote-only branches share its
+prefix. Multiple worktrees use the shared five-option chooser; noninteractive
+output caps candidates at five with the total. Re-resolve the chosen absolute
+path with `assertOpenable: false` and verify path/branch identity before handing
+it to the unchanged cleanup safety checks. Direct branches without worktrees and
+the primary worktree remain errors.
 
 ## Test doubles
 
