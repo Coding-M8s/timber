@@ -173,14 +173,17 @@ unsupported or failed proof never authorizes deletion. The target branch
 must not be the validated base: self-containment against that tip is
 tautological and never authorizes cleanup. A detached worktree has no
 publication or local-branch evidence; it can be removed only when its commit is
-contained in the validated base. `keepBranch` skips branch deletion only and
-permits a clean published but unmerged worktree to be removed while its local
-branch stays. Squash/rebase merges may prove content integration without ancestry; closed PR metadata proves neither.
+contained in the validated base. `keepBranch` skips branch deletion only. A clean
+published but unmerged worktree can also be removed with its local branch when
+publication is reverified; a missing base does not block this path. Squash/rebase merges may prove content integration without ancestry; closed PR metadata proves neither.
 
-Local branch deletion requires validated-base ancestry or proven content integration and never
+Local branch deletion requires live upstream publication, validated-base ancestry, or proven content integration and never
 deletes the validated base ref itself. After the worktree is removed, TIM-5
-rechecks the direct local ref, expected commit OID, base, ancestry or content integration, and
-worktree inventory, then conditionally deletes only the unchanged local ref.
+rechecks the direct local ref, expected commit OID, and preservation proof. For
+integration, revalidate the base and ancestry or content equivalence; for publication,
+revalidate live upstream ancestry and require the same upstream identity. Verify
+worktree inventory, then conditionally delete only the unchanged local ref. Losing
+publication after removal retains the local branch and reports partial completion.
 If another worktree checks out the branch in the inventory-to-delete gap,
 cleanup restores the tip and retains the branch. It never deletes a remote
 branch. If removal succeeds but branch deletion or its verification fails, the
@@ -189,9 +192,10 @@ state. Filesystem removal and ref deletion cannot share one Git transaction. A
 concurrent write after the final status read but before Git removes the
 worktree is an unavoidable window: Git's non-force guard catches new modified
 or untracked files, but an ignored file created in that gap can be removed with
-the worktree. A concurrent remote tip rewrite after the final publication
-recheck can still permit `keepBranch` worktree removal while the local branch
-remains. A concurrent branch or base change after removal can leave the
+the worktree. Live publication checks prove a remote snapshot; Git cannot lock
+the remote tip together with local removal or deletion. A concurrent remote
+rewrite after the last publication check remains an unavoidable race.
+`keepBranch` retains the local branch regardless. A concurrent branch or base change after removal can leave the
 worktree gone while the local branch remains. There is no force bypass, remote
 deletion, stash, or process killing seam. `CleanupResult` is returned only
 after all requested operations are verified.

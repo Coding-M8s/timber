@@ -234,7 +234,7 @@ test("dirty submodule content refuses cleanup even when ignored discard is enabl
   });
 });
 
-test("unmerged published branches require keepBranch and then remain local and remote", async () => {
+test.each([false, true])("unmerged published review cleanup keeps the remote and honors keepBranch=%s", async keep => {
   await withRepository(async (primary, directory) => {
     const path = join(directory, "published feature linked");
     await addTarget(primary, path, "feature/published");
@@ -243,24 +243,19 @@ test("unmerged published branches require keepBranch and then remain local and r
     await git(path, "push", "release", "feature/published");
     const localOid = (await branchOid(primary, "feature/published"))!;
     const remoteOid = await git(remote, "rev-parse", "refs/heads/feature/published");
-    const refsBefore = await refs(primary);
-    await expect(cleanup(primary, path)).rejects.toThrow(/published|keep-branch/i);
-    await assertRetained(primary, path, "feature/published", localOid, refsBefore);
-    expect(await git(remote, "rev-parse", "refs/heads/feature/published")).toBe(remoteOid);
-
-    const result = await cleanup(primary, path, keepBranch);
+    const result = await cleanup(primary, path, { keepBranch: keep, discardIgnored: false });
     expect(result).toEqual({
       removedWorktreePath: path,
-      deletedLocalBranch: null,
-      retainedLocalBranch: "feature/published",
+      deletedLocalBranch: keep ? null : "feature/published",
+      retainedLocalBranch: keep ? "feature/published" : null,
     });
     expect(await isAbsent(path)).toBe(true);
-    expect(await branchOid(primary, "feature/published")).toBe(localOid);
+    expect(await branchOid(primary, "feature/published")).toBe(keep ? localOid : null);
     expect(await git(remote, "rev-parse", "refs/heads/feature/published")).toBe(remoteOid);
   });
 });
 
-test("unpublished or unknown unmerged work stays intact even with keepBranch", async () => {
+test.each([false, true])("unpublished or unknown unmerged work stays intact with keepBranch=%s", async keep => {
   await withRepository(async (primary, directory) => {
     for (const kind of ["no-upstream", "ahead"] as const) {
       const path = join(directory, `${kind} unmerged linked`);
@@ -274,7 +269,7 @@ test("unpublished or unknown unmerged work stays intact even with keepBranch", a
       }
       const oid = (await branchOid(primary, branch))!;
       const refsBefore = await refs(primary);
-      await expect(cleanup(primary, path, { keepBranch: true, discardIgnored: true }))
+      await expect(cleanup(primary, path, { keepBranch: keep, discardIgnored: true }))
         .rejects.toThrow(/publication|upstream|unpublished|base|ancestry/i);
       await assertRetained(primary, path, branch, oid, refsBefore);
       expect(await readFile(join(path, kind === "ahead" ? "ahead.txt" : "local.txt"), "utf8")).toBe("unpublished bytes\n");
@@ -320,6 +315,22 @@ test("base containment permits clean removal when publication is unknown", async
     expect(await git(bare, "rev-parse", "refs/heads/feature/offline-merged")).toBe(remoteOid);
     expect(await isAbsent(path)).toBe(true);
     expect(localOid).toBe(remoteOid);
+  });
+});
+
+test("a published branch selected as the validated base remains protected from deletion", async () => {
+  await withRepository(async (primary, directory) => {
+    const path = join(directory, "published base linked");
+    const branch = "feature/published-base";
+    await addTarget(primary, path, branch);
+    const oid = await commitFile(path, "review.txt", "published base work\n", "review work");
+    const remote = await configureBareUpstream(primary, directory, path, branch, "review");
+    const repository = await discoverRepository(primary);
+    const selection = await selectedTree(primary, path);
+    const before = await refs(primary);
+    await expect(cleanupWorktree(repository, selection, config(branch), noDiscard)).rejects.toThrow(/validated base/);
+    await assertRetained(primary, path, branch, oid, before);
+    expect(await git(remote, "rev-parse", `refs/heads/${branch}`)).toBe(oid);
   });
 });
 

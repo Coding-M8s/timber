@@ -98,48 +98,55 @@ function refusal(inspection: CleanupInspection, options: CleanupOptions): string
   }
 
   if (inspection.ancestry.kind === "contained" || inspection.integration.kind === "equivalent") return null;
-  if (inspection.publication.kind === "published" && options.keepBranch) return null;
+  if (inspection.publication.kind === "published") return null;
   const ancestry = inspection.ancestry.kind === "unknown" ? inspection.ancestry.reason
     : `Commits not contained in ${inspection.ancestry.base.ref}: ${inspection.ancestry.commits.join(", ")}.`;
-  if (inspection.publication.kind === "published") {
-    return `Cannot remove this published worktree because its branch is not proven integrated into the validated base. ${ancestry} Pass --keep-branch to remove the worktree and retain the branch.`;
-  }
   if (inspection.publication.kind === "unpublished") {
     return `Cannot remove this worktree because it has unpublished commits: ${inspection.publication.commits.join(", ")}. ${ancestry} Publish them or prove they are contained in the validated base before retrying.`;
   }
   return `Cannot verify that worktree commits are published or integrated into the validated base. Publication: ${inspection.publication.reason} Ancestry: ${ancestry} Git could not prove content integration. Leave the worktree in place and refresh repository state before retrying.`;
 }
 
-async function deleteIntegratedBranch(
+type BranchPreservation =
+  | { kind: "integrated"; base: ValidatedBase }
+  | { kind: "published"; upstreamRef: string };
+
+async function deletePreservedBranch(
   repository: RepositoryContext, branchRef: string, expectedOid: string,
-  expectedBase: ValidatedBase, config: RepositoryConfig,
+  preservation: BranchPreservation, config: RepositoryConfig,
 ): Promise<void> {
   const branchName = branchRef.slice("refs/heads/".length);
-  if (branchRef === expectedBase.ref) {
-    throw new Error(`Local branch ${branchName} is the validated base and cannot be deleted by cleanup.`);
-  }
   const symbolic = await runGit(repository, ["symbolic-ref", "--quiet", branchRef]);
   if (symbolic.exitCode === 0) throw new Error(`Local branch ${branchName} is not a direct ref.`);
   if (symbolic.exitCode !== 1) throw new Error(`Could not verify local branch ${branchName}.`);
   const currentOid = await branchObjectId(repository, branchRef);
   if (currentOid !== expectedOid) throw new Error(`Local branch ${branchName} changed after worktree removal.`);
 
-  let base;
+  let base: ValidatedBase | null = null;
   try {
     base = await resolveBase(repository, config);
   } catch {
-    throw new Error("The validated base could not be rechecked after worktree removal.");
+    if (preservation.kind === "integrated") {
+      throw new Error("The validated base could not be rechecked after worktree removal.");
+    }
   }
-  if (base.ref !== expectedBase.ref || base.commit !== expectedBase.commit) {
-    throw new Error("The validated base changed after worktree removal.");
-  }
-  if (branchRef === base.ref) {
+  if (branchRef === base?.ref) {
     throw new Error(`Local branch ${branchName} is the validated base and cannot be deleted by cleanup.`);
   }
-  const ancestry = await runGit(repository, ["merge-base", "--is-ancestor", expectedOid, base.commit]);
-  if (ancestry.exitCode !== 0 && (ancestry.exitCode !== 1 ||
-      !await hasIntegratedContent(repository.primaryWorktreeRoot, base, expectedOid))) {
-    throw new Error("Local branch integration could not be reproven after worktree removal.");
+  if (preservation.kind === "integrated") {
+    if (base === null || base.ref !== preservation.base.ref || base.commit !== preservation.base.commit) {
+      throw new Error("The validated base changed after worktree removal.");
+    }
+    const ancestry = await runGit(repository, ["merge-base", "--is-ancestor", expectedOid, base.commit]);
+    if (ancestry.exitCode !== 0 && (ancestry.exitCode !== 1 ||
+        !await hasIntegratedContent(repository.primaryWorktreeRoot, base, expectedOid))) {
+      throw new Error("Local branch integration could not be reproven after worktree removal.");
+    }
+  } else {
+    const publication = (await readCleanupPublication(repository, branchRef, expectedOid)).state;
+    if (publication.kind !== "published" || publication.upstreamRef !== preservation.upstreamRef) {
+      throw new Error("Live upstream publication could not be reproven after worktree removal.");
+    }
   }
 
   const inventory = await listWorktrees(repository);
@@ -188,6 +195,9 @@ export async function cleanupWorktree(
     throw new Error("Repository identity changed since selection; rediscover the repository and retry cleanup.");
   }
   const evidence = await readCleanupEvidence(primaryRepository, worktree, config);
+  if (!options.keepBranch && evidence.branchRef !== null && evidence.branchRef === evidence.validatedBase?.ref) {
+    throw new Error("The cleanup target branch is the validated base and cannot be deleted by cleanup.");
+  }
   const initialFailure = refusal(evidence.inspection, options);
   if (initialFailure) throw new Error(initialFailure);
 
@@ -198,8 +208,8 @@ export async function cleanupWorktree(
   if (finalEvidence.branchRef !== evidence.branchRef || finalEvidence.headCommit !== evidence.headCommit) {
     throw new Error("Worktree branch or commit changed after cleanup inspection; refresh the selection and retry.");
   }
-  const initialBase = evidence.inspection.ancestry.kind === "unknown" ? null : evidence.inspection.ancestry.base;
-  const finalBase = finalEvidence.inspection.ancestry.kind === "unknown" ? null : finalEvidence.inspection.ancestry.base;
+  const initialBase = evidence.validatedBase;
+  const finalBase = finalEvidence.validatedBase;
   if ((initialBase === null) !== (finalBase === null) ||
       (initialBase !== null && finalBase !== null &&
         (initialBase.ref !== finalBase.ref || initialBase.commit !== finalBase.commit ||
@@ -209,7 +219,7 @@ export async function cleanupWorktree(
   }
 
   let currentPublication = evidence.inspection.publication;
-  if (integratedBase(finalEvidence.inspection) === null && options.keepBranch) {
+  if (integratedBase(finalEvidence.inspection) === null) {
     currentPublication = (await readCleanupPublication(
       primaryRepository, finalEvidence.branchRef, finalEvidence.headCommit,
     )).state;
@@ -241,9 +251,13 @@ export async function cleanupWorktree(
 
   if (evidence.branchRef !== null && !options.keepBranch) {
     try {
-      const base = integratedBase(evidence.inspection);
-      if (base === null) throw new Error("Local branch deletion requires validated-base integration.");
-      await deleteIntegratedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, base, config);
+      const base = integratedBase(finalInspection);
+      let preservation: BranchPreservation;
+      if (base !== null) preservation = { kind: "integrated", base };
+      else if (finalInspection.publication.kind === "published") {
+        preservation = { kind: "published", upstreamRef: finalInspection.publication.upstreamRef };
+      } else throw new Error("Local branch deletion requires proven integration or live upstream publication.");
+      await deletePreservedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, preservation, config);
       return { removedWorktreePath: path, deletedLocalBranch: branchName, retainedLocalBranch: null };
     } catch (error) {
       const currentOid = await branchObjectId(primaryRepository, evidence.branchRef);

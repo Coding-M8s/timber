@@ -56,10 +56,10 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
     .action(() => handlers.list(context));
 
   program.command("done <branch-or-worktree>")
-    .description("Remove a linked worktree, discard ignored files, and delete its branch when safely integrated")
+    .description("Remove a linked worktree, discard ignored files, and delete its branch when published or integrated")
     .option(
       "--keep-branch",
-      "Retain the local branch; also allow removing a clean published but unmerged worktree",
+      "Retain the local branch after removing the worktree",
       false,
     )
     .option("--keep-ignored", "Refuse removal when ignored files exist; leave them in the worktree", false)

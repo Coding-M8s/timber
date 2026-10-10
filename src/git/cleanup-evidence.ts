@@ -14,6 +14,7 @@ export type CleanupEvidence = {
   headCommit: string;
   branchRef: string | null;
   upstreamCommit: string | null;
+  validatedBase: ValidatedBase | null;
 };
 
 export type CleanupPublication = { state: PublicationState; upstreamCommit: string | null };
@@ -292,6 +293,7 @@ async function readCleanupEvidenceImpl(
     headCommit: headFromWorktree,
     branchRef,
     upstreamCommit: publicationEvidence.upstreamCommit,
+    validatedBase: base,
   };
 }
 

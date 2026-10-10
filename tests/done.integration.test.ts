@@ -194,30 +194,20 @@ test("done keeps ignored files in place with keep-ignored and discards them by d
   });
 });
 
-test.each(["unmerged", "unknown-base"])("done requires keep-branch for published %s work and retains local and remote commits", async scenario => {
+test.each(["unmerged", "unknown-base"])("done removes published %s review work and its local branch while preserving the remote", async scenario => {
   await withRepository(async (primary, directory) => {
     const path = await target(primary, directory);
     const oid = await commit(path);
     const remote = await upstream(primary, directory, path);
     if (scenario === "unknown-base") await writeFile(join(primary, ".timber.toml"), 'base_branch = "absent"\n');
-    const before = await snapshot(primary);
     const remoteRefs = await git(remote, "show-ref");
-    const refusal = await cli(primary, path);
-    expect(refusal.exitCode).toBe(1);
-    expect(refusal.stdout).toBe("");
-    expect(refusal.stderr).toContain("--keep-branch");
-    expect(refusal.stderr).toContain(scenario === "unknown-base" ? "validated cleanup base" : oid);
-    await retained(primary, path, before);
-    expect(await readFile(join(path, "feature.txt"), "utf8")).toBe("feature bytes\n");
-    expect(await git(remote, "show-ref")).toBe(remoteRefs);
-
-    const completed = await cli(primary, path, "--keep-branch");
+    const completed = await cli(primary, path);
     expect(completed.exitCode).toBe(0);
     expect(completed.stderr).toBe("");
-    expect(completed.stdout).toContain("Retained local branch feature/one");
-    expect(await absent(path)).toBe(true);
-    expect(await git(primary, "rev-parse", "refs/heads/feature/one")).toBe(oid);
-    expect((await snapshot(primary)).refs).toBe(before.refs);
+    expect(completed.stdout).toContain("Deleted local branch feature/one");
+    await removed(primary, path, "feature/one", true);
+    expect(await git(primary, "for-each-ref", "refs/heads/feature/one")).toBe("");
+    expect(await git(remote, "rev-parse", "refs/heads/feature/one")).toBe(oid);
     expect(await git(remote, "show-ref")).toBe(remoteRefs);
   });
 });
