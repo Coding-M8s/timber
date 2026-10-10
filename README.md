@@ -111,8 +111,9 @@ from `.env` before Timber starts. Use `bun --no-env-file src/index.ts new ABU-83
 to disable that Bun behavior. Site URL configuration contains no credentials.
 Without `cloud_id`, Timber calls the configured site for an unscoped token. With
 `cloud_id`, it uses Atlassian's fixed Jira Cloud gateway for a scoped token.
-Requests do not follow redirects or retry, and the 10-second timeout includes
-reading the issue summary.
+Requests do not follow redirects or retry. Each exact lookup has a 10-second
+deadline; a suggestions search shares one 10-second deadline across every page and
+response body.
 
 Only a complete uppercase key such as `ABU-834` is looked up, and only when
 `[jira]` is configured. `timber new ABU-834` looks up the issue and creates a
@@ -121,17 +122,46 @@ becomes `ABU-834-fix-cafe-login`. Timber normalizes the summary into an ASCII
 slug and caps the whole branch name at 120 characters. A non-Latin or
 punctuation-only summary uses `issue` as its suffix.
 
+Timber checks the Jira status category before creating a branch. It accepts only
+known category keys `new` and `indeterminate`; missing, null, or unrecognized
+categories fail closed. Timber reads the category key rather than the visible
+status name, which may be localized or customized, and it does not infer
+completion from resolution fields.
+
+When an exact ticket is unavailable (404) or complete, Timber searches that
+project for unfinished issues whose full key starts with the requested key. For
+example, `ABU-4` can suggest `ABU-40` and `ABU-41`. Timber uses a fixed read-only
+JQL query, filters candidates again by full key prefix, and offers only issues
+whose category is `new` or `indeterminate`. Authentication, permission, network,
+rate-limit, malformed-response, and unknown-status failures do not start a search.
+The search must finish all pages successfully before Timber presents a count or
+choice. Jira's [enhanced JQL search API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/)
+supports the paginated endpoint used here.
+
+In an interactive terminal, choose a candidate explicitly, even when there is
+only one; canceling prints `Cancelled.`, exits successfully, and leaves Git untouched.
+This also applies to the `open` chooser. The initial menu shows five choices,
+and displaying more asks for confirmation first. Without an interactive chooser,
+Timber prints at most five candidate keys and titles plus the total count, then
+shows how to run a candidate key explicitly or retry in a terminal. After a
+choice, Timber fetches that exact issue again and checks its current status and
+summary before creating anything. If it has become missing or complete, the
+command stops without searching again. Literal branch inputs continue through
+the ordinary branch creation flow.
+
 The summary becomes part of a Git branch name, which may later be published.
 Choose a literal branch such as `feature/ABU-834` when a title would expose
 sensitive information. Inputs such as `ABU-834-fix`, lowercase `abu-834`, and
 `feature/ABU-834` are always treated as literal branch names.
 
 If a title changes, a later `new ABU-834` can produce a different branch. Use
-`timber open ABU-834` to resume an existing matching worktree. `open` uses Git's
-local refs and worktree list, so it works offline and does not need Jira
+`timber open ABU-834` to resume existing work. `open` does not need Jira
 credentials. If several branches match, Timber reports the candidates and asks
-for an exact branch or worktree path. Jira URL input and OAuth sign-in are not
-supported.
+for an exact branch or worktree path. An interactive chooser starts with five
+entries and offers the full candidate list only after confirmation; entries that
+need manual path selection are labeled and never trigger mutations. Without a
+chooser, Timber shows at most five candidates and the total count with exact
+selection guidance. Jira URL input and OAuth sign-in are not supported.
 
 When lookup fails, Timber stops before creating a branch or worktree. For a 401,
 check the email, token expiry, and whether the token type matches the configured
@@ -146,15 +176,19 @@ configuration checks.
 Otherwise it resolves an exact local branch, then an exact remote branch, and
 then a unique ticket prefix at a delimiter boundary such as `TIM-42-...` or
 `TIM-42_...`. An absolute path must identify a registered worktree. If a ticket
-prefix matches multiple branches or worktrees, Timber prints every exact
-selector and asks you to run `open` again with one of them. An unknown input
+prefix matches multiple branches or worktrees, Timber uses the five-option
+chooser; without a terminal it shows five candidates and the total with exact
+selection guidance. An unknown input
 returns an error; `open` never invents a branch.
 
 An explicit remote such as `origin/my-feature` selects that remote even when a
 local branch has the same name. Unqualified remote branches use `remote` from
 `.timber.toml`, or the only configured Git remote when there is exactly one.
-Otherwise Timber reports ambiguity. Branch discovery reads Git's cached refs;
-an unseen remote branch must be fetched before it can be selected. When Timber
+Otherwise Timber checks all remotes and asks when matches are ambiguous.
+When cached refs cannot identify one local branch or worktree, `open` checks live
+remote heads automatically, including branches not fetched locally yet. Discovery
+is read-only; only the selected remote branch is fetched. Remote discovery failure
+stops before creating a worktree. Existing local targets remain usable offline. When Timber
 creates a worktree from a remote branch, it refreshes only that selected remote
 branch first. Refresh failures remain errors and leave the selected branch
 uncreated. An already registered worktree opens offline, including a dirty or
@@ -172,8 +206,12 @@ Run `timber done <branch-or-worktree>` (or `bun run dev done <branch-or-worktree
 with an exact branch name, an absolute registered worktree path, or a unique
 ticket prefix such as `TIM-42`. Target resolution follows `open`, including
 explicit remote selectors that identify a local worktree tracking that remote
-branch. Ambiguous input lists every candidate and requires an exact branch name or
-absolute worktree path; the command never prompts. A branch without a worktree is refused.
+branch. Branches without registered worktrees are excluded from ambiguous ticket
+matches, so a remote-only branch does not block cleanup of the sole matching
+worktree. Multiple worktrees use the same five-option chooser and confirmed
+expansion; `q` cancels successfully. Without a terminal, Timber shows five matches
+and the total, requiring an exact branch or path. A direct branch selection without
+a worktree is refused. Selected worktrees are revalidated before cleanup.
 The primary worktree is always protected.
 
 By default, Timber removes the linked worktree **including ignored files and

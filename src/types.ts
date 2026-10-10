@@ -141,6 +141,8 @@ export interface CleanupResult {
 /** Openability checks are for `open`; cleanup commands skip them and recheck at mutation time. */
 export interface ResolveOpenTargetOptions {
   assertOpenable?: boolean;
+  /** Discover live remote heads when open cannot resolve a single local target. */
+  discoverRemote?: boolean;
 }
 
 export type EditorResult =

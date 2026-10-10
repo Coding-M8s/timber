@@ -13,13 +13,20 @@ import { createWorktree } from "./git/create-worktree";
 import { resolveOpenTarget } from "./git/open-target";
 import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
-import { resolveJiraTicket } from "./jira/client";
+import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
+import { createTerminalChooser, shouldEnableInteractiveSelection } from "./selection";
+
+const choose = shouldEnableInteractiveSelection({
+  stdinIsTTY: process.stdin.isTTY === true,
+  stdoutIsTTY: process.stdout.isTTY === true,
+  ...(process.env.CI === undefined ? {} : { ci: process.env.CI }),
+}) ? createTerminalChooser(process.stdin, process.stdout) : undefined;
 
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
     ...placeholderHandlers,
     new: createNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket,
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
       createWorktree, runSetup, launchEditor,
     }),
     open: createOpenHandler({
@@ -41,5 +48,6 @@ process.exitCode = await runCli(process.argv.slice(2), {
       stdout: text => { process.stdout.write(text); },
       stderr: text => { process.stderr.write(text); },
     },
+    ...(choose ? { choose } : {}),
   },
 });

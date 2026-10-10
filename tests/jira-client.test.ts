@@ -1,13 +1,29 @@
 import { expect, test } from "bun:test";
 import { Buffer } from "node:buffer";
-import { resolveJiraTicket, type JiraRuntime } from "../src/jira/client";
+import {
+  findJiraSuggestions,
+  JiraLookupFailure,
+  resolveJiraTicket,
+  type JiraRuntime,
+} from "../src/jira/client";
 import type { JiraConfig } from "../src/types";
 
 const siteConfig: JiraConfig = { siteUrl: "https://example.atlassian.net" };
 const credentials = { JIRA_EMAIL: "person@example.invalid", JIRA_API_TOKEN: "synthetic-token" };
 
-function issue(key = "ABU-834", summary = "Fix login", extra: Record<string, unknown> = {}) {
-  return { key, fields: { summary, unrelated: "ignored" }, unrelated: extra };
+function issue(key = "ABU-834", summary = "Fix login", categoryKey = "indeterminate") {
+  return {
+    key,
+    fields: {
+      summary,
+      status: {
+        name: "In Progress",
+        statusCategory: { key: categoryKey, name: "In Progress" },
+      },
+      unrelated: "ignored",
+    },
+    unrelated: "ignored",
+  };
 }
 
 function runtime(
@@ -28,7 +44,7 @@ function response(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-test("uses the Jira v3 summary endpoint with Basic auth and no redirects", async () => {
+test("uses the Jira v3 summary and status fields with Basic auth and no redirects", async () => {
   let requestUrl = "";
   let requestInit: RequestInit | undefined;
   const ticket = await resolveJiraTicket(siteConfig, "ABU-834", runtime(async (url, init) => {
@@ -37,7 +53,8 @@ test("uses the Jira v3 summary endpoint with Basic auth and no redirects", async
     return response({ ...issue(), unexpected: "ignored" });
   }));
 
-  expect(requestUrl).toBe("https://example.atlassian.net/rest/api/3/issue/ABU-834?fields=summary");
+  expect(new URL(requestUrl).pathname).toBe("/rest/api/3/issue/ABU-834");
+  expect(new URL(requestUrl).searchParams.get("fields")).toBe("summary,status");
   expect(requestInit?.method).toBe("GET");
   expect(requestInit?.redirect).toBe("error");
   expect(requestInit?.signal).toBeInstanceOf(AbortSignal);
@@ -63,7 +80,10 @@ test("uses the fixed Atlassian gateway for a scoped token", async () => {
     return response(issue());
   }));
 
-  expect(requestUrl).toBe("https://api.atlassian.com/ex/jira/00000000-0000-4000-8000-000000000000/rest/api/3/issue/ABU-834?fields=summary");
+  const url = new URL(requestUrl);
+  expect(url.origin).toBe("https://api.atlassian.com");
+  expect(url.pathname).toBe("/ex/jira/00000000-0000-4000-8000-000000000000/rest/api/3/issue/ABU-834");
+  expect(url.searchParams.get("fields")).toBe("summary,status");
   expect(ticket.url).toBe("https://example.atlassian.net/browse/ABU-834");
 });
 
@@ -76,6 +96,61 @@ test("uses Jira's canonical key when an issue has moved", async () => {
     title: "Moved issue",
     url: "https://example.atlassian.net/browse/XYZ-91",
   });
+});
+
+test("accepts only known active Jira status categories", async () => {
+  for (const category of ["new", "indeterminate"]) {
+    const ticket = await resolveJiraTicket(siteConfig, "ABU-834", runtime(async () =>
+      response(issue("ABU-834", "Fix login", category))));
+    expect(ticket.key).toBe("ABU-834");
+  }
+});
+
+test("rejects completed Jira issues using the canonical key and status category", async () => {
+  const failure = await resolveJiraTicket(siteConfig, "ABU-834", runtime(async () =>
+    response({
+      key: "XYZ-91",
+      fields: {
+        summary: "PRIVATE_SUMMARY_MARKER",
+        status: {
+          name: "Clôturé",
+          statusCategory: { key: "done", name: "Done" },
+        },
+      },
+    }))).then(() => null, error => error);
+
+  expect(failure).toBeInstanceOf(JiraLookupFailure);
+  expect(failure.reason).toBe("done");
+  expect(failure.message).toContain("XYZ-91");
+  expect(failure.message).toMatch(/complete/i);
+  expect(failure.message).not.toContain("ABU-834");
+  expect(failure.message).not.toContain("PRIVATE_SUMMARY_MARKER");
+  expect(failure.message).not.toContain("Clôturé");
+});
+
+test("fails closed when Jira status category is missing, null, or unknown", async () => {
+  const variants: Array<{ label: string; status?: unknown }> = [
+    { label: "missing status" },
+    { label: "null status", status: null },
+    { label: "missing status category", status: { name: "Done" } },
+    { label: "null status category", status: { statusCategory: null } },
+    { label: "missing category key", status: { statusCategory: {} } },
+    { label: "unknown category even when display name says Done", status: {
+      name: "Done", statusCategory: { key: "custom-complete", name: "Done" },
+    } },
+  ];
+
+  for (const variant of variants) {
+    const message = await errorMessage(resolveJiraTicket(siteConfig, "ABU-834", runtime(async () =>
+      response({
+        key: "XYZ-92",
+        fields: { summary: "Fix login", ...(variant.status === undefined ? {} : { status: variant.status }) },
+      }))));
+
+    expect(message).toContain("XYZ-92");
+    expect(message).toMatch(/unknown status category/i);
+    expect(message).not.toContain("Fix login");
+  }
 });
 
 test("validates the requested key before reading credentials or calling fetch", async () => {
@@ -127,6 +202,18 @@ for (const example of [
   });
 }
 
+test("assigns a typed not-found reason only to exact issue 404 responses", async () => {
+  const missing = await resolveJiraTicket(siteConfig, "ABU-834", runtime(async () =>
+    new Response(null, { status: 404 }))).then(() => null, error => error);
+  const denied = await resolveJiraTicket(siteConfig, "ABU-834", runtime(async () =>
+    new Response(null, { status: 401 }))).then(() => null, error => error);
+
+  expect(missing).toBeInstanceOf(JiraLookupFailure);
+  expect(missing.reason).toBe("not-found");
+  expect(denied).toBeInstanceOf(JiraLookupFailure);
+  expect(denied.reason).toBeUndefined();
+});
+
 test("rejects a redirect without making a second credentialed request", async () => {
   const calls: Array<{ url: string; redirect: RequestRedirect | undefined }> = [];
   const message = await errorMessage(resolveJiraTicket(siteConfig, "ABU-834", runtime(async (url, init) => {
@@ -136,7 +223,7 @@ test("rejects a redirect without making a second credentialed request", async ()
 
   expect(message).toMatch(/redirect/i);
   expect(calls).toEqual([{
-    url: "https://example.atlassian.net/rest/api/3/issue/ABU-834?fields=summary",
+    url: "https://example.atlassian.net/rest/api/3/issue/ABU-834?fields=summary%2Cstatus",
     redirect: "error",
   }]);
 });
@@ -218,4 +305,141 @@ test("clears the timeout after success and HTTP failure", async () => {
     await new Promise(resolve => setTimeout(resolve, 40));
     expect(requestSignal?.aborted).toBe(false);
   }
+});
+
+function searchIssue(key: string, categoryKey: string, summary = `Title ${key}`) {
+  return {
+    key,
+    fields: {
+      summary,
+      status: { statusCategory: { key: categoryKey } },
+    },
+  };
+}
+
+test("searches only the same Jira project and collects sorted active full-key-prefix matches", async () => {
+  const calls: Array<{ url: URL; init: RequestInit }> = [];
+  const pages = [
+    {
+      issues: [
+        searchIssue("ABU-41", "indeterminate"),
+        searchIssue("ABU-4", "new"),
+        searchIssue("ABU-400", "new"),
+        searchIssue("ABU-42", "done"),
+        searchIssue("XABU-43", "new"),
+        searchIssue("ABU-43", "custom", "Must not be selected"),
+        { key: "ABU-44", fields: { summary: "Missing category" } },
+      ],
+      isLast: false,
+      nextPageToken: "page-two-token",
+    },
+    {
+      issues: [searchIssue("ABU-40", "new"), searchIssue("ABU-41", "indeterminate", "Duplicate title")],
+      isLast: true,
+    },
+  ];
+
+  const tickets = await findJiraSuggestions(siteConfig, "ABU-4", runtime(async (url, init) => {
+    calls.push({ url: new URL(url), init });
+    return response(pages[calls.length - 1]);
+  }));
+
+  expect(calls).toHaveLength(2);
+  expect(calls[0]?.url.pathname).toBe("/rest/api/3/search/jql");
+  expect(calls[0]?.url.searchParams.get("jql")).toBe('project = "ABU" AND statusCategory != Done ORDER BY key ASC');
+  expect(calls[0]?.url.searchParams.get("fields")).toBe("summary,status");
+  expect(calls[0]?.url.searchParams.get("maxResults")).toBe("100");
+  expect(calls[0]?.url.searchParams.has("nextPageToken")).toBe(false);
+  expect(calls[1]?.url.searchParams.get("nextPageToken")).toBe("page-two-token");
+  for (const call of calls) {
+    expect(call.init.method).toBe("GET");
+    expect(call.init.redirect).toBe("error");
+    expect(new Headers(call.init.headers).get("authorization")).toMatch(/^Basic /);
+  }
+  expect(tickets).toEqual([
+    { key: "ABU-40", title: "Title ABU-40", url: "https://example.atlassian.net/browse/ABU-40" },
+    { key: "ABU-400", title: "Title ABU-400", url: "https://example.atlassian.net/browse/ABU-400" },
+    { key: "ABU-41", title: "Title ABU-41", url: "https://example.atlassian.net/browse/ABU-41" },
+  ]);
+});
+
+test("excludes the exact requested key and rejects invalid suggestion keys before fetch", async () => {
+  let calls = 0;
+  const suggestions = await findJiraSuggestions(siteConfig, "ABU-4", runtime(async () => {
+    calls += 1;
+    return response({ issues: [searchIssue("ABU-4", "new")], isLast: true });
+  }));
+  expect(suggestions).toEqual([]);
+
+  await expect(findJiraSuggestions(siteConfig, "ABU-4\n", runtime(async () => {
+    calls += 1;
+    return response({ issues: [], isLast: true });
+  }))).rejects.toThrow(/invalid.*ticket key/i);
+  expect(calls).toBe(1);
+});
+
+test("fails safely when a nonfinal search page has no continuation token", async () => {
+  const message = await errorMessage(findJiraSuggestions(siteConfig, "ABU-4", runtime(async () =>
+    response({ issues: [], isLast: false }))));
+
+  expect(message).toMatch(/suggestions.*complete/i);
+  expect(message).not.toContain("synthetic-token");
+});
+
+test("fails safely when Jira repeats a continuation token", async () => {
+  let calls = 0;
+  const message = await errorMessage(findJiraSuggestions(siteConfig, "ABU-4", runtime(async () => {
+    calls += 1;
+    return response({ issues: [], isLast: false, nextPageToken: "repeat" });
+  })));
+
+  expect(message).toMatch(/suggestions.*complete/i);
+  expect(calls).toBe(2);
+});
+
+test("fails safely if any search page cannot be read", async () => {
+  let calls = 0;
+  const message = await errorMessage(findJiraSuggestions(siteConfig, "ABU-4", runtime(async () => {
+    calls += 1;
+    return calls === 1
+      ? response({ issues: [], isLast: false, nextPageToken: "next" })
+      : new Response("SEARCH_BODY_SECRET_MARKER", { status: 403 });
+  })));
+
+  expect(message).toMatch(/access denied \(403\)/i);
+  expect(message).not.toContain("SEARCH_BODY_SECRET_MARKER");
+  expect(calls).toBe(2);
+});
+
+test("search deadline spans paginated body consumption and aborts a stalled page", async () => {
+  let requestSignal: AbortSignal | undefined;
+  const message = await errorMessage(findJiraSuggestions(siteConfig, "ABU-4", runtime((_url, init) => {
+    requestSignal = init.signal as AbortSignal;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        requestSignal?.addEventListener("abort", () => controller.error(new Error("SEARCH_BODY_SECRET_MARKER")), { once: true });
+      },
+    });
+    return Promise.resolve(new Response(body, { status: 200 }));
+  }, { timeoutMs: 15 })));
+
+  expect(message).toMatch(/timed out/i);
+  expect(message).not.toContain("SEARCH_BODY_SECRET_MARKER");
+  expect(requestSignal?.aborted).toBe(true);
+});
+
+test("one search deadline spans every page instead of restarting for each request", async () => {
+  let calls = 0;
+  let requestSignal: AbortSignal | undefined;
+  const message = await errorMessage(findJiraSuggestions(siteConfig, "ABU-4", runtime((_url, init) => {
+    calls += 1;
+    requestSignal = init.signal as AbortSignal;
+    return new Promise<Response>(resolve => setTimeout(() => resolve(response(calls === 1
+      ? { issues: [], isLast: false, nextPageToken: "next" }
+      : { issues: [], isLast: true })), 9));
+  }, { timeoutMs: 15 })));
+
+  expect(message).toMatch(/timed out after 15 ms/i);
+  expect(calls).toBe(2);
+  expect(requestSignal?.aborted).toBe(true);
 });

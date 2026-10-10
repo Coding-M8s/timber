@@ -3,6 +3,14 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
+import { createOpenHandler } from "../src/commands/open";
+import { loadRepositoryConfig } from "../src/config";
+import { launchEditor } from "../src/editor";
+import { createWorktree } from "../src/git/create-worktree";
+import { resolveOpenTarget } from "../src/git/open-target";
+import { discoverRepository } from "../src/git/repository";
+import { runSetup } from "../src/hooks";
+import type { CommandContext } from "../src/services";
 import { git, withRepository } from "./helpers/git";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
@@ -305,7 +313,49 @@ test("missing, unknown, empty, and unregistered absolute targets fail without Gi
   });
 });
 
-test("unavailable and deleted remote branches fail refresh without creating refs or paths", async () => {
+test("interactive ambiguity creates only the explicitly selected local branch worktree", async () => {
+  await withRepository(async (primary, directory) => {
+    await git(primary, "branch", "TIM-121-one");
+    await git(primary, "branch", "TIM-121-two");
+    const destination = join(directory, "primary repo-worktrees", "TIM-121-two");
+    let chooserCalls = 0;
+    let stdout = "";
+    let stderr = "";
+    const context: CommandContext = {
+      cwd: primary,
+      io: { stdout: text => { stdout += text; }, stderr: text => { stderr += text; } },
+      choose: async (message, choices) => {
+        chooserCalls++;
+        expect(message).toContain("2 targets");
+        expect(choices.map(choice => choice.value)).toEqual([
+          "branch:refs/heads/TIM-121-one", "branch:refs/heads/TIM-121-two",
+        ]);
+        return "branch:refs/heads/TIM-121-two";
+      },
+    };
+    const open = createOpenHandler({
+      discoverRepository,
+      loadConfig: loadRepositoryConfig,
+      resolveOpenTarget,
+      createWorktree,
+      runSetup,
+      launchEditor,
+    });
+
+    await open("TIM-121", {}, context);
+
+    expect(chooserCalls).toBe(1);
+    expect(stdout).toBe(`Created worktree at ${destination}\n`);
+    expect(stderr).toBe("");
+    expect(await git(destination, "branch", "--show-current")).toBe("TIM-121-two");
+    const worktrees = await git(primary, "worktree", "list", "--porcelain");
+    expect(worktrees).toContain(`worktree ${destination}`);
+    expect(worktrees).toContain("branch refs/heads/TIM-121-two");
+    expect(worktrees).not.toContain("branch refs/heads/TIM-121-one");
+  });
+});
+
+test("unavailable and deleted remote branches fail discovery without creating refs or paths", async () => {
   for (const mode of ["unavailable", "deleted"] as const) {
     await withRepository(async (primary, directory) => {
       const bare = await addBareRemote(primary, directory, "origin");
@@ -327,7 +377,9 @@ test("unavailable and deleted remote branches fail refresh without creating refs
       const result = await cli(primary, "open", "origin/feature/remote-fail");
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toMatch(/Could not refresh remote branch origin\/feature\/remote-fail/i);
+      expect(result.stderr).toMatch(mode === "unavailable"
+        ? /Could not check existing remote branches/i
+        : /No existing branch or worktree matches/i);
       expect(await git(primary, "rev-parse", "refs/remotes/origin/feature/remote-fail")).toBe(cached);
       expect(await exists(path)).toBe(false);
       expect(await readFile(join(primary, "tracked.txt"))).toEqual(trackedBytes);

@@ -3,13 +3,13 @@
 1. Discover repositories from nested directories and linked worktrees; distinguish the current worktree root from the common Git directory.
 2. Git operations use the detected repository, not a hardcoded current directory.
 3. `new <branch>` creates a new branch from the configured or explicit base. If the branch exists, report it and suggest `open`.
-4. `open <input>` resolves an existing worktree, exact local branch, then exact remote branch. An explicit remote such as `origin/feature/foo` selects that remote.
-5. A ticket prefix such as `ABU-834` may match branch names on a delimiter boundary. Exactly one match may be selected; multiple matches must show candidates and require an exact selection. Do not use arbitrary substring matching.
+4. `open <input>` resolves an existing worktree, exact local branch, then exact remote branch. An explicit remote such as `origin/feature/foo` selects that remote. When cached refs cannot identify one local target, `open` discovers live remote heads without changing refs, respecting the explicit/configured remote or checking all remotes. Discovery failure blocks materialization; existing local targets remain offline.
+5. A ticket prefix such as `ABU-834` may match branch names on a delimiter boundary. Multiple matches must include every distinct candidate in one chooser when interactive; mark candidates that require manual selection, and do not mutate if one is selected. Without a chooser, show at most five sorted candidates and the total, with exact manual-selection guidance. Do not use arbitrary substring matching.
 6. Refresh the selected remote before creating from a remote branch. An existing local worktree can open offline. A failed remote refresh must not be reported as success.
 7. Base selection: `--base`, repository config, configured remote's default branch, then an unambiguous existing `main` or `master`. Never guess if resolution is ambiguous.
 8. Worktree paths default to a sibling directory, `../<repository-name>-worktrees/<safe-branch-slug>`. Resolve config paths relative to the primary repository root. Reject collisions, path traversal, and attempts to target the primary repository.
 9. `ls` lists the current repository's primary and linked worktrees, including ones created outside Timber, and identifies the primary worktree.
-10. `done` never removes the primary worktree. Modified or untracked files always block cleanup. Unpublished or unknown publication blocks cleanup unless commits are contained in the validated base or Git proves that merging the local branch into that base adds no file changes.
+10. `done` resolves cleanup targets among registered worktrees; remote-only and unchecked branches do not make a single matching worktree ambiguous. Multiple worktrees use the five-option chooser (or a capped diagnostic without a terminal), and selection is revalidated by absolute path and branch before cleanup. Cancellation succeeds without mutation. `done` never removes the primary worktree. Modified or untracked files always block cleanup. Unpublished or unknown publication blocks cleanup unless commits are contained in the validated base or Git proves that merging the local branch into that base adds no file changes.
 11. Delete a local branch only when its commits are contained in the validated base or a successful Git virtual merge produces exactly the validated base tree. The latter proves content integration after a squash/rebase merge without requiring the original commit IDs or a live feature upstream. Recheck the target, base, and integration evidence before removal and branch deletion. Use only built-in merge behavior: reject custom merge-driver configuration and disable renormalization for this proof. Conflicts, unsupported Git operations, and uncertain evidence never authorize deletion. `--keep-branch` retains the local branch and permits clean, safely published worktree removal without requiring integration. Do not infer safety from a closed PR. Detached worktrees still require commit ancestry into the validated base.
 12. No destructive `--force` in 0.1. No remote branch deletion, automatic stash, or implicit process killing.
 13. `done` discards ignored files and directories, including `.env`, with the worktree by default. `--keep-ignored` refuses cleanup when ignored content exists, leaving those files, the worktree, and branch in their original locations; it does not copy them elsewhere. Retain `--discard-ignored` as a compatibility option. Reject combining it with `--keep-ignored`. Neither option bypasses modified/untracked files or commit/integration safety checks. Document the default in CLI help and the README.
@@ -79,34 +79,64 @@ and only in a Jira-enabled repository. Do not trim or change case. Inputs such a
 ticket-looking literal can be named explicitly as `feature/ABU-834`.
 
 Lookup uses Basic authentication with the Atlassian account email and API token,
-`Accept: application/json`, and one `GET /rest/api/3/issue/<encoded-key>?fields=summary`.
+`Accept: application/json`, and one
+`GET /rest/api/3/issue/<encoded-key>?fields=summary,status`.
 Without `cloud_id`, the API root is the configured site. With `cloud_id`, use only
 `https://api.atlassian.com/ex/jira/<cloud_id>`; never infer token type or retry on a
 different host. Reject redirects so credentials cannot be forwarded. A 10-second
 deadline covers the complete response body and validation. Do not retry
 automatically. Validate Jira's returned canonical key and nonblank summary; ignore
 unrelated response fields and build the browse URL from the configured site and
-canonical key.
+canonical key. Also request `status` and require
+`fields.status.statusCategory.key` to be `new`, `indeterminate`, or `done`.
+Reject `done` with a diagnostic naming the returned canonical key, before branch
+or worktree creation. Missing, null, or unknown status categories fail closed.
+Use only the category key; status display names may be localized or customized, and
+resolution fields do not override it.
 
-For a recognized ticket, `new` validates its base before lookup, then resolves the
-ticket and generates `<canonical-key>-<summary-slug>` before the existing Git
-creation checks. Normalize the summary with NFKD, remove combining marks, lowercase,
-replace each run outside ASCII letters and digits with `-`, trim hyphens, and cap
-the entire generated name at 120 ASCII characters while preserving the key. Use
-`issue` if the summary leaves no slug characters. Git remains authoritative for
-branch validity, existing refs, and path collisions; do not append numeric suffixes
-or bypass collisions. A lookup failure stops before branch/worktree creation and
-never falls back to a literal key. Report the generated branch and browse URL only
-after creation succeeds. The title contributes to a public-looking Git branch, so
-use a literal branch when a title is sensitive. If a title changes, `new` may name a
-different branch; use `open ABU-834` to resume an existing ticket branch offline.
+For a recognized ticket, `new` validates its base before lookup. If the exact issue
+is available and active, it generates `<canonical-key>-<summary-slug>` before the
+existing Git creation checks. Normalize the summary with NFKD, remove combining
+marks, lowercase, replace each run outside ASCII letters and digits with `-`, trim
+hyphens, and cap the entire generated name at 120 ASCII characters while preserving
+the key. Use `issue` if the summary leaves no slug characters. Git remains
+authoritative for branch validity, existing refs, and path collisions; do not append
+numeric suffixes or bypass collisions. Report the generated branch and browse URL
+only after creation succeeds. The title contributes to a public-looking Git branch,
+so use a literal branch when a title is sensitive. If a title changes, `new` may name
+a different branch; use `open ABU-834` to resume an existing ticket branch offline.
 
-Missing credentials name the missing environment variable(s). Authentication,
-authorization, unavailable/hidden issue, rate limit, server, timeout, network,
-redirect, and malformed-response failures identify a safe category without exposing
-credentials, response bodies, raw transport exceptions, or config values. `open`,
-`ls`, and `done` do not call Jira and do not require credentials. Jira URL inputs and
-OAuth login are outside this integration.
+Only an exact issue 404 or a `done` status-category result enables suggestions. The
+read-only [enhanced JQL search endpoint](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/)
+uses the requested key's project and the fixed query
+`project = "<project-key>" AND statusCategory != Done ORDER BY key ASC`, requests
+`summary,status` with up to 100 results per page, and follows `nextPageToken` until
+`isLast` is true. Every page shares one 10-second deadline. Reject redirects, do not
+retry, and treat missing or repeated continuation tokens as an incomplete search.
+Filter results locally to valid keys whose full key starts with the requested key;
+exclude the exact key and any issue without a known active category (`new` or
+`indeterminate`). Deduplicate and sort by key before showing the exact eligible
+count. Do not accept user-supplied JQL. If any page fails or is malformed, stop
+without displaying a partial list and preserve the original missing/complete reason
+with a safe suggestions-failed diagnostic.
+
+When suggestions exist, include the original safe missing/complete diagnostic in
+the chooser prompt and ask for an explicit choice, even for one result. The chooser
+is available only when stdin and stdout are TTYs and `CI` is unset or equals
+`false` case-insensitively; it starts with five options and shows all matches only
+after an explicit warning and confirmation. Cancelling the Jira, `open`, or `done`
+chooser prints `Cancelled.` to stdout, exits successfully, and makes no Git, hook, or editor
+changes. Without a chooser, report at most the first five sorted key/title labels,
+the exact count, and guidance to run a candidate key explicitly or rerun in an
+interactive terminal. Validate the chooser's returned stable value against the
+offered results, then fetch the chosen exact issue again and use its current
+canonical key and summary. If it became missing or complete, fail without another
+suggestion search. Authentication, missing credentials, permission, rate-limit,
+server, timeout, network, redirect, malformed-response, and unknown-status failures
+do not trigger suggestions. All diagnostics omit credentials, response bodies, raw
+transport exceptions, and config values. `open`, `ls`, and `done` do not call Jira
+and do not require credentials. Jira URL inputs and OAuth login are outside this
+integration.
 
 ## Setup hooks (0.2, TIM-7)
 
