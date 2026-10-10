@@ -61,6 +61,14 @@ test("q, Escape, Ctrl-C, and EOF cancel without selecting an option", async () =
   }
 });
 
+test("selection and cancellation restore the process SIGINT listeners", async () => {
+  const listeners = process.listeners("SIGINT");
+  for (const input of ["1\n", "q\n", "\u0003\n", ""]) {
+    await choose(input);
+    expect(process.listeners("SIGINT")).toEqual(listeners);
+  }
+});
+
 test("invalid numeric answers are rejected and labels cannot inject terminal controls", async () => {
   const result = await choose("9\n1\n", [{ value: "worktree:/unsafe", label: "Worktree /tmp/a\u001b[2J\nsecond row" }]);
 
