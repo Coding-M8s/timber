@@ -15,6 +15,7 @@ a reviewed contract change first.
 | `src/services.ts` | Plain asynchronous command service functions |
 | `discoverRepository`, `listWorktrees` | TIM-1; TIM-4 extends worktree targeting |
 | `loadConfig` | TIM-6 |
+| `resolveJiraTicket` | TIM-10 |
 | `resolveBranch`, `resolveBase` | TIM-2 |
 | `resolveOpenTarget` | TIM-4 |
 | `createWorktree` | TIM-3 |
@@ -76,7 +77,8 @@ created outside Timber. Status is either known file lists or an explicit unknown
 reason. Count each modified/untracked file once when formatting TIM-14 output;
 unknown status must not appear clean. Missing/stale rows must remain visible.
 
-`RepositoryConfig` is the normalized 0.1 shape. Null base/remote/worktree directory
+`RepositoryConfig` is the normalized 0.1 shape, extended by optional features in
+their owning tickets. Null base/remote/worktree directory
 means absent and requires the documented resolution/default policy. Null editor
 means off. TOML keys such as `base_branch` map to `baseBranch`; loading and strict
 validation belong to TIM-6. Only `--no-editor` produces `editor: false` in command
@@ -87,7 +89,22 @@ commands are executable names plus argument arrays.
 non-empty executable `command` is required, `args` defaults to a string array `[]`,
 and `enabled` defaults to `false`. TIM-6 parses and retains this setting in 0.1;
 TIM-9 owns launching in 0.2. No agent launches from config loading, and this shape
-does not create a provider framework. Hooks and Jira remain 0.2 integrations.
+does not create a provider framework. Hooks and Jira are optional 0.2 integrations.
+
+`RepositoryConfig.jira` is omitted when `[jira]` is absent, preserving the existing
+config shape; when present it contains a normalized HTTPS `siteUrl` and optional
+UUID `cloudId`. Config loading accepts only `site_url` and `cloud_id` in that strict
+table. Site URLs must be tenant origins on `*.atlassian.net`, with no credentials,
+nondefault port, query, fragment, or path other than `/`. Credentials are never
+configuration values: `resolveJiraTicket(config, key)` reads `JIRA_EMAIL` and
+`JIRA_API_TOKEN` lazily when called. It uses the configured site URL for unscoped
+tokens, or the fixed Atlassian Jira Cloud gateway selected by `cloudId` for scoped
+tokens. It makes one bounded request, does not follow redirects or retry, validates
+the returned canonical key and nonblank summary, and constructs the browse URL
+locally. Errors are safe categories and do not include response bodies, credentials,
+raw transport exceptions, or full configuration values. Ticket-key recognition and
+branch naming are pure Jira helpers consumed by TIM-10; the Git creation service
+continues to validate refs and paths and remains authoritative for collisions.
 
 `src/git/cleanup.ts` implements `inspectCleanup` and `cleanupWorktree` for
 TIM-5. TIM-15's `createDoneHandler` reuses `resolveOpenTarget` with openability

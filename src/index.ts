@@ -13,12 +13,14 @@ import { createWorktree } from "./git/create-worktree";
 import { resolveOpenTarget } from "./git/open-target";
 import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
+import { resolveJiraTicket } from "./jira/client";
 
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
     ...placeholderHandlers,
     new: createNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, createWorktree, runSetup, launchEditor,
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket,
+      createWorktree, runSetup, launchEditor,
     }),
     open: createOpenHandler({
       discoverRepository,

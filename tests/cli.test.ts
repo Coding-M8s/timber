@@ -42,9 +42,10 @@ test("new help describes implemented command and supported options", async () =>
   const result = await cli("new", "--help");
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(result.stdout).toContain("Create a new branch and worktree");
+  expect(result.stdout).toContain("Create a worktree");
   expect(result.stdout).toContain("--base <ref>");
   expect(result.stdout).toContain("--no-editor");
+  expect(result.stdout).toContain("configured Jira ticket IDs");
   expect(result.stdout).not.toContain("placeholder");
 });
 
