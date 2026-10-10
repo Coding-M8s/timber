@@ -43,6 +43,8 @@ export interface CommandServices {
   cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions): Promise<CleanupResult>;
   /** TIM-8: executable + args, no shell; null config or disabled means skipped. */
   launchEditor(worktree: Worktree, config: RepositoryConfig, disabled: boolean): Promise<EditorResult>;
+  /** TIM-7: sequential trusted /bin/sh hooks; rejection retains workspace and blocks launch. */
+  runSetup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, io: CommandIO): Promise<void>;
 }
 
 export interface CommandIO {
@@ -63,6 +65,8 @@ export interface NewOptions {
 
 export interface OpenOptions {
   editor?: false;
+  /** Explicitly rerun all setup steps for an existing worktree. */
+  setup?: true;
 }
 
 export interface CommandHandlers {

@@ -21,6 +21,10 @@ const configFileSchema = z.strictObject({
   base_branch: z.string().trim().min(1).optional(),
   remote: z.string().trim().min(1).optional(),
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
+  hooks: z.strictObject({
+    post_create: z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")))
+      .default([]),
+  }).optional(),
   editor: executableSchema.optional(),
   agent: z.strictObject({
     command: z.string().refine(value => value.trim().length > 0),
@@ -71,6 +75,7 @@ export async function loadRepositoryConfig(repository: RepositoryContext): Promi
       : resolve(repository.primaryWorktreeRoot, config.worktree_dir),
     editor: config.editor ?? null,
     agent: config.agent ?? null,
+    ...(config.hooks === undefined ? {} : { hooks: { postCreate: config.hooks.post_create } }),
   };
 }
 

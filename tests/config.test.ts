@@ -204,3 +204,30 @@ test("rejects a config path that is a directory", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("parses trusted post_create commands without trimming shell source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber hooks config "));
+  try {
+    await writeFile(join(root, ".timber.toml"), '[hooks]\npost_create = [" printf first ", "printf second"]\n');
+    expect((await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }))).hooks)
+      .toEqual({ postCreate: [" printf first ", "printf second"] });
+    await writeFile(join(root, ".timber.toml"), "[hooks]\n");
+    expect((await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }))).hooks)
+      .toEqual({ postCreate: [] });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const example of [
+  { source: 'hooks = "SECRET_MARKER"', field: "hooks" },
+  { source: '[hooks]\npost_create = "SECRET_MARKER"', field: "hooks.post_create" },
+  { source: '[hooks]\npost_create = [77777]', field: "hooks.post_create.0" },
+  { source: '[hooks]\npost_create = [" "]', field: "hooks.post_create.0" },
+  { source: '[hooks]\npost_create = ["bad\\u0000source"]', field: "hooks.post_create.0" },
+  { source: '[hooks]\npost_remove = ["SECRET_MARKER"]', field: "hooks.post_remove" },
+]) {
+  test(`rejects invalid hooks at ${example.field} without exposing shell source`, async () => {
+    await expectConfigError(example.source, example.field, "SECRET_MARKER");
+  });
+}

@@ -65,6 +65,7 @@ timber open origin/my-feature
 timber open TIM-42
 timber open "/absolute/path/to/my-feature-worktree"
 timber open my-feature --no-editor
+timber open my-feature --setup
 timber ls
 timber done my-feature
 timber done my-feature --keep-branch
@@ -88,7 +89,7 @@ branch suggests `timber open`; an occupied destination fails without replacing
 files or refs.
 
 `--no-editor` skips the configured editor. Otherwise Timber starts it after Git
-creates the worktree. Success prints the branch and absolute worktree path. If
+creates the worktree and setup completes. Success prints the branch and absolute worktree path. If
 editor startup fails, Timber reports the retained workspace and a
 `timber open -- '<absolute-worktree-path>'` retry command, and exits nonzero.
 
@@ -187,7 +188,7 @@ refresh the index, open an editor, launch an agent, or change files or refs.
 
 Timber reads `.timber.toml` from the primary worktree root. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent settings can be configured and retained in 0.1, but launching remains deferred to 0.2. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
 
-Editor opening stays off when `[editor]` is absent. When `open` selects or creates a worktree, Timber starts the configured editor after the required Git work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
+Editor opening stays off when `[editor]` is absent. When `open` selects or creates a worktree, Timber starts the configured editor after the required Git and setup work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
 
 ### Zed
 
@@ -216,6 +217,66 @@ args = ["--new-window"]
 ```
 
 Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree, reports the problem on stderr, and prints a safe retry command such as `timber open -- '<worktree path>'`. Since Git work completed, the command still succeeds. Fix the editor command or `PATH`, then run that command to reopen the existing worktree; the retry does not create another one.
+
+### Setup hooks (0.2)
+
+Add trusted shell commands to the primary checkout's `.timber.toml`:
+
+```toml
+[hooks]
+post_create = [
+  "bun install --frozen-lockfile",
+  './scripts/setup.sh',
+]
+```
+
+`new` runs these steps after creating the branch/worktree. `open` runs them when
+it creates a worktree for an existing local or remote branch. Reopening an
+existing worktree skips setup unless you explicitly pass `--setup`. Missing
+hooks, an empty table, or an empty list perform no setup. Only `post_create` is
+supported; invalid values and unknown keys are rejected before Git creation.
+`--no-editor` skips the editor while still allowing setup.
+
+On the initial Linux target, each step runs sequentially in a fresh
+`/bin/sh -c` process with the selected worktree as its working directory.
+The shell receives the configured source unchanged; Timber never inserts
+branch names, paths, or ticket text into that source. Use POSIX shell syntax
+or explicitly invoke another installed shell in a hook. Variables exported
+by one step do not persist into the next. There is no implicit `set -e`:
+each step succeeds or fails according to its shell exit status. Use `&&`
+or a script that returns a nonzero status when required work fails.
+
+Hooks inherit Timber's environment and receive these overrides:
+
+| Variable | Value |
+| --- | --- |
+| `TIMBER_REPO` | Absolute primary repository root |
+| `TIMBER_WORKTREE` | Absolute selected worktree path |
+| `TIMBER_BRANCH` | Selected local branch name, or empty for detached HEAD |
+| `TIMBER_TASK_ID` | Leading ticket ID such as `TIM-7` in `TIM-7-setup`, `TIM-7/setup`, or `TIM-7`; absent otherwise |
+
+Ticket recognition uses uppercase project letters/digits followed by `-` and
+digits, with an end or `-`, `_`, `.`, `/` boundary. An inherited task ID is
+removed when the selected branch has none. Quote context variables in hooks,
+for example `printf '%s\n' "$TIMBER_BRANCH"`. Standard input is closed so setup
+does not wait for interactive answers; configure unattended installation.
+Hook stdout and stderr stream to the corresponding invoking streams.
+
+This configuration executes code with your permissions. Trust and review the
+primary config and any scripts in the selected branch before running setup.
+There is no approval prompt. Keep credentials out of config and shell source;
+use environment variables or a secret store, and avoid printing secrets in
+hook output. Timber's failure diagnostic identifies the numbered step and
+exit status without printing its shell source.
+
+The first failed step stops later hooks and editor startup. Timber exits
+nonzero and retains the branch, worktree, and files left by setup, including
+modified, untracked, and ignored content. It does not undo changes made by
+the hook itself. Fix the hook or its prerequisites, then use the printed
+retry command, such as `timber open --setup -- '<absolute-worktree-path>'`.
+Retries run **all steps from the beginning**; make hooks safe to rerun.
+Normal `open` can reopen the retained workspace without retrying setup.
+Agent launching remains deferred to TIM-9 and must follow successful setup.
 
 ## Release scope
 

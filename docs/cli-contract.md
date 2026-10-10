@@ -23,7 +23,7 @@ Read only `.timber.toml` from the primary worktree root. Do not search nested or
 
 The supported 0.1 keys are `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2.
 
-Explicit CLI values take precedence over config, and config takes precedence over documented service defaults. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira settings are not supported config keys in 0.1.
+Explicit CLI values take precedence over config, and config takes precedence over documented service defaults. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks are a 0.2 extension described below; Jira settings remain unsupported.
 
 ```toml
 base_branch = "main"
@@ -49,3 +49,36 @@ args = ["--new-window"]
 ```
 
 The editor executable must be available on `PATH` or configured by absolute path. Editor and agent commands are executable names plus argument arrays, never shell command strings. Pass editor arguments literally and append the absolute selected worktree path as the final argument. On startup failure after worktree creation, retain the worktree and provide a retry command of the form `timber open -- '<absolute-worktree-path>'`; retry opens the existing worktree after the user fixes the editor configuration or `PATH`. The retry string is display text and must not be executed internally. Trusted shell hooks, when implemented, receive context through environment variables; do not substitute branch names or ticket text into shell source.
+
+## Setup hooks (0.2, TIM-7)
+
+The strict `[hooks]` table accepts only `post_create`, a string array defaulting
+to `[]`. Each command must contain non-whitespace source and no NUL bytes;
+preserve its source literally. Absent hooks mean setup is off. Read hooks only
+from the primary root's config, never the linked worktree's config.
+
+`new` and `open` run setup after creating a worktree and before launching its
+editor. Normal `open` reuses an existing worktree without setup. `open --setup`
+explicitly runs every step from the beginning for the selected worktree,
+including primary and detached worktrees; creation plus `--setup` runs once.
+`--no-editor` does not disable setup.
+
+On Linux, invoke `/bin/sh` with argument array `["-c", configuredSource]` for
+each step, sequentially, with worktree cwd, closed stdin, and stdout/stderr
+streamed to their respective invoking streams. Each step has its own shell;
+there is no implicit `set -e`. Hooks are trusted code with the user's permissions
+and inherited environment. Document this trust boundary and safe reruns.
+
+Override `TIMBER_REPO` with the absolute primary root, `TIMBER_WORKTREE` with
+the selected absolute path, and `TIMBER_BRANCH` with the selected local branch
+name (empty for detached HEAD). Set `TIMBER_TASK_ID` to the branch's leading
+`[A-Z][A-Z0-9]*-<digits>` ticket ID only when followed by end or `-`, `_`, `.`, `/`;
+otherwise remove any inherited value. Context values are environment data,
+never substitutions into shell source.
+
+Failure returns nonzero, identifies the one-based step and exit code/signal
+or shell startup failure, stops subsequent hooks and launch, and retains all
+workspace state. Do not echo shell source in the diagnostic or roll back hook
+changes. Report a safely quoted retry of the form
+`timber open --setup -- '<absolute-worktree-path>'`; use a printable Bash retry
+for paths containing terminal controls. Timber never executes the retry text.
