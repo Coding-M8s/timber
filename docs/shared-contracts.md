@@ -20,6 +20,7 @@ a reviewed contract change first.
 | `createWorktree` | TIM-3 |
 | `inspectCleanup`, `cleanupWorktree` | TIM-5 |
 | `launchEditor` | TIM-8 |
+| `runSetup` | TIM-7 |
 | `CommandHandlers.new/open/list/done` | TIM-12/13/14/15 |
 
 Each command module can take the relevant `Pick<CommandServices, ...>` and return
@@ -151,6 +152,22 @@ workspace and retry instructions; command handlers must report launch failure
 without deleting completed Git work. The parser writes handler errors once to
 stderr and returns 1; handlers write human results through `context.io.stdout`.
 No command may wait for interactive input in CI.
+
+TIM-7 adds optional `RepositoryConfig.hooks` with `postCreate: readonly string[]`.
+TOML `[hooks].post_create` maps to that field; absent hooks leave existing
+configuration shapes unchanged. `runSetup(repository, worktree, config, io)`
+executes trusted source sequentially via fixed `/bin/sh -c`, streaming output
+through `CommandIO`, and rejects with retained-state/retry guidance on failure.
+It never removes a workspace or changes Git refs. It overrides repository,
+worktree, branch and optional leading-ticket context through environment values.
+The [CLI contract](cli-contract.md#setup-hooks-02-tim-7) defines the exact semantics.
+
+`createNewHandler` calls setup after creation; `createOpenHandler` calls it on
+creation or explicit `OpenOptions.setup: true`. Neither calls the seam when
+there are no configured steps. Setup rejection stops launch and becomes a
+nonzero CLI result. Existing-worktree `open` skips setup by default; `--setup`
+retries all steps once. TIM-9's agent launcher must follow successful setup and
+editor startup. No setup state registry or implicit rollback is introduced.
 
 ## Test doubles
 

@@ -42,8 +42,12 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
   program.command("open <input>")
     .description("Open an existing branch or worktree")
     .option("--no-editor", "Skip opening the configured editor")
-    .action((input: string, options: { editor: boolean }) => {
-      const normalized: OpenOptions = options.editor === false ? { editor: false } : {};
+    .option("--setup", "Rerun all post_create setup hooks in the selected worktree")
+    .action((input: string, options: { editor: boolean; setup?: boolean }) => {
+      const normalized: OpenOptions = {
+        ...(options.editor === false ? { editor: false as const } : {}),
+        ...(options.setup === true ? { setup: true as const } : {}),
+      };
       return handlers.open(input, normalized, context);
     });
 

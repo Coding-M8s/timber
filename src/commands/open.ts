@@ -150,7 +150,7 @@ function branchRequest(branch: Branch) {
 /** Resolve an existing target, create only a selected branch, then optionally start its editor. */
 export function createOpenHandler(
   services: Pick<CommandServices,
-    "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" | "launchEditor">,
+    "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" | "runSetup" | "launchEditor">,
 ): CommandHandlers["open"] {
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
@@ -171,6 +171,10 @@ export function createOpenHandler(
     const worktree: Worktree = created
       ? await safely(() => services.createWorktree(repository, branchRequest(selected.branch), config))
       : selected.worktree;
+
+    if ((created || options.setup) && config.hooks?.postCreate.length) {
+      await safely(() => services.runSetup(repository, worktree, config, context.io));
+    }
 
     const editor = await safely(() => services.launchEditor(worktree, config, options.editor === false));
     if (editor.kind === "failed") {
