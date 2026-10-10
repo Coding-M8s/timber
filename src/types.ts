@@ -66,6 +66,19 @@ export interface AgentConfig extends ExecutableCommand {
   enabled: boolean;
 }
 
+/** Jira Cloud site used for ticket lookup; credentials are supplied at runtime. */
+export interface JiraConfig {
+  siteUrl: string;
+  cloudId?: string;
+}
+
+/** Ticket details needed to name a generated branch and build its browse URL. */
+export interface JiraTicket {
+  key: string;
+  title: string;
+  url: string;
+}
+
 export interface RepositoryConfig {
   baseBranch: string | null;
   remote: string | null;
@@ -76,6 +89,8 @@ export interface RepositoryConfig {
   agent: AgentConfig | null;
   /** Trusted 0.2 shell source. Absent hooks mean setup is off. */
   hooks?: { postCreate: readonly string[] };
+  /** Absent means Jira ticket lookup is disabled for this repository. */
+  jira?: JiraConfig;
 }
 
 export type OpenTarget =

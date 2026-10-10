@@ -23,7 +23,7 @@ Read only `.timber.toml` from the primary worktree root. Do not search nested or
 
 The supported 0.1 keys are `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2.
 
-Explicit CLI values take precedence over config, and config takes precedence over documented service defaults. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks are a 0.2 extension described below; Jira settings remain unsupported.
+Explicit CLI values take precedence over config, and config takes precedence over documented service defaults. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional 0.2 extensions described below.
 
 ```toml
 base_branch = "main"
@@ -49,6 +49,64 @@ args = ["--new-window"]
 ```
 
 The editor executable must be available on `PATH` or configured by absolute path. Editor and agent commands are executable names plus argument arrays, never shell command strings. Pass editor arguments literally and append the absolute selected worktree path as the final argument. On startup failure after worktree creation, retain the worktree and provide a retry command of the form `timber open -- '<absolute-worktree-path>'`; retry opens the existing worktree after the user fixes the editor configuration or `PATH`. The retry string is display text and must not be executed internally. Trusted shell hooks, when implemented, receive context through environment variables; do not substitute branch names or ticket text into shell source.
+
+## Jira ticket lookup (0.2, TIM-10)
+
+Jira lookup is enabled only when the primary repository's `.timber.toml` has a
+`[jira]` table. The strict table accepts `site_url` and optional `cloud_id` only:
+
+```toml
+[jira]
+site_url = "https://example.atlassian.net"
+# Optional for scoped API tokens:
+cloud_id = "00000000-0000-0000-0000-000000000000"
+```
+
+`site_url` must be an HTTPS Atlassian Cloud tenant origin on `*.atlassian.net`,
+with no user information, nondefault port, query, fragment, or path other than `/`;
+the trailing slash is normalized away. `cloud_id`, when present, must be a UUID.
+Credentials are read lazily from `JIRA_EMAIL` and `JIRA_API_TOKEN` only when a
+recognized ticket is resolved. Never put credentials in repository config, logs,
+tickets, or commits. Timber does not load `.env` files; it reads these values only
+from its process environment. Bun's source runner automatically loads `.env` files
+before Timber starts unless disabled. To run a source checkout without Bun loading
+them, use `bun --no-env-file src/index.ts ...`. An absent `[jira]` disables lookup
+even if the environment contains credentials.
+
+Only a whole input matching `^[A-Z][A-Z0-9]*-[0-9]+$` is recognized as a ticket,
+and only in a Jira-enabled repository. Do not trim or change case. Inputs such as
+`feature/foo`, `ABU-834-fix`, and `abu-834` remain literal branch names; a
+ticket-looking literal can be named explicitly as `feature/ABU-834`.
+
+Lookup uses Basic authentication with the Atlassian account email and API token,
+`Accept: application/json`, and one `GET /rest/api/3/issue/<encoded-key>?fields=summary`.
+Without `cloud_id`, the API root is the configured site. With `cloud_id`, use only
+`https://api.atlassian.com/ex/jira/<cloud_id>`; never infer token type or retry on a
+different host. Reject redirects so credentials cannot be forwarded. A 10-second
+deadline covers the complete response body and validation. Do not retry
+automatically. Validate Jira's returned canonical key and nonblank summary; ignore
+unrelated response fields and build the browse URL from the configured site and
+canonical key.
+
+For a recognized ticket, `new` validates its base before lookup, then resolves the
+ticket and generates `<canonical-key>-<summary-slug>` before the existing Git
+creation checks. Normalize the summary with NFKD, remove combining marks, lowercase,
+replace each run outside ASCII letters and digits with `-`, trim hyphens, and cap
+the entire generated name at 120 ASCII characters while preserving the key. Use
+`issue` if the summary leaves no slug characters. Git remains authoritative for
+branch validity, existing refs, and path collisions; do not append numeric suffixes
+or bypass collisions. A lookup failure stops before branch/worktree creation and
+never falls back to a literal key. Report the generated branch and browse URL only
+after creation succeeds. The title contributes to a public-looking Git branch, so
+use a literal branch when a title is sensitive. If a title changes, `new` may name a
+different branch; use `open ABU-834` to resume an existing ticket branch offline.
+
+Missing credentials name the missing environment variable(s). Authentication,
+authorization, unavailable/hidden issue, rate limit, server, timeout, network,
+redirect, and malformed-response failures identify a safe category without exposing
+credentials, response bodies, raw transport exceptions, or config values. `open`,
+`ls`, and `done` do not call Jira and do not require credentials. Jira URL inputs and
+OAuth login are outside this integration.
 
 ## Setup hooks (0.2, TIM-7)
 

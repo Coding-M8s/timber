@@ -17,6 +17,20 @@ const executableSchema = z.strictObject({
   args: z.array(z.string()).default([]),
 });
 
+const jiraSiteSchema = z.string().refine(value => {
+  if (value !== value.trim() || /[\u0000-\u0020\u007f\\]/u.test(value)) return false;
+  // Check the raw form before URL parsing, which normalizes dot segments and backslashes.
+  if (!/^https:\/\/[^/?#]+\/?$/iu.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.username === "" && url.password === ""
+      && url.port === "" && url.pathname === "/" && url.search === "" && url.hash === ""
+      && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.atlassian\.net$/.test(url.hostname);
+  } catch {
+    return false;
+  }
+}).transform(value => new URL(value).origin);
+
 const configFileSchema = z.strictObject({
   base_branch: z.string().trim().min(1).optional(),
   remote: z.string().trim().min(1).optional(),
@@ -30,6 +44,10 @@ const configFileSchema = z.strictObject({
     command: z.string().refine(value => value.trim().length > 0),
     args: z.array(z.string()).default([]),
     enabled: z.boolean().default(false),
+  }).optional(),
+  jira: z.strictObject({
+    site_url: jiraSiteSchema,
+    cloud_id: z.uuid().optional(),
   }).optional(),
 });
 
@@ -76,6 +94,12 @@ export async function loadRepositoryConfig(repository: RepositoryContext): Promi
     editor: config.editor ?? null,
     agent: config.agent ?? null,
     ...(config.hooks === undefined ? {} : { hooks: { postCreate: config.hooks.post_create } }),
+    ...(config.jira === undefined ? {} : {
+      jira: {
+        siteUrl: config.jira.site_url,
+        ...(config.jira.cloud_id === undefined ? {} : { cloudId: config.jira.cloud_id }),
+      },
+    }),
   };
 }
 

@@ -1,6 +1,6 @@
 import type {
   Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
-  EditorResult, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
+  EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
 
@@ -10,6 +10,8 @@ export interface CommandServices {
   discoverRepository(cwd: string): Promise<RepositoryContext>;
   /** TIM-6: defaults + validated repository config; never search relative to caller cwd. */
   loadConfig(repository: RepositoryContext): Promise<RepositoryConfig>;
+  /** TIM-10: resolve one configured Jira Cloud issue; never fall back to a literal branch. */
+  resolveJiraTicket(config: JiraConfig, key: string): Promise<JiraTicket>;
   /** TIM-1/TIM-4: installed Git is authoritative; include manual, detached, stale entries. */
   listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]>;
   /** TIM-2: exact local, exact remote, then delimiter-boundary prefix; no guessing. */

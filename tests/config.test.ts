@@ -107,6 +107,66 @@ test("preserves an absolute worktree_dir", async () => {
   }
 });
 
+test("normalizes Jira site URLs and maps an optional cloud ID", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber jira config "));
+  try {
+    await writeFile(join(root, ".timber.toml"), [
+      '[jira]',
+      'site_url = "https://example.atlassian.net/"',
+      'cloud_id = "00000000-0000-4000-8000-000000000000"',
+    ].join("\n"));
+    expect(await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }))).toEqual({
+      baseBranch: null,
+      remote: null,
+      worktreeDir: null,
+      editor: null,
+      agent: null,
+      jira: {
+        siteUrl: "https://example.atlassian.net",
+        cloudId: "00000000-0000-4000-8000-000000000000",
+      },
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reads Jira config only from the primary root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber jira config "));
+  const primaryRoot = join(root, "primary repo");
+  const linked = join(root, "linked worktree");
+  try {
+    await execa("git", ["init", primaryRoot]);
+    await execa("git", ["-C", primaryRoot, "symbolic-ref", "HEAD", "refs/heads/main"]);
+    await execa("git", [
+      "-C", primaryRoot,
+      "-c", "user.name=Timber Test",
+      "-c", "user.email=timber-test@example.invalid",
+      "commit", "--allow-empty", "-m", "initial",
+    ]);
+    await execa("git", ["-C", primaryRoot, "worktree", "add", "-b", "feature", linked]);
+    await mkdir(join(primaryRoot, "nested"));
+    await writeFile(join(primaryRoot, ".timber.toml"), '[jira]\nsite_url = "https://primary.atlassian.net"\n');
+    await writeFile(join(primaryRoot, "nested", ".timber.toml"), '[jira]\nsite_url = "https://nested.atlassian.net"\n');
+    await writeFile(join(linked, ".timber.toml"), '[jira]\nsite_url = "https://linked.atlassian.net"\n');
+    const nested = repositoryFixture({
+      primaryWorktreeRoot: primaryRoot,
+      currentWorktreeRoot: join(primaryRoot, "nested"),
+      commonGitDir: join(primaryRoot, ".git"),
+    });
+    const linkedContext = repositoryFixture({
+      primaryWorktreeRoot: primaryRoot,
+      currentWorktreeRoot: linked,
+      commonGitDir: join(primaryRoot, ".git"),
+      currentBranch: "feature",
+    });
+    expect((await loadRepositoryConfig(nested)).jira?.siteUrl).toBe("https://primary.atlassian.net");
+    expect((await loadRepositoryConfig(linkedContext)).jira?.siteUrl).toBe("https://primary.atlassian.net");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("preserves surrounding whitespace in editor and agent executable paths", async () => {
   const root = await mkdtemp(join(tmpdir(), "timber config "));
   try {
@@ -172,9 +232,35 @@ for (const example of [
   { source: '[agent]\ncommand = " "', field: "agent.command", value: "" },
   { source: 'api_token = "SECRET_MARKER"', field: "api_token", value: "SECRET_MARKER" },
   { source: '[agent]\ncommand = "claude"\ntoken = "SECRET_MARKER"', field: "token", value: "SECRET_MARKER" },
+  { source: '[jira]\nsite_url = "https://example.atlassian.net"\napi_token = "SECRET_MARKER"', field: "jira.api_token", value: "SECRET_MARKER" },
+  { source: '[jira]\nsite_url = "https://example.atlassian.net"\nemail = "SECRET_MARKER"', field: "jira.email", value: "SECRET_MARKER" },
+  { source: '[jira]\nsite_url = "https://example.atlassian.net"\ncloud_id = "not-a-uuid"', field: "jira.cloud_id", value: "not-a-uuid" },
 ]) {
   test(`rejects invalid config at ${example.field}`, async () => {
     await expectConfigError(example.source, example.field, example.value);
+  });
+}
+
+for (const example of [
+  { value: "http://example.atlassian.net", label: "non-HTTPS" },
+  { value: "https://example.atlassian.net:8443", label: "nondefault port" },
+  { value: "https://user@example.atlassian.net", label: "userinfo" },
+  { value: "https://example.atlassian.net/path", label: "path" },
+  { value: "https://example.atlassian.net/a/..", label: "normalized-away path" },
+  { value: "https://example.atlassian.net/%2e%2e", label: "encoded normalized-away path" },
+  { value: "https://example.atlassian.net?query", label: "query" },
+  { value: "https://example.atlassian.net#fragment", label: "fragment" },
+  { value: "https://example.invalid", label: "non-Atlassian host" },
+  { value: " https://example.atlassian.net", label: "leading whitespace" },
+  { value: "https://example\\\\atlassian.net", label: "backslash" },
+  { value: "https://example.atlassian.net\\n", label: "control character" },
+]) {
+  test(`rejects unsafe Jira site URL (${example.label}) without exposing it`, async () => {
+    await expectConfigError(
+      `[jira]\nsite_url = "${example.value}"\n`,
+      "jira.site_url",
+      example.value.replaceAll("\\", ""),
+    );
   });
 }
 

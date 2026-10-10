@@ -93,6 +93,53 @@ creates the worktree and setup completes. Success prints the branch and absolute
 editor startup fails, Timber reports the retained workspace and a
 `timber open -- '<absolute-worktree-path>'` retry command, and exits nonzero.
 
+### Create a worktree from Jira
+
+Configure one Jira Cloud site in the primary repository's `.timber.toml`:
+
+```toml
+[jira]
+site_url = "https://example.atlassian.net"
+# Set this for an Atlassian scoped API token:
+# cloud_id = "00000000-0000-0000-0000-000000000000"
+```
+
+Set `JIRA_EMAIL` and `JIRA_API_TOKEN` in the environment when creating a ticket
+branch. Timber reads `process.env` only when `new` resolves a configured ticket
+ID; it never opens `.env` files itself. Bun may populate the process environment
+from `.env` before Timber starts. Use `bun --no-env-file src/index.ts new ABU-834`
+to disable that Bun behavior. Site URL configuration contains no credentials.
+Without `cloud_id`, Timber calls the configured site for an unscoped token. With
+`cloud_id`, it uses Atlassian's fixed Jira Cloud gateway for a scoped token.
+Requests do not follow redirects or retry, and the 10-second timeout includes
+reading the issue summary.
+
+Only a complete uppercase key such as `ABU-834` is looked up, and only when
+`[jira]` is configured. `timber new ABU-834` looks up the issue and creates a
+branch from its canonical key and summary. For example, `Fix café / login!`
+becomes `ABU-834-fix-cafe-login`. Timber normalizes the summary into an ASCII
+slug and caps the whole branch name at 120 characters. A non-Latin or
+punctuation-only summary uses `issue` as its suffix.
+
+The summary becomes part of a Git branch name, which may later be published.
+Choose a literal branch such as `feature/ABU-834` when a title would expose
+sensitive information. Inputs such as `ABU-834-fix`, lowercase `abu-834`, and
+`feature/ABU-834` are always treated as literal branch names.
+
+If a title changes, a later `new ABU-834` can produce a different branch. Use
+`timber open ABU-834` to resume an existing matching worktree. `open` uses Git's
+local refs and worktree list, so it works offline and does not need Jira
+credentials. If several branches match, Timber reports the candidates and asks
+for an exact branch or worktree path. Jira URL input and OAuth sign-in are not
+supported.
+
+When lookup fails, Timber stops before creating a branch or worktree. For a 401,
+check the email, token expiry, and whether the token type matches the configured
+API root. A 403 means the account or token lacks access; a 404 means the issue
+is unavailable or not visible to that account. A 429 or 5xx response can be
+retried later. Network and redirect failures need connectivity or site/token
+configuration checks.
+
 ### Open a branch or worktree
 
 `timber open <input>` opens a registered worktree when the input identifies one.

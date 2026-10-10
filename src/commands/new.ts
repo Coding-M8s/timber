@@ -1,7 +1,8 @@
 import type { CommandHandlers, CommandServices } from "../services";
+import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
 
 type NewServices = Pick<CommandServices,
-  "discoverRepository" | "loadConfig" | "resolveBase" | "createWorktree" | "runSetup" | "launchEditor">;
+  "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "createWorktree" | "runSetup" | "launchEditor">;
 
 /** Create a new workspace, then optionally start its configured editor. */
 export function createNewHandler(services: NewServices): CommandHandlers["new"] {
@@ -9,8 +10,13 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const repository = await services.discoverRepository(context.cwd);
     const config = await services.loadConfig(repository);
     const base = await services.resolveBase(repository, config, options.base);
-    const worktree = await services.createWorktree(repository, { kind: "new", branch, base }, config);
-    context.io.stdout(`Created ${branch} at ${worktree.path}\n`);
+    const ticket = config.jira && isJiraTicketKey(branch)
+      ? await services.resolveJiraTicket(config.jira, branch)
+      : undefined;
+    const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branch;
+    const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
+    context.io.stdout(`Created ${selectedBranch} at ${worktree.path}\n`);
+    if (ticket) context.io.stdout(`Jira: ${ticket.url}\n`);
 
     if (config.hooks?.postCreate.length) {
       await services.runSetup(repository, worktree, config, context.io);
