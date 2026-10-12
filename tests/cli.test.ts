@@ -49,6 +49,8 @@ test("new help describes implemented command and supported options", async () =>
   expect(result.stdout).toContain("--base <ref>");
   expect(result.stdout).toContain("--no-editor");
   expect(result.stdout).toContain("configured Jira ticket IDs");
+  expect(result.stdout).toContain("<branch...>");
+  expect(result.stdout).toContain("sentence");
   expect(result.stdout).not.toContain("placeholder");
 });
 
@@ -71,7 +73,7 @@ test("open help describes the implemented existing-target behavior", async () =>
 
 for (const args of [
   ["new"], ["open"], ["done"], ["unknown"], ["ls", "extra"],
-  ["new", "one", "two"], ["done", "feature", "--force"],
+  ["done", "feature", "--force"],
   ["new", "feature", "--base"], ["ls", "--unknown"],
 ]) {
   test(`invalid invocation fails on stderr: ${args.join(" ")}`, async () => {

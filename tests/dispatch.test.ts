@@ -21,6 +21,38 @@ test("new forwards branch, base, disabled editor and invoking context", async ()
   expect(handler).toHaveBeenCalledWith("feature/foo", { base: "upstream/trunk", editor: false }, h.context);
 });
 
+test("new joins quoted and unquoted sentence arguments without changing single-token names", async () => {
+  const handler = mock(async () => {});
+  const h = harness({ new: handler });
+
+  expect(await runCli(["new", "Investigate slow API usage page"], h)).toBe(0);
+  expect(await runCli(["new", "Investigate", "slow", "API", "usage", "page"], h)).toBe(0);
+  expect(await runCli(["new", "feature/API-fix"], h)).toBe(0);
+  expect(await runCli(["new", "TIM-19"], h)).toBe(0);
+
+  expect(handler).toHaveBeenNthCalledWith(1, "Investigate slow API usage page", {}, h.context);
+  expect(handler).toHaveBeenNthCalledWith(2, "Investigate slow API usage page", {}, h.context);
+  expect(handler).toHaveBeenNthCalledWith(3, "feature/API-fix", {}, h.context);
+  expect(handler).toHaveBeenNthCalledWith(4, "TIM-19", {}, h.context);
+});
+
+test("new options parse around sentence words, and -- keeps option-shaped names positional", async () => {
+  const handler = mock(async () => {});
+  const h = harness({ new: handler });
+
+  expect(await runCli([
+    "new", "--base", "trunk", "--no-editor", "Investigate", "slow", "API", "usage", "page",
+  ], h)).toBe(0);
+  expect(await runCli([
+    "new", "Investigate", "slow", "API", "usage", "page", "--base", "trunk", "--no-editor",
+  ], h)).toBe(0);
+  expect(await runCli(["new", "--base", "trunk", "--no-editor", "--", "-draft", "name"], h)).toBe(0);
+
+  expect(handler).toHaveBeenNthCalledWith(1, "Investigate slow API usage page", { base: "trunk", editor: false }, h.context);
+  expect(handler).toHaveBeenNthCalledWith(2, "Investigate slow API usage page", { base: "trunk", editor: false }, h.context);
+  expect(handler).toHaveBeenNthCalledWith(3, "-draft name", { base: "trunk", editor: false }, h.context);
+});
+
 test("editor is unspecified by default so repository config remains authoritative", async () => {
   const handler = mock(async () => {});
   const h = harness({ new: handler, open: handler });

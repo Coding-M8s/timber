@@ -2,7 +2,7 @@
 
 1. Discover repositories from nested directories and linked worktrees; distinguish the current worktree root from the common Git directory.
 2. Git operations use the detected repository, not a hardcoded current directory.
-3. `new <branch>` creates a new branch from the configured or explicit base. If the branch exists, report it and suggest `open`.
+3. `new <branch...>` creates a new branch from the configured or explicit base. The CLI joins its positional words with literal spaces; if the joined input contains U+0020, trim surrounding U+0020, lowercase, and replace each internal run of U+0020 with one hyphen. If the branch exists, report it and suggest `open`.
 4. `open <input>` resolves an existing worktree, exact local branch, then exact remote branch. An explicit remote such as `origin/feature/foo` selects that remote. When cached refs cannot identify one local target, `open` discovers live remote heads without changing refs, respecting the explicit/configured remote or checking all remotes. Discovery failure blocks materialization; existing local targets remain offline.
 5. A ticket prefix such as `ABU-834` may match branch names on a delimiter boundary. Multiple matches must include every distinct candidate in one chooser when interactive; mark candidates that require manual selection, and do not mutate if one is selected. Without a chooser, show at most five sorted candidates and the total, with exact manual-selection guidance. Do not use arbitrary substring matching.
 6. Refresh the selected remote before creating from a remote branch. An existing local worktree can open offline. A failed remote refresh must not be reported as success.
@@ -16,6 +16,17 @@
 14. Editors default to off until configured. Support `--no-editor`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2. In 0.2 agent launching is opt-in, follows the editor, and owns the invoking terminal; see the launch contract below.
 15. CLI success means required Git/setup work completed. If editor/agent startup fails after creation, retain the workspace and explain how to retry. Editor launch success is process startup only: Timber returns promptly and does not report a later nonzero editor exit, even when editor args include `--wait`.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
+
+## `new` branch input
+
+Quoted and unquoted sentence arguments are joined into the same raw input by the
+CLI. Only inputs containing literal U+0020 spaces are normalized: remove leading
+and trailing U+0020 spaces, lowercase, and replace each run of internal U+0020
+spaces with one hyphen. Inputs without U+0020 remain byte-for-byte unchanged, so
+exact Jira ticket detection continues to use the raw whole input. Reject blank
+names and control characters before worktree creation; safely render the original
+input in control-character diagnostics. Preserve other characters for installed
+Git to validate. Do not slugify punctuation, truncate names, or append suffixes.
 
 ## Repository configuration
 

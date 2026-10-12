@@ -30,6 +30,10 @@ a handler. Compose concrete services at the entry point as they land; there is n
 service registry. `runCli(argv, { context, handlers })` accepts user arguments
 without executable/script prefixes, creates a fresh parser per call, awaits its
 handler, and returns a numeric exit status without exiting the process.
+`new` accepts variadic positional words and joins them with literal U+0020 spaces
+before calling its existing string-based handler. The handler receives this raw
+joined input, performs exact whole-input Jira detection, then applies the
+documented literal-space normalization before Git creation.
 `context.cwd` is only the discovery starting point. All subsequent Git services
 receive the discovered `RepositoryContext`; they must invoke `git` with an argument
 array and an explicit cwd from that context.

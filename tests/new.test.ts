@@ -126,6 +126,83 @@ test("new skips Jira lookup for unconfigured IDs and configured literal branches
   }
 });
 
+test("new normalizes only literal-space sentence inputs and preserves single-token branches", async () => {
+  const repository = repositoryFixture();
+  for (const scenario of [
+    { input: "   Investigate  SLOW API usage page   ", expected: "investigate-slow-api-usage-page" },
+    { input: "feature/API-fix", expected: "feature/API-fix" },
+    { input: "TIM-19", expected: "TIM-19" },
+  ]) {
+    const h = context();
+    const handler = createNewHandler(createServiceDouble({
+      discoverRepository: async () => repository,
+      loadConfig: async () => config,
+      resolveBase: async () => base,
+      createWorktree: async (_received, request) => {
+        expect(request).toEqual({ kind: "new", branch: scenario.expected, base });
+        return worktreeFixture({ path: `/repo-worktrees/${scenario.expected}`, branch: scenario.expected, isPrimary: false });
+      },
+      launchEditor: async () => ({ kind: "skipped" }),
+    }));
+
+    await handler(scenario.input, { editor: false }, h.value);
+    expect(h.output()).toContain(`Created ${scenario.expected} at `);
+  }
+});
+
+test("new rejects blank and control-character names before worktree creation", async () => {
+  const repository = repositoryFixture();
+  let creations = 0;
+  const handler = createNewHandler(createServiceDouble({
+    discoverRepository: async () => repository,
+    loadConfig: async () => config,
+    resolveBase: async () => base,
+    createWorktree: async () => {
+      creations++;
+      return worktreeFixture({ isPrimary: false });
+    },
+    launchEditor: async () => ({ kind: "skipped" }),
+  }));
+
+  for (const input of ["", "   ", "bad\u001b[2J\nbranch", "tab\tbranch"]) {
+    const h = context();
+    let failure: unknown;
+    try { await handler(input, { editor: false }, h.value); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain("Invalid branch name");
+    expect(creations).toBe(0);
+    if (input.includes("\u001b")) {
+      expect((failure as Error).message).toContain("\\u001b");
+      expect((failure as Error).message).toContain("\\n");
+    }
+  }
+});
+
+test("new keeps exact Jira matching on the raw whole input before sentence normalization", async () => {
+  const repository = repositoryFixture();
+  const configured: RepositoryConfig = {
+    ...config,
+    jira: { siteUrl: "https://example.atlassian.net" },
+  };
+  let lookups = 0;
+  const h = context();
+  const handler = createNewHandler(createServiceDouble({
+    discoverRepository: async () => repository,
+    loadConfig: async () => configured,
+    resolveBase: async () => base,
+    resolveJiraTicket: async () => { lookups++; throw new Error("unexpected Jira lookup"); },
+    createWorktree: async (_received, request) => {
+      expect(request).toEqual({ kind: "new", branch: "abu-834", base });
+      return worktreeFixture({ path: "/repo-worktrees/abu-834", branch: "abu-834", isPrimary: false });
+    },
+    launchEditor: async () => ({ kind: "skipped" }),
+  }));
+
+  await handler(" ABU-834 ", { editor: false }, h.value);
+  expect(lookups).toBe(0);
+  expect(h.output()).toContain("Created abu-834 at /repo-worktrees/abu-834");
+});
+
 test("new lookup failure stops before creation, setup, editor, and success output", async () => {
   const calls: string[] = [];
   const h = context();

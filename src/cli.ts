@@ -41,17 +41,17 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
       });
   }
 
-  agentOptions(program.command("new <branch>"))
-    .description("Create a worktree; configured Jira ticket IDs become descriptive branches")
+  agentOptions(program.command("new <branch...>"))
+    .description("Create a worktree from a branch name or sentence; configured Jira ticket IDs become descriptive branches")
     .option("--base <ref>", "Override the configured base branch")
     .option("--no-editor", "Skip opening the configured editor")
-    .action(async (branch: string, options: { base?: string; editor: boolean; agent?: boolean }) => {
+    .action(async (branch: string[], options: { base?: string; editor: boolean; agent?: boolean }) => {
       const normalized: NewOptions = {
         ...(options.base === undefined ? {} : { base: options.base }),
         ...(options.editor === false ? { editor: false as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      exitCode = (await handlers.new(branch, normalized, context)) ?? 0;
+      exitCode = (await handlers.new(branch.join(" "), normalized, context)) ?? 0;
     });
 
   agentOptions(program.command("open <input>"))
