@@ -28,10 +28,11 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const config = await safely(() => services.loadConfig(repository));
     const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
     const base = await safely(() => services.resolveBase(repository, config, options.base));
+    const jiraConfig = config.jira;
     let ticket: JiraTicket | undefined;
-    if (config.jira && isJiraTicketKey(branch)) {
+    if (jiraConfig && isJiraTicketKey(branch)) {
       try {
-        ticket = await services.resolveJiraTicket(config.jira, branch);
+        ticket = await services.resolveJiraTicket(jiraConfig, branch);
       } catch (error) {
         if (!(error instanceof JiraLookupFailure) || error.reason === undefined) {
           throw new Error(safeDiagnostic(errorMessage(error)));
@@ -39,7 +40,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
 
         let suggestions: readonly JiraTicket[];
         try {
-          suggestions = await services.findJiraSuggestions(config.jira, branch);
+          suggestions = await services.findJiraSuggestions(jiraConfig, branch);
         } catch {
           throw new Error(`${error.message} Jira suggestions could not be loaded; no workspace was created.`);
         }
@@ -61,7 +62,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         if (chosen === undefined) throw new Error("Jira chooser returned an unknown suggestion; no workspace was created.");
 
         // The search result can be stale; the selected exact issue is authoritative.
-        ticket = await safely(() => services.resolveJiraTicket(config.jira, chosen.key));
+        ticket = await safely(() => services.resolveJiraTicket(jiraConfig, chosen.key));
       }
     }
     const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branch;
