@@ -57,7 +57,7 @@ test("setup launch errors omit shell source and supply a safely executable retry
     expect(message).toContain("shell could not run");
     expect(message).not.toContain("SECRET_SOURCE");
     expect(message).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
-    const retry = message.split("Bash retry command: ")[1];
+    const retry = message.split("retry all setup steps with: ")[1];
     expect(retry).toBeDefined();
     const capture = await execa("/bin/bash", ["-c",
       'timber() { printf "%s\\0" "$@"; }; ' + retry], { cwd: directory });

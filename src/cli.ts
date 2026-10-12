@@ -1,4 +1,5 @@
 import { Command, CommanderError } from "commander";
+import { FormattedError, safeDiagnostic } from "./display";
 import type { CommandContext, CommandHandlers, NewOptions, OpenOptions } from "./services";
 import type { CleanupOptions } from "./types";
 
@@ -96,7 +97,12 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
   } catch (error) {
     // Commander already wrote help or its diagnostic to the configured stream.
     if (error instanceof CommanderError) return error.exitCode;
-    context.io.stderr(`error: ${error instanceof Error ? error.message : "Command failed unexpectedly"}\n`);
+    // Service and Git errors can carry raw bytes; every diagnostic leaves here terminal-safe.
+    const message = error instanceof Error ? error.message : "Command failed unexpectedly";
+    const rendered = error instanceof FormattedError
+      ? message.split("\n").map(safeDiagnostic).join("\n")
+      : safeDiagnostic(message);
+    context.io.stderr(`error: ${rendered}\n`);
     return 1;
   }
 }

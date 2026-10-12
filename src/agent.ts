@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:os";
-import { retryForDisplay, safeDiagnostic, safeDisplay } from "./display";
+import { failureWithRetry, safeDisplay } from "./display";
 import type { CommandIO } from "./services";
 import type { AgentResult, ExecutableCommand, RepositoryConfig, Worktree } from "./types";
 
@@ -26,7 +26,7 @@ function failure(worktree: Worktree, error: unknown): AgentResult {
     : code === "ENOTDIR" ? "An executable or worktree path component is not a directory."
     : "The agent command or worktree path could not be used.";
   const quoted = "'" + worktree.path.replaceAll("'", "'\\''") + "'";
-  const retryCommand = retryForDisplay(worktree.path, `timber open --agent --no-editor -- ${quoted}`, "--agent --no-editor");
+  const retryCommand = `timber open --agent --no-editor -- ${quoted}`;
   return {
     kind: "failed",
     message: `Could not start the configured agent: ${reason} Workspace retained at ${safeDisplay(worktree.path)}. Fix the agent configuration or PATH, then retry with: ${retryCommand}`,
@@ -82,10 +82,7 @@ export async function launchAgent(
 export function reportAgentResult(result: AgentResult, worktree: Worktree, io: CommandIO): number {
   if (result.kind === "skipped") return 0;
   if (result.kind === "failed") {
-    const retry = retryForDisplay(worktree.path, result.retryCommand, "--agent --no-editor");
-    const included = result.message.includes(result.retryCommand);
-    const message = included ? result.message.replace(result.retryCommand, () => retry) : result.message;
-    io.stderr(`error: ${safeDiagnostic(message)}${included ? "" : ` Retry with: ${retry}`}\n`);
+    io.stderr(`error: ${failureWithRetry(result.message, result.retryCommand, worktree.path, "--agent --no-editor")}\n`);
     return 1;
   }
   if (result.exitCode !== 0) {

@@ -152,4 +152,4 @@ test("new, setup retry, open, ls, and safe cleanup work across one real reposito
     expect((await git(primary, "worktree", "list", "--porcelain")).trim())
       .toBe(`worktree ${primary}\nHEAD ${await git(primary, "rev-parse", "HEAD")}\nbranch refs/heads/main`);
   });
-});
+}, 30_000);

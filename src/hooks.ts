@@ -1,24 +1,11 @@
 import { execa } from "execa";
+import { retryForDisplay } from "./display";
 import type { CommandIO } from "./services";
 import type { RepositoryConfig, RepositoryContext, Worktree } from "./types";
 
-const controls = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
-
 /** Ordinary paths use POSIX quoting; control characters use a printable Bash command. */
 function retryCommand(path: string): string {
-  if (!controls.test(path)) {
-    return `timber open --setup -- '${path.replaceAll("'", "'\\''")}'`;
-  }
-  const quoted = [...path].map(character => {
-    if (character === "\\") return "\\\\";
-    if (character === "'") return "\\'";
-    if (character === "!" || controls.test(character)) {
-      return [...new TextEncoder().encode(character)]
-        .map(byte => `\\${byte.toString(8).padStart(3, "0")}`).join("");
-    }
-    return character;
-  }).join("");
-  return `Bash retry command: timber open --setup -- $'${quoted}'`;
+  return retryForDisplay(path, `timber open --setup -- '${path.replaceAll("'", "'\\''")}'`, "--setup");
 }
 
 function displayPath(path: string): string {

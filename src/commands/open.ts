@@ -2,19 +2,7 @@ import { resolveAgentCommand, reportAgentResult } from "../agent";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
 
-import { jsonDisplay, safeDisplay, safeDiagnostic, retryForDisplay } from "../display";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Command failed unexpectedly";
-}
-
-async function safely<T>(operation: () => Promise<T>): Promise<T> {
-  try {
-    return await operation();
-  } catch (error) {
-    throw new Error(safeDiagnostic(errorMessage(error)));
-  }
-}
+import { FormattedError, failureWithRetry, jsonDisplay, safeDisplay } from "../display";
 
 function exactSelector(target: OpenTarget): string {
   if (target.kind === "worktree") return target.worktree.path;
@@ -124,10 +112,10 @@ export function createOpenHandler(
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
 
-    const repository = await safely(() => services.discoverRepository(context.cwd));
-    const config = await safely(() => services.loadConfig(repository));
+    const repository = await services.discoverRepository(context.cwd);
+    const config = await services.loadConfig(repository);
     const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
-    const resolution = await safely(() => services.resolveOpenTarget(repository, input, config, { discoverRemote: true }));
+    const resolution = await services.resolveOpenTarget(repository, input, config, { discoverRemote: true });
 
     if (resolution.kind === "not-found") {
       throw new Error(`No existing branch or worktree matches ${jsonDisplay(input)}. Check the exact branch or absolute worktree path.`);
@@ -136,25 +124,25 @@ export function createOpenHandler(
     if (resolution.kind === "ambiguous") {
       const candidates = decorateCandidates(resolution.candidates, repository);
       if (!context.choose) {
-        throw new Error(ambiguousMessage(input, candidates));
+        throw new FormattedError(ambiguousMessage(input, candidates));
       }
       const choiceValues = new Map(candidates.map(item => [item.identity, item]));
-      const selection = await safely(() => context.choose!(
+      const selection = await context.choose(
         interactiveAmbiguityMessage(input, candidates),
         candidates.map(item => ({
           value: item.identity,
           label: `${targetLabel(item.target)}${item.selectable ? "" : " — manual worktree/path selection required"}`,
         })),
-      ));
+      );
       if (selection === null) {
         context.io.stdout("Cancelled.\n");
         return;
       }
       const chosen = choiceValues.get(selection);
       if (!chosen) throw new Error("Invalid selection; choose one of the displayed targets.");
-      if (!chosen.selectable) throw new Error(formatCandidate(chosen).join("\n"));
+      if (!chosen.selectable) throw new FormattedError(formatCandidate(chosen).join("\n"));
 
-      const verified = await safely(() => services.resolveOpenTarget(repository, chosen.selector, config, { discoverRemote: true }));
+      const verified = await services.resolveOpenTarget(repository, chosen.selector, config, { discoverRemote: true });
       if (verified.kind !== "found" || targetIdentity(verified.value) !== chosen.identity) {
         throw new Error("Selected target is no longer uniquely available; rerun timber open with an exact selector.");
       }
@@ -165,25 +153,18 @@ export function createOpenHandler(
     const created = selected.kind === "branch";
     let worktree: Worktree;
     if (selected.kind === "branch") {
-      worktree = await safely(() => services.createWorktree(repository, branchRequest(selected.branch), config));
+      worktree = await services.createWorktree(repository, branchRequest(selected.branch), config);
     } else {
       worktree = selected.worktree;
     }
 
     if ((created || options.setup) && config.hooks?.postCreate.length) {
-      await safely(() => services.runSetup(repository, worktree, config, context.io));
+      await services.runSetup(repository, worktree, config, context.io);
     }
 
-    const editor = await safely(() => services.launchEditor(worktree, config, options.editor === false));
+    const editor = await services.launchEditor(worktree, config, options.editor === false);
     if (editor.kind === "failed") {
-      const retryCommand = retryForDisplay(worktree.path, editor.retryCommand);
-      const includedRetry = editor.message.includes(editor.retryCommand);
-      const originalMessage = includedRetry
-        ? editor.message.replace(editor.retryCommand, () => retryCommand)
-        : editor.message;
-      const message = safeDiagnostic(originalMessage);
-      const retry = includedRetry ? "" : ` Retry with: ${retryCommand}`;
-      context.io.stderr(`error: ${message}${retry}\n`);
+      context.io.stderr(`error: ${failureWithRetry(editor.message, editor.retryCommand, worktree.path)}\n`);
     }
 
     context.io.stdout(`${created ? "Created" : "Opened existing"} worktree at ${safeDisplay(worktree.path)}\n`);
