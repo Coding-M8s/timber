@@ -4,8 +4,9 @@ A small CLI for creating, opening, listing, and safely cleaning up Git worktrees
 
 `new` creates a branch and linked worktree, `ls` lists the repository's worktrees,
 and `open` reuses an existing worktree or creates one for a resolved existing
-branch. `done` safely removes a linked worktree and, when ancestry permits,
-its local branch.
+branch. `done` safely removes a linked worktree and deletes its local branch
+only when Git proves its commits are published to the live upstream or
+integrated into the validated base.
 
 ## Development
 
@@ -216,9 +217,10 @@ The primary worktree is always protected.
 
 By default, Timber removes the linked worktree **including ignored files and
 folders such as `.env`, `node_modules`, and build output**, then deletes its local
-branch when Git proves its commits are preserved either on the live upstream or
-in the validated base. This supports cleaning up an unmerged review checkout;
-no separate review flag is required, and the remote branch and PR stay untouched.
+branch only when Git proves every local commit is published to the live upstream,
+contained in the validated base, or integrated with that base by a successful
+virtual merge. This supports cleaning up an unmerged review checkout; no separate
+review flag is required, and the remote branch and PR stay untouched.
 Modified and untracked files always block cleanup. The base uses the primary
 checkout's `.timber.toml` and the normal base selection policy. Timber checks
 fresh Git state immediately before removal.
@@ -310,7 +312,7 @@ command = "code"
 args = ["--new-window"]
 ```
 
-Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree, reports the problem on stderr, and prints a safe retry command such as `timber open -- '<worktree path>'`. Since Git work completed, the command still succeeds. Fix the editor command or `PATH`, then run that command to reopen the existing worktree; the retry does not create another one.
+Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree and prints a safe retry command such as `timber open -- '<worktree path>'`. `new` reports the failure and exits nonzero. `open` reports it on stderr but exits successfully after the required Git and setup work is complete. Both commands suppress agent startup after editor failure. Fix the editor command or `PATH`, then run the retry to reopen the existing worktree; it does not create another one.
 
 ### Setup hooks (0.2)
 
@@ -469,6 +471,7 @@ TypeScript and Bun are the development direction, with Commander, Execa, Zod, an
 ## Planning and contribution
 
 - [Implementation tickets](https://github.com/Coding-M8s/timber/issues)
+- [Real workflow dogfooding checklist](docs/dogfooding.md)
 - [Delivery board](https://github.com/orgs/Coding-M8s/projects/2/views/2) · [Timber CLI Project](https://github.com/orgs/Coding-M8s/projects/2)
 - [Behavioral contract](docs/cli-contract.md)
 - [Shared TypeScript contracts and service seams](docs/shared-contracts.md)
