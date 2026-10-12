@@ -73,15 +73,17 @@ test("new, setup retry, open, ls, and safe cleanup work across one real reposito
     expect((await readFile(join(workflowTree, ".setup-log"), "utf8")).trimEnd().split("\n"))
       .toHaveLength(10);
 
-    const listings = await Promise.all([primary, nested, workflowTree].map(cwd => cli(cwd, "ls")));
-    for (const listing of listings) {
+    const [fromPrimary, fromNested, fromLinked] = await Promise.all([
+      cli(primary, "ls"), cli(nested, "ls"), cli(workflowTree, "ls"),
+    ] as const);
+    for (const listing of [fromPrimary, fromNested, fromLinked]) {
       expect(listing.exitCode).toBe(0);
       expect(listing.stderr).toBe("");
       expect(listing.stdout).toContain(`primary\tmain\tclean; 1 ignored\t${primary}`);
       expect(listing.stdout).toContain(`linked\t${workflowBranch}\tclean; 1 ignored\t${workflowTree}`);
     }
-    expect(listings[1].stdout).toBe(listings[0].stdout);
-    expect(listings[2].stdout).toBe(listings[0].stdout);
+    expect(fromNested.stdout).toBe(fromPrimary.stdout);
+    expect(fromLinked.stdout).toBe(fromPrimary.stdout);
 
     const bare = join(directory, "origin.git");
     await git(directory, "init", "--bare", "--initial-branch=main", bare);
