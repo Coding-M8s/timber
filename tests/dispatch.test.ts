@@ -65,3 +65,42 @@ test("help and parser errors do not invoke handlers", async () => {
   expect(await runCli(["done", "feature", "--force"], h)).toBe(1);
   expect(handler).not.toHaveBeenCalled();
 });
+
+for (const command of ["new", "open"] as const) {
+  test(`${command} preserves explicit agent choice independently of editor`, async () => {
+    const handler = mock(async () => {});
+    const h = harness({ [command]: handler });
+    expect(await runCli([command, "feature", "--agent", "--no-editor"], h)).toBe(0);
+    expect(handler).toHaveBeenLastCalledWith("feature", { agent: true, editor: false }, h.context);
+    expect(await runCli([command, "feature", "--no-agent"], h)).toBe(0);
+    expect(handler).toHaveBeenLastCalledWith("feature", { agent: false }, h.context);
+  });
+
+  test(`${command} rejects conflicting agent flags before dispatch`, async () => {
+    for (const flags of [["--agent", "--no-agent"], ["--no-agent", "--agent"]]) {
+      const handler = mock(async () => {});
+      const h = harness({ [command]: handler });
+      expect(await runCli([command, "feature", ...flags], h)).toBe(1);
+      expect(handler).not.toHaveBeenCalled();
+      expect(h.output().stderr).toMatch(/conflict/i);
+    }
+  });
+
+  test(`${command} returns handler's agent exit status`, async () => {
+    const h = harness({ [command]: async () => 23 });
+    expect(await runCli([command, "feature"], h)).toBe(23);
+  });
+
+  test(`${command} documents both agent flags`, async () => {
+    const h = harness();
+    expect(await runCli([command, "--help"], h)).toBe(0);
+    expect(h.output().stdout).toContain("--agent");
+    expect(h.output().stdout).toContain("--no-agent");
+  });
+}
+
+test("agent choices are rejected by commands without agent launching", async () => {
+  const h = harness();
+  expect(await runCli(["ls", "--agent"], h)).toBe(1);
+  expect(await runCli(["done", "feature", "--no-agent"], h)).toBe(1);
+});

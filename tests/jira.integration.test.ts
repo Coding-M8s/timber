@@ -204,6 +204,7 @@ function handlersFor(
       if (lifecycle) lifecycle.editor += 1;
       return launchEditor(...args);
     },
+    launchAgent: async () => ({ kind: "skipped" } as const),
   };
   return {
     ...placeholderHandlers,

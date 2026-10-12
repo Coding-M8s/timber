@@ -1,5 +1,5 @@
 import type {
-  Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
+  AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
@@ -50,6 +50,8 @@ export interface CommandServices {
   launchEditor(worktree: Worktree, config: RepositoryConfig, disabled: boolean): Promise<EditorResult>;
   /** TIM-7: sequential trusted /bin/sh hooks; rejection retains workspace and blocks launch. */
   runSetup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, io: CommandIO): Promise<void>;
+  /** TIM-9: await the owned foreground child; null command skips launching. */
+  launchAgent(worktree: Worktree, command: ExecutableCommand | null): Promise<AgentResult>;
 }
 
 export interface CommandIO {
@@ -59,6 +61,8 @@ export interface CommandIO {
 
 export interface CommandContext {
   cwd: string;
+  /** Invoking stdin/stdout are terminals and CI is off. Absence means false. */
+  interactive?: boolean;
   io: CommandIO;
   /** Present only when stdin and stdout are interactive terminals and CI is disabled. */
   choose?: TerminalChooser;
@@ -68,17 +72,21 @@ export interface NewOptions {
   base?: string;
   /** False from --no-editor; undefined defers to config (off when unconfigured). */
   editor?: false;
+  /** Explicit enable/disable; omission defers to agent.enabled. */
+  agent?: boolean;
 }
 
 export interface OpenOptions {
   editor?: false;
   /** Explicitly rerun all setup steps for an existing worktree. */
   setup?: true;
+  /** Explicit enable/disable; omission defers to agent.enabled. */
+  agent?: boolean;
 }
 
 export interface CommandHandlers {
-  new: (branch: string, options: NewOptions, context: CommandContext) => Promise<void>;
-  open(input: string, options: OpenOptions, context: CommandContext): Promise<void>;
+  new: (branch: string, options: NewOptions, context: CommandContext) => Promise<void | number>;
+  open(input: string, options: OpenOptions, context: CommandContext): Promise<void | number>;
   list(context: CommandContext): Promise<void>;
   done(input: string, options: CleanupOptions, context: CommandContext): Promise<void>;
 }

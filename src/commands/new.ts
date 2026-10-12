@@ -1,3 +1,5 @@
+import { resolveAgentCommand, reportAgentResult } from "../agent";
+import { safeDisplay } from "../display";
 import type { CommandHandlers, CommandServices } from "../services";
 import { JiraLookupFailure } from "../jira/client";
 import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
@@ -5,13 +7,14 @@ import type { JiraTicket } from "../types";
 
 type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
-  "createWorktree" | "runSetup" | "launchEditor">;
+  "createWorktree" | "runSetup" | "launchEditor" | "launchAgent">;
 
 /** Create a new workspace, then optionally start its configured editor. */
 export function createNewHandler(services: NewServices): CommandHandlers["new"] {
   return async (branch, options, context) => {
     const repository = await services.discoverRepository(context.cwd);
     const config = await services.loadConfig(repository);
+    const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
     const base = await services.resolveBase(repository, config, options.base);
     let ticket: JiraTicket | undefined;
     if (config.jira && isJiraTicketKey(branch)) {
@@ -49,7 +52,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     }
     const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branch;
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
-    context.io.stdout(`Created ${selectedBranch} at ${worktree.path}\n`);
+    context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
     if (ticket) context.io.stdout(`Jira: ${ticket.url}\n`);
 
     if (config.hooks?.postCreate.length) {
@@ -58,6 +61,8 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
 
     const editor = await services.launchEditor(worktree, config, options.editor === false);
     if (editor.kind === "failed") throw new Error(editor.message);
+    if (agentCommand === null) return;
+    return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io);
   };
 }
 

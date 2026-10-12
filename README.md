@@ -10,7 +10,7 @@ its local branch.
 ## Development
 
 Each developer needs Bun **1.4.2** (pinned in `.bun-version` and `package.json`)
-and Git on their `PATH`. The version declarations do not install Bun. Linux
+and Git on their `PATH`. Python 3 is needed for the Linux PTY integration tests. The version declarations do not install Bun. Linux
 x86_64 is the verified development target; Node and Docker are not required.
 
 ### Install prerequisites
@@ -280,7 +280,7 @@ refresh the index, open an editor, launch an agent, or change files or refs.
 
 ## Repository configuration
 
-Timber reads `.timber.toml` from the primary worktree root. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent settings can be configured and retained in 0.1, but launching remains deferred to 0.2. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
+Timber reads `.timber.toml` from the primary worktree root. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent configuration from 0.1 also supports opt-in foreground launching in 0.2; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
 
 Editor opening stays off when `[editor]` is absent. When `open` selects or creates a worktree, Timber starts the configured editor after the required Git and setup work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
 
@@ -370,7 +370,93 @@ the hook itself. Fix the hook or its prerequisites, then use the printed
 retry command, such as `timber open --setup -- '<absolute-worktree-path>'`.
 Retries run **all steps from the beginning**; make hooks safe to rerun.
 Normal `open` can reopen the retained workspace without retrying setup.
-Agent launching remains deferred to TIM-9 and must follow successful setup.
+Agent launching starts only after setup succeeds.
+
+### Optional interactive agents (0.2)
+
+Configure the installed tool in the primary checkout's `.timber.toml`:
+
+```toml
+[agent]
+enabled = false
+command = "claude"
+args = []
+```
+
+For first-time setup, locate the primary checkout:
+
+```bash
+git worktree list
+```
+
+The first listed worktree is the primary checkout. Create or edit
+`.timber.toml` there, even when running Timber from a linked worktree.
+Merge the agent table into any existing configuration; do not replace other
+settings. Timber reads this file but does not create it automatically.
+
+Install your preferred agent separately and make its executable available on
+`PATH`. For a development smoke test, run this from the checkout containing
+the agent-launch implementation, in a normal terminal with CI off:
+
+```bash
+bun run dev new agent-smoke-test --base main --agent --no-editor
+```
+
+Use an existing exact base branch in your repository instead of `main` when
+needed. `--base` accepts branch names, not `HEAD` or commit IDs. The command
+creates the workspace, prints its path, then starts the agent there. After
+exiting the agent, reopen that same workspace with:
+
+```bash
+bun run dev open agent-smoke-test --agent --no-editor
+```
+
+Repository defaults are separate from installing Timber. Guided defaults
+setup is tracked in [TIM-18](https://github.com/Coding-M8s/timber/issues/25).
+A future setup flow should ask which editor/agent to use and whether agent
+launching should be enabled, then preserve existing configuration. Until
+that flow exists, configuration is explicit as shown above.
+
+For Codex, use `command = "codex"` instead. Executable names on `PATH` and
+absolute executable paths are supported. Each argument is passed literally;
+Timber sets the selected worktree as cwd and does not append its path to args.
+Keep credentials outside repository configuration.
+
+`new` and `open` accept `--agent` to enable the configured command for that
+invocation and `--no-agent` to suppress it. Omission defers to `enabled`, which
+defaults to false. Using both flags is an error. Explicit enable requires an
+`[agent]` table; Timber does not assume a default tool. Editor and agent choices
+are independent:
+
+```bash
+timber new my-feature --agent
+timber open my-feature --agent --no-editor
+timber open my-feature --no-agent
+```
+
+Timber completes required Git work and starts the editor before running the
+agent. An editor startup failure prevents agent launch. The agent inherits the
+invoking terminal's stdin/stdout/stderr and runs in the foreground; Timber waits
+for it to finish. Agent exit status becomes Timber's exit status, including
+nonzero statuses and signal exits such as 130 for SIGINT and 143 for SIGTERM.
+Terminal Ctrl-C reaches the foreground agent directly, without a duplicate
+interrupt from Timber. An agent that handles it and continues keeps its eventual
+exit status. For process-directed shutdown with a terminal, send SIGINT to the
+foreground process group or SIGTERM to Timber. No background agent or session
+manager is started.
+
+Both stdin and stdout must be terminals, and CI must be off. An absent or empty
+`CI`, `CI=0`, and `CI=false` (case insensitive) mean CI is off; other values
+mean CI is on. In CI or with redirected stdin/stdout, config-driven launch
+skips automatically. Explicit `--agent` fails before worktree creation instead
+of waiting for interactive input.
+
+Startup failures report the retained workspace and exit 1. Fix configuration
+or `PATH`, then retry with
+`timber open --agent --no-editor -- '<absolute-worktree-path>'`; this reuses the
+workspace. Nonzero exits and interrupts also retain the branch, worktree,
+and its files. Agent output goes directly to the terminal; Timber does not
+capture or log command arguments.
 
 ## Release scope
 
