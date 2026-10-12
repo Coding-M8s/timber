@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
@@ -11,6 +11,10 @@ const editorStub = fileURLToPath(new URL("./fixtures/editor-stub.ts", import.met
 const cli = (cwd: string, ...args: string[]) => execa(process.execPath, [entry, "new", ...args], {
   cwd, reject: false, timeout: 5_000, env: { CI: "true" },
 });
+
+function quotePosix(value: string): string {
+  return "'" + value.replaceAll("'", "'\\''") + "'";
+}
 
 async function absent(path: string): Promise<boolean> {
   try { await lstat(path); return false; } catch (error) {
@@ -164,5 +168,69 @@ test("editor startup failure retains created worktree and gives retry command", 
     expect(result.stderr).toContain("timber open -- '");
     expect(await git(primary, "rev-parse", "refs/heads/feature/retry")).toBe(await git(target, "rev-parse", "HEAD"));
     expect(await readFile(join(target, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+});
+
+test("new safely renders invalid branch controls without changing Git state", async () => {
+  await withRepository(async primary => {
+    const refs = await git(primary, "show-ref");
+    const inventory = await git(primary, "worktree", "list", "--porcelain", "-z");
+    const tracked = await readFile(join(primary, "tracked.txt"), "utf8");
+    const result = await cli(primary, "bad\u001b[2J\nbranch", "--base", "trunk");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Invalid branch name");
+    expect(result.stderr).toContain("\\u001b");
+    expect(result.stderr).toContain("\\n");
+    expect(result.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u);
+    expect(result.stderr.split("\n")).toHaveLength(1);
+    expect(await git(primary, "show-ref")).toBe(refs);
+    expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(inventory);
+    expect(await readFile(join(primary, "tracked.txt"), "utf8")).toBe(tracked);
+  });
+});
+
+test("new editor failure safely renders and executes retry for a control-character path", async () => {
+  await withRepository(async (primary, directory) => {
+    const worktreeRoot = join(directory, "worktrees \u001b[2J\npath");
+    await writeFile(join(primary, ".timber.toml"), [
+      `worktree_dir = ${JSON.stringify(worktreeRoot)}`,
+      "",
+      "[editor]",
+      'command = "missing-timber-editor"',
+      "",
+    ].join("\n"));
+    const target = join(worktreeRoot, "feature-retry-control");
+
+    const created = await cli(primary, "feature/retry-control", "--base", "trunk");
+    expect(created.exitCode).toBe(1);
+    expect(created.stdout).toContain("\\u001b");
+    expect(created.stdout).toContain("\\n");
+    expect(created.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u);
+    expect(created.stderr.split("\n")).toHaveLength(1);
+
+    const retryCommand = created.stderr.match(/Bash retry command: (timber open -- .+)$/u)?.[1];
+    expect(retryCommand).toBeDefined();
+    if (retryCommand === undefined) throw new Error("Expected a Bash retry command");
+
+    const binDirectory = join(directory, "bin");
+    await mkdir(binDirectory);
+    const timberWrapper = join(binDirectory, "timber");
+    await writeFile(timberWrapper,
+      `#!/bin/sh\nexec ${quotePosix(process.execPath)} ${quotePosix(entry)} "$@"\n`);
+    await chmod(timberWrapper, 0o755);
+    const retried = await execa("/bin/bash", ["-c", retryCommand], {
+      cwd: primary,
+      env: { CI: "true", PATH: `${binDirectory}:${process.env.PATH ?? ""}` },
+      reject: false,
+      timeout: 5_000,
+    });
+
+    expect(retried.exitCode).toBe(0);
+    expect(retried.stdout).toContain(`Opened existing worktree at ${JSON.stringify(target)}`);
+    expect(retried.stderr).toContain("Could not start the configured editor");
+    expect(await git(primary, "rev-parse", "refs/heads/feature/retry-control"))
+      .toBe(await git(target, "rev-parse", "HEAD"));
   });
 });
