@@ -21,6 +21,7 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     cleanupWorktree: unexpected("cleanupWorktree"),
     launchEditor: unexpected("launchEditor"),
     runSetup: unexpected("runSetup"),
+    launchAgent: unexpected("launchAgent"),
     ...overrides,
   };
 }

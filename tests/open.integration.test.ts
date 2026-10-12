@@ -340,6 +340,7 @@ test("interactive ambiguity creates only the explicitly selected local branch wo
       createWorktree,
       runSetup,
       launchEditor,
+      launchAgent: async () => ({ kind: "skipped" }),
     });
 
     await open("TIM-121", {}, context);

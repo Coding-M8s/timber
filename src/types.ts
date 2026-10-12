@@ -85,7 +85,7 @@ export interface RepositoryConfig {
   worktreeDir: string | null;
   /** Null means off; no default executable. */
   editor: ExecutableCommand | null;
-  /** Parsed in 0.1, but launched only starting in 0.2. */
+  /** Parsed in 0.1; opt-in foreground launching is available in 0.2. */
   agent: AgentConfig | null;
   /** Trusted 0.2 shell source. Absent hooks mean setup is off. */
   hooks?: { postCreate: readonly string[] };
@@ -148,4 +148,10 @@ export interface ResolveOpenTargetOptions {
 export type EditorResult =
   | { kind: "skipped" }
   | { kind: "launched" }
+  | { kind: "failed"; message: string; retryCommand: string };
+
+/** Foreground agent outcome; signal exits use 128 + the signal number. */
+export type AgentResult =
+  | { kind: "skipped" }
+  | { kind: "exited"; exitCode: number; signal: NodeJS.Signals | null }
   | { kind: "failed"; message: string; retryCommand: string };

@@ -1,64 +1,8 @@
+import { resolveAgentCommand, reportAgentResult } from "../agent";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
 
-const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
-const terminalControls = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu;
-const extendedControls = /[\u007f-\u009f\u2028\u2029]/gu;
-
-function codePointEscape(character: string): string {
-  return `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`;
-}
-
-/** JSON rendering is readable for paths while explicitly escaping DEL, C1 and line separators. */
-function jsonDisplay(value: string): string {
-  return JSON.stringify(value).replace(extendedControls, codePointEscape);
-}
-
-function safeDisplay(value: string): string {
-  return terminalControl.test(value) ? jsonDisplay(value) : value;
-}
-
-function diagnosticEscape(character: string): string {
-  if (character === "\b") return "\\b";
-  if (character === "\t") return "\\t";
-  if (character === "\n") return "\\n";
-  if (character === "\f") return "\\f";
-  if (character === "\r") return "\\r";
-  return codePointEscape(character);
-}
-
-function bashByteEscapes(character: string): string {
-  return [...new TextEncoder().encode(character)]
-    .map(byte => `\\${byte.toString(8).padStart(3, "0")}`)
-    .join("");
-}
-
-/** Keep service errors on one safe display line without changing ordinary punctuation. */
-function safeDiagnostic(value: string): string {
-  return value.replace(terminalControls, diagnosticEscape);
-}
-
-function bashAnsiCQuote(value: string): string {
-  const contents = [...value].map(character => {
-    if (character === "\\") return "\\\\";
-    if (character === "'") return "\\'";
-    if (character === "\b") return "\\b";
-    if (character === "\t") return "\\t";
-    if (character === "\n") return "\\n";
-    if (character === "\f") return "\\f";
-    if (character === "\r") return "\\r";
-    if (character === "\v") return "\\v";
-    if (character === "!" || terminalControl.test(character)) return bashByteEscapes(character);
-    return character;
-  }).join("");
-  return `$'${contents}'`;
-}
-
-function retryForDisplay(path: string, ordinaryRetry: string): string {
-  return terminalControl.test(path)
-    ? `Bash retry command: timber open -- ${bashAnsiCQuote(path)}`
-    : ordinaryRetry;
-}
+import { jsonDisplay, safeDisplay, safeDiagnostic, retryForDisplay } from "../display";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Command failed unexpectedly";
@@ -174,13 +118,15 @@ function branchRequest(branch: Branch) {
 /** Resolve an existing target, create only a selected branch, then optionally start its editor. */
 export function createOpenHandler(
   services: Pick<CommandServices,
-    "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" | "runSetup" | "launchEditor">,
+    "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" |
+    "runSetup" | "launchEditor" | "launchAgent">,
 ): CommandHandlers["open"] {
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
 
     const repository = await safely(() => services.discoverRepository(context.cwd));
     const config = await safely(() => services.loadConfig(repository));
+    const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
     const resolution = await safely(() => services.resolveOpenTarget(repository, input, config, { discoverRemote: true }));
 
     if (resolution.kind === "not-found") {
@@ -241,5 +187,7 @@ export function createOpenHandler(
     }
 
     context.io.stdout(`${created ? "Created" : "Opened existing"} worktree at ${safeDisplay(worktree.path)}\n`);
+    if (editor.kind === "failed" || agentCommand === null) return;
+    return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io);
   };
 }

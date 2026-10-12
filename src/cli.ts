@@ -21,34 +21,49 @@ export interface CliDependencies {
 /** argv contains user arguments only. No process exit, terminal reads, or Git calls. */
 export async function runCli(argv: readonly string[], dependencies: CliDependencies): Promise<number> {
   const { context, handlers = placeholderHandlers } = dependencies;
+  let exitCode = 0;
   const program = new Command()
     .name("timber")
     .description("Manage Git worktrees.")
     .exitOverride()
     .configureOutput({ writeOut: context.io.stdout, writeErr: context.io.stderr });
 
-  program.command("new <branch>")
+  function agentOptions(command: Command): Command {
+    const choices = new Set<string>();
+    return command
+      .option("--agent", "Run the configured agent in this terminal")
+      .option("--no-agent", "Skip the configured agent")
+      .on("option:agent", () => { choices.add("enable"); })
+      .on("option:no-agent", () => { choices.add("disable"); })
+      .hook("preAction", () => {
+        if (choices.size > 1) command.error("Conflicting options: --agent and --no-agent.");
+      });
+  }
+
+  agentOptions(program.command("new <branch>"))
     .description("Create a worktree; configured Jira ticket IDs become descriptive branches")
     .option("--base <ref>", "Override the configured base branch")
     .option("--no-editor", "Skip opening the configured editor")
-    .action((branch: string, options: { base?: string; editor: boolean }) => {
+    .action(async (branch: string, options: { base?: string; editor: boolean; agent?: boolean }) => {
       const normalized: NewOptions = {
         ...(options.base === undefined ? {} : { base: options.base }),
         ...(options.editor === false ? { editor: false as const } : {}),
+        ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      return handlers.new(branch, normalized, context);
+      exitCode = (await handlers.new(branch, normalized, context)) ?? 0;
     });
 
-  program.command("open <input>")
+  agentOptions(program.command("open <input>"))
     .description("Open an existing branch or worktree")
     .option("--no-editor", "Skip opening the configured editor")
     .option("--setup", "Rerun all post_create setup hooks in the selected worktree")
-    .action((input: string, options: { editor: boolean; setup?: boolean }) => {
+    .action(async (input: string, options: { editor: boolean; setup?: boolean; agent?: boolean }) => {
       const normalized: OpenOptions = {
         ...(options.editor === false ? { editor: false as const } : {}),
         ...(options.setup === true ? { setup: true as const } : {}),
+        ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      return handlers.open(input, normalized, context);
+      exitCode = (await handlers.open(input, normalized, context)) ?? 0;
     });
 
   program.command("ls")
@@ -77,7 +92,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
 
   try {
     await program.parseAsync(argv.length === 0 ? ["--help"] : [...argv], { from: "user" });
-    return 0;
+    return exitCode;
   } catch (error) {
     // Commander already wrote help or its diagnostic to the configured stream.
     if (error instanceof CommanderError) return error.exitCode;

@@ -13,7 +13,7 @@
 11. Delete a local branch only when every local commit is reachable from its verified live remote upstream, its commits are contained in the validated base, or a successful Git virtual merge produces exactly the validated base tree. The latter proves content integration after a squash/rebase merge without requiring the original commit IDs or a live feature upstream. Recheck the target and preservation evidence before removal and branch deletion. Publication-only cleanup must verify the live upstream after the final local safety reads and again after worktree removal; changed upstream identity or lost publication retains the local branch. A missing base does not block verified publication, but a validated local base branch cannot be deleted. Use only built-in merge behavior: reject custom merge-driver configuration and disable renormalization for this proof. Conflicts, unsupported Git operations, and uncertain integration evidence never authorize deletion through that proof. `--keep-branch` retains the local branch; clean published worktree cleanup does not require integration with or without this option. Do not infer safety from a closed PR. Detached worktrees still require commit ancestry into the validated base.
 12. No destructive `--force` in 0.1. No remote branch deletion, automatic stash, or implicit process killing.
 13. `done` discards ignored files and directories, including `.env`, with the worktree by default. `--keep-ignored` refuses cleanup when ignored content exists, leaving those files, the worktree, and branch in their original locations; it does not copy them elsewhere. Retain `--discard-ignored` as a compatibility option. Reject combining it with `--keep-ignored`. Neither option bypasses modified/untracked files or commit/integration safety checks. Document the default in CLI help and the README.
-14. Editors default to off until configured. Support `--no-editor`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2. When implemented, agent launching is opt-in, follows the editor, and owns the invoking terminal.
+14. Editors default to off until configured. Support `--no-editor`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2. In 0.2 agent launching is opt-in, follows the editor, and owns the invoking terminal; see the launch contract below.
 15. CLI success means required Git/setup work completed. If editor/agent startup fails after creation, retain the workspace and explain how to retry. Editor launch success is process startup only: Timber returns promptly and does not report a later nonzero editor exit, even when editor args include `--wait`.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
 
@@ -146,7 +146,7 @@ preserve its source literally. Absent hooks mean setup is off. Read hooks only
 from the primary root's config, never the linked worktree's config.
 
 `new` and `open` run setup after creating a worktree and before launching its
-editor. Normal `open` reuses an existing worktree without setup. `open --setup`
+editor or agent. Normal `open` reuses an existing worktree without setup. `open --setup`
 explicitly runs every step from the beginning for the selected worktree,
 including primary and detached worktrees; creation plus `--setup` runs once.
 `--no-editor` does not disable setup.
@@ -170,3 +170,41 @@ workspace state. Do not echo shell source in the diagnostic or roll back hook
 changes. Report a safely quoted retry of the form
 `timber open --setup -- '<absolute-worktree-path>'`; use a printable Bash retry
 for paths containing terminal controls. Timber never executes the retry text.
+
+## Interactive agent launching (0.2)
+
+`new` and `open` accept `--agent` and `--no-agent`. Omission defers to
+`agent.enabled`; explicit enable overrides false and explicit disable overrides
+true. Both flags together are an error. Explicit enable without an agent table
+is an actionable preflight error, before any Git creation.
+
+The agent starts only after successful required Git/setup work and successful
+or skipped editor startup. Keep the launcher separate from the editor: pass
+command/args literally with no shell, set cwd to the selected worktree, inherit
+stdin/stdout/stderr, and await the foreground child. Never detach or unref it.
+Do not append the worktree path to agent args.
+
+Require stdin and stdout terminals and CI off. CI is off when absent, empty,
+"0", or "false" (case insensitive). Other nonempty values enable CI. When
+noninteractive, config-driven launch skips and explicit --agent fails before
+Git creation. No agent prompt can block unattended commands.
+
+Normal agent exits propagate their numeric status. SIGINT/SIGTERM exits produce
+130/143. Terminal Ctrl-C reaches the foreground child directly and is not
+forwarded a second time. Parent SIGTERM and non-TTY parent SIGINT are forwarded
+to the owned child; Timber waits for its actual exit status. A caught interrupt
+does not override a later normal exit. With a terminal, send SIGINT to the
+foreground process group or SIGTERM to Timber for process-directed shutdown. Remove signal listeners on completion. Do not manage unrelated
+processes or create a session manager.
+
+Startup failure returns 1, writes an actionable stderr diagnostic once, and
+retains all completed workspace state. Retry after fixing configuration/PATH:
+`timber open --agent --no-editor -- '<absolute-worktree-path>'`.
+Safely quote/escape this display text; never execute it internally. Nonzero
+agent exit and interruption also identify retained workspace state. Child
+output is inherited directly; do not log command arguments or raw startup
+errors that might contain secrets.
+
+Existing editor failure behavior remains: new returns nonzero, while open
+reports failure and returns success after completed Git work. Both suppress
+agent startup.

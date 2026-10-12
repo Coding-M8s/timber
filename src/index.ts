@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { launchAgent } from "./agent";
 import { placeholderHandlers, runCli } from "./cli";
 import { createDoneHandler } from "./commands/done";
 import { createListHandler } from "./commands/list";
@@ -22,12 +23,14 @@ const choose = shouldEnableInteractiveSelection({
   ...(process.env.CI === undefined ? {} : { ci: process.env.CI }),
 }) ? createTerminalChooser(process.stdin, process.stdout) : undefined;
 
+const ci = process.env.CI?.toLowerCase();
+
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
     ...placeholderHandlers,
     new: createNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
-      createWorktree, runSetup, launchEditor,
+      createWorktree, runSetup, launchEditor, launchAgent,
     }),
     open: createOpenHandler({
       discoverRepository,
@@ -36,6 +39,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
       createWorktree,
       runSetup,
       launchEditor,
+      launchAgent,
     }),
     list: createListHandler({ discoverRepository, listWorktrees }),
     done: createDoneHandler({
@@ -44,6 +48,8 @@ process.exitCode = await runCli(process.argv.slice(2), {
   },
   context: {
     cwd: process.cwd(),
+    interactive: process.stdin.isTTY === true && process.stdout.isTTY === true
+      && (!ci || ci === "0" || ci === "false"),
     io: {
       stdout: text => { process.stdout.write(text); },
       stderr: text => { process.stderr.write(text); },

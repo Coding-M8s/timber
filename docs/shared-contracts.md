@@ -22,6 +22,7 @@ a reviewed contract change first.
 | `inspectCleanup`, `cleanupWorktree` | TIM-5 |
 | `launchEditor` | TIM-8 |
 | `runSetup` | TIM-7 |
+| `launchAgent` | TIM-9 |
 | `CommandHandlers.new/open/list/done` | TIM-12/13/14/15 |
 
 Each command module can take the relevant `Pick<CommandServices, ...>` and return
@@ -251,3 +252,33 @@ Future Git mutations require temporary real repositories and assertions that
 failure preserves files/refs. TIM-11 only parses commands and supplies interfaces,
 so its tests cover subprocess CLI behavior, dependency compatibility, dispatch,
 and compile-checked service consumers; it claims no Git lifecycle verification.
+
+## TIM-9 agent additions
+
+`NewOptions.agent` and `OpenOptions.agent` are optional booleans: undefined
+defers to config, true enables, false disables. CLI rejects both controls
+together. `CommandContext.interactive` is optional; absent means false.
+The process entry point computes it from stdin/stdout TTY state and CI.
+
+`resolveAgentCommand(config, enabled, interactive)` selects the existing
+executable configuration or null, and rejects invalid explicit choices before
+Git mutation. Commands invoke `launchAgent(worktree, command)` only when enabled
+and all preceding setup/editor work succeeded. No config-schema change or
+provider abstraction is needed.
+
+`AgentResult` distinguishes skipped, exited (numeric exitCode and nullable
+signal), and failed (safe message and retryCommand). The service waits for
+one owned foreground child with inherited stdio, literal args, and worktree
+cwd. It never detaches or unrefs. Startup errors become failed values; signal
+listeners are removed on every completion path. Terminal SIGINT relies on
+foreground-group delivery; parent SIGTERM and non-TTY SIGINT are forwarded.
+Only actual child signal exits use the signal-based numeric status.
+
+Only new/open handlers widen to `Promise<void | number>`: void remains
+success, numeric results propagate agent status through runCli. Operational
+exceptions still print once and return 1. Existing list/done consumers and
+their signatures remain unchanged. Keep the documented existing new/open
+editor failure exit policies while suppressing agent startup in both cases.
+
+`src/display.ts` holds the existing safe path/diagnostic/retry rendering shared
+with open; agent recovery uses the same control-character escaping.
