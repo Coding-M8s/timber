@@ -407,7 +407,7 @@ test("editor failure message and retry text are escaped for display", async () =
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain('"/repo/linked-\\u001b[2J\\nROW\\u007f\\u009b\\u2028\\u2029"');
   expect(result.stderr).toContain("Could not start editor for /repo/linked-\\u001b[2J\\nROW\\u007f\\u009b\\u2028\\u2029");
-  expect(result.stderr).toContain("Bash retry command: timber open -- $'/repo/linked-\\033[2J\\nROW\\177\\302\\233\\342\\200\\250\\342\\200\\251'");
+  expect(result.stderr).toContain("Retry with: timber open -- $'/repo/linked-\\033[2J\\nROW\\177\\302\\233\\342\\200\\250\\342\\200\\251'");
   expect(result.stdout.slice(0, -1)).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
   expect(result.stderr.slice(0, -1)).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
 });

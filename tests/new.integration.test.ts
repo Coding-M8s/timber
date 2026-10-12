@@ -210,7 +210,7 @@ test("new editor failure safely renders and executes retry for a control-charact
     expect(created.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u);
     expect(created.stderr.split("\n")).toHaveLength(1);
 
-    const retryCommand = created.stderr.match(/Bash retry command: (timber open -- .+)$/u)?.[1];
+    const retryCommand = created.stderr.match(/retry with: (timber open -- .+)$/u)?.[1];
     expect(retryCommand).toBeDefined();
     if (retryCommand === undefined) throw new Error("Expected a Bash retry command");
 

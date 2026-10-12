@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import { execa } from "execa";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
@@ -79,3 +82,19 @@ for (const args of [
     expect(result.stderr).not.toContain("not implemented");
   });
 }
+
+test("unhandled command failures render control characters safely", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "timber-cli-"));
+  try {
+    const cwd = join(directory, "outside \u001b[2J\nrow\u009b");
+    await mkdir(cwd);
+    const result = await execa(process.execPath, [entry, "ls"], { cwd, reject: false, timeout: 5_000, env: { CI: "true" } });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("error:");
+    expect(result.stderr).toContain("outside \\u001b[2J\\nrow\\u009b");
+    expect(result.stderr.slice(0, -1)).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

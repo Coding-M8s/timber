@@ -35,6 +35,9 @@ export function safeDiagnostic(value: string): string {
   return value.replace(terminalControls, diagnosticEscape);
 }
 
+/** A diagnostic whose newlines are intentional layout; the CLI keeps them and escapes other controls. */
+export class FormattedError extends Error {}
+
 function bashAnsiCQuote(value: string): string {
   const contents = [...value].map(character => {
     if (character === "\\") return "\\\\";
@@ -51,8 +54,17 @@ function bashAnsiCQuote(value: string): string {
   return `$'${contents}'`;
 }
 
+/** Ordinary paths keep their POSIX-quoted retry; control characters need a printable Bash command. */
 export function retryForDisplay(path: string, ordinaryRetry: string, options = ""): string {
   return terminalControl.test(path)
-    ? `Bash retry command: timber open ${options ? options + " " : ""}-- ${bashAnsiCQuote(path)}`
+    ? `timber open ${options ? options + " " : ""}-- ${bashAnsiCQuote(path)}`
     : ordinaryRetry;
+}
+
+/** Render a launch failure so its retry command stays pasteable even for control-character paths. */
+export function failureWithRetry(message: string, retryCommand: string, path: string, options = ""): string {
+  const retry = retryForDisplay(path, retryCommand, options);
+  return safeDiagnostic(message.includes(retryCommand)
+    ? message.replace(retryCommand, () => retry)
+    : `${message} Retry with: ${retry}`);
 }

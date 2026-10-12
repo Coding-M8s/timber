@@ -515,10 +515,10 @@ test("open safely displays a real control-character worktree path on success, ed
     expect(failedEditor.stdout).toContain("\\u001b[2JFAKE\\nROW\\u007f\\u0085\\u009b\\u2028\\u2029");
     expect(failedEditor.stderr).toContain("Could not start the configured editor");
     expect(failedEditor.stderr).toContain("\\u001b[2JFAKE\\nROW\\u007f\\u0085\\u009b\\u2028\\u2029");
-    expect(failedEditor.stderr).toContain("Bash retry command: timber open -- $");
+    expect(failedEditor.stderr).toContain("retry with: timber open -- $");
     expect(failedEditor.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u);
 
-    const retryPrefix = "Bash retry command: timber open -- ";
+    const retryPrefix = "retry with: timber open -- ";
     const retryStart = failedEditor.stderr.indexOf(retryPrefix);
     expect(retryStart).toBeGreaterThanOrEqual(0);
     const bashWord = failedEditor.stderr.slice(retryStart + retryPrefix.length).trim();
@@ -535,7 +535,7 @@ test("open safely displays a real control-character worktree path on success, ed
     const retried = await cli(primary, "open", retryPath);
     expect(retried.exitCode).toBe(0);
     expect(retried.stdout).toContain("Opened existing worktree at ");
-    expect(retried.stderr).toContain("Bash retry command: timber open -- $");
+    expect(retried.stderr).toContain("retry with: timber open -- $");
     expect(await exists(marker)).toBe(false);
 
     const ambiguous = await cli(primary, "open", "TIM-92");
