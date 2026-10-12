@@ -68,6 +68,24 @@ test("new applies --base ahead of configured base_branch", async () => {
   });
 });
 
+test("new creates a normalized sentence branch at its safe path from the selected base", async () => {
+  await withRepository(async (primary, directory) => {
+    const base = await git(primary, "rev-parse", "trunk");
+    const target = join(directory, "primary repo-worktrees", "investigate-slow-api-usage-page");
+
+    const result = await cli(
+      primary, "--base", "trunk", "--no-editor", "Investigate", "slow", "API", "usage", "page",
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(`Created investigate-slow-api-usage-page at ${target}`);
+    expect(await git(primary, "rev-parse", "refs/heads/investigate-slow-api-usage-page")).toBe(base);
+    expect(await git(target, "rev-parse", "HEAD")).toBe(base);
+    expect(await readFile(join(target, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+});
+
 test("new in linked worktree reads primary config for base and destination", async () => {
   await withRepository(async (primary, directory) => {
     const linked = join(directory, "linked checkout");
@@ -113,13 +131,13 @@ test("new starts configured editor in created worktree; --no-editor skips it", a
 
 test("duplicate branch and slug collision suggest open without changing refs or files", async () => {
   await withRepository(async (primary, directory) => {
-    const first = await cli(primary, "feature-one", "--base", "trunk");
+    const first = await cli(primary, "Feature", "one", "--base", "trunk");
     expect(first.exitCode).toBe(0);
     const beforeRefs = await git(primary, "show-ref");
     const beforeTrees = await git(primary, "worktree", "list", "--porcelain", "-z");
     const target = join(directory, "primary repo-worktrees", "feature-one");
 
-    const duplicate = await cli(primary, "feature-one", "--base", "trunk");
+    const duplicate = await cli(primary, "  FEATURE   ONE  ", "--base", "trunk");
     expect(duplicate.exitCode).toBe(1);
     expect(duplicate.stderr).toContain("timber open");
     const collision = await cli(primary, "feature/one", "--base", "trunk");

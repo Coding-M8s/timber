@@ -61,6 +61,8 @@ and bundled help on Ubuntu x86_64. Other platforms are not verified.
 
 ```bash
 timber new my-feature
+timber new Investigate slow API usage page
+timber new "Investigate slow API usage page" --no-editor
 timber open my-feature
 timber open origin/my-feature
 timber open TIM-42
@@ -75,12 +77,23 @@ timber done "/absolute/path/to/my-feature-worktree" --keep-ignored
 
 ### Create a worktree
 
-Run `timber new <branch>` (or `bun run dev new <branch>`) from the primary
+Run `timber new <branch...>` (or `bun run dev new <branch...>`) from the primary
 checkout, a nested directory, or a linked worktree. Timber creates a new local
 branch from `--base <ref>` when supplied, then `base_branch` in the primary
 checkout's `.timber.toml`, then the selected remote's default branch, then a
 single existing local `main` or `master`. Missing or ambiguous bases fail
 without guessing. Git validates the branch name before creation.
+
+Pass a sentence as one quoted argument or as unquoted words; both forms produce
+the same input to `new`. When that input contains literal spaces, Timber trims
+surrounding spaces, lowercases it, and changes each run of spaces to one hyphen.
+For example, `Investigate slow API usage page` becomes
+`investigate-slow-api-usage-page`. A name without spaces, such as
+`feature/API-fix` or `TIM-19`, keeps its exact spelling and existing Jira
+behavior. Blank names and control characters fail before worktree creation;
+other characters are passed to Git for validation. Put options before or after
+the words. `--` ends option parsing; Git still validates the resulting branch
+name.
 
 By default, Timber places the linked worktree at
 `../<repository-name>-worktrees/<safe-branch-slug>` beside the primary checkout.

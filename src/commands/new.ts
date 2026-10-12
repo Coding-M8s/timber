@@ -9,9 +9,24 @@ type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
   "createWorktree" | "runSetup" | "launchEditor" | "launchAgent">;
 
+const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+
+function normalizeBranchInput(branch: string): string {
+  if (terminalControl.test(branch)) {
+    throw new Error(`Invalid branch name: ${safeDisplay(branch)}`);
+  }
+
+  const normalized = branch.includes(" ")
+    ? branch.replace(/^ +| +$/gu, "").toLowerCase().replace(/ +/gu, "-")
+    : branch;
+  if (normalized.length === 0) throw new Error("Invalid branch name: branch name must not be blank.");
+  return normalized;
+}
+
 /** Create a new workspace, then optionally start its configured editor. */
 export function createNewHandler(services: NewServices): CommandHandlers["new"] {
   return async (branch, options, context) => {
+    const branchInput = normalizeBranchInput(branch);
     const repository = await services.discoverRepository(context.cwd);
     const config = await services.loadConfig(repository);
     const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
@@ -51,7 +66,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         ticket = await services.resolveJiraTicket(jiraConfig, chosen.key);
       }
     }
-    const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branch;
+    const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branchInput;
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
     if (ticket) context.io.stdout(`Jira: ${ticket.url}\n`);
