@@ -1,5 +1,5 @@
 import { resolveAgentCommand, reportAgentResult } from "../agent";
-import { safeDisplay } from "../display";
+import { retryForDisplay, safeDiagnostic, safeDisplay } from "../display";
 import type { CommandHandlers, CommandServices } from "../services";
 import { JiraLookupFailure } from "../jira/client";
 import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
@@ -9,19 +9,33 @@ type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
   "createWorktree" | "runSetup" | "launchEditor" | "launchAgent">;
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Command failed unexpectedly";
+}
+
+async function safely<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw new Error(safeDiagnostic(errorMessage(error)));
+  }
+}
+
 /** Create a new workspace, then optionally start its configured editor. */
 export function createNewHandler(services: NewServices): CommandHandlers["new"] {
   return async (branch, options, context) => {
-    const repository = await services.discoverRepository(context.cwd);
-    const config = await services.loadConfig(repository);
+    const repository = await safely(() => services.discoverRepository(context.cwd));
+    const config = await safely(() => services.loadConfig(repository));
     const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
-    const base = await services.resolveBase(repository, config, options.base);
+    const base = await safely(() => services.resolveBase(repository, config, options.base));
     let ticket: JiraTicket | undefined;
     if (config.jira && isJiraTicketKey(branch)) {
       try {
         ticket = await services.resolveJiraTicket(config.jira, branch);
       } catch (error) {
-        if (!(error instanceof JiraLookupFailure) || error.reason === undefined) throw error;
+        if (!(error instanceof JiraLookupFailure) || error.reason === undefined) {
+          throw new Error(safeDiagnostic(errorMessage(error)));
+        }
 
         let suggestions: readonly JiraTicket[];
         try {
@@ -38,7 +52,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         }));
         if (context.choose === undefined) throw noChooserFailure(error.message, branch, suggestions);
 
-        const selected = await context.choose(`${error.message}\nDid you mean one of these?`, choices);
+        const selected = await safely(() => context.choose!(`${error.message}\nDid you mean one of these?`, choices));
         if (selected === null) {
           context.io.stdout("Cancelled.\n");
           return;
@@ -47,22 +61,28 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         if (chosen === undefined) throw new Error("Jira chooser returned an unknown suggestion; no workspace was created.");
 
         // The search result can be stale; the selected exact issue is authoritative.
-        ticket = await services.resolveJiraTicket(config.jira, chosen.key);
+        ticket = await safely(() => services.resolveJiraTicket(config.jira, chosen.key));
       }
     }
     const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branch;
-    const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
+    const worktree = await safely(() => services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config));
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
     if (ticket) context.io.stdout(`Jira: ${ticket.url}\n`);
 
     if (config.hooks?.postCreate.length) {
-      await services.runSetup(repository, worktree, config, context.io);
+      await safely(() => services.runSetup(repository, worktree, config, context.io));
     }
 
-    const editor = await services.launchEditor(worktree, config, options.editor === false);
-    if (editor.kind === "failed") throw new Error(editor.message);
+    const editor = await safely(() => services.launchEditor(worktree, config, options.editor === false));
+    if (editor.kind === "failed") {
+      const retryCommand = retryForDisplay(worktree.path, editor.retryCommand);
+      const originalMessage = editor.message.includes(editor.retryCommand)
+        ? editor.message.replace(editor.retryCommand, () => retryCommand)
+        : editor.message;
+      throw new Error(safeDiagnostic(originalMessage));
+    }
     if (agentCommand === null) return;
-    return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io);
+    return reportAgentResult(await safely(() => services.launchAgent(worktree, agentCommand)), worktree, context.io);
   };
 }
 
