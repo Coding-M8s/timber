@@ -44,17 +44,20 @@ export function createListHandler(
       Number(b.isPrimary) - Number(a.isPrimary) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const rows = await Promise.all(sorted.map(async tree => {
       const association = await services.readWorkflowAssociation(repository, tree);
-      if (association.kind === "invalid") {
-        context.io.stderr(`warning: Cannot read workflow association for ${display(tree.path)} (${association.reason}); Git worktree remains listed.\n`);
-      }
-      return [
-        tree.isPrimary ? "primary" : "linked",
-        tree.branch === null ? "(detached HEAD)" : display(tree.branch),
-        association.kind === "assigned" ? display(association.name) : association.kind === "unassigned" ? "-" : "?",
-        statusSummary(tree),
-        display(tree.path),
-      ];
+      return {
+        warning: association.kind === "invalid"
+          ? `warning: Cannot read workflow association for ${display(tree.path)} (${association.reason}); Git worktree remains listed.\n`
+          : null,
+        cells: [
+          tree.isPrimary ? "primary" : "linked",
+          tree.branch === null ? "(detached HEAD)" : display(tree.branch),
+          association.kind === "assigned" ? display(association.name) : association.kind === "unassigned" ? "-" : "?",
+          statusSummary(tree),
+          display(tree.path),
+        ],
+      };
     }));
-    context.io.stdout(alignedRows(["WORKTREE", "BRANCH", "WORKFLOW", "STATUS", "PATH"], rows));
+    for (const row of rows) if (row.warning !== null) context.io.stderr(row.warning);
+    context.io.stdout(alignedRows(["WORKTREE", "BRANCH", "WORKFLOW", "STATUS", "PATH"], rows.map(row => row.cells)));
   };
 }
