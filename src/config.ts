@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { parse } from "smol-toml";
 import { z } from "zod";
 import { globalConfigPath } from "./config-paths";
-import type { LoadedCommandConfig, RepositoryConfig, RepositoryContext } from "./types";
+import type { RepositoryConfig, RepositoryContext } from "./types";
 
 const defaults: RepositoryConfig = {
   baseBranch: null,
@@ -123,17 +123,8 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
   };
 }
 
-export async function loadCommandConfig(repository: RepositoryContext, env: NodeJS.ProcessEnv = process.env): Promise<LoadedCommandConfig> {
-  const scopes = await loadConfigScopes(repository.primaryWorktreeRoot, env);
-  return {
-    config: resolveConfig(scopes, repository.primaryWorktreeRoot),
-    localExists: scopes.local?.source !== null,
-    globalExists: scopes.global.source !== null,
-  };
-}
-
 export async function loadRepositoryConfig(repository: RepositoryContext, env: NodeJS.ProcessEnv = process.env): Promise<RepositoryConfig> {
-  return (await loadCommandConfig(repository, env)).config;
+  return resolveConfig(await loadConfigScopes(repository.primaryWorktreeRoot, env), repository.primaryWorktreeRoot);
 }
 
 function errorCode(error: unknown): string | undefined {

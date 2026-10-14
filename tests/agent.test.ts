@@ -44,6 +44,7 @@ test("agent policy honors config, overrides, and terminal requirements", async (
   expect(resolveAgentCommand(absent, undefined, true)).toBeNull();
   expect(resolveAgentCommand(absent, false, true)).toBeNull();
   expect(() => resolveAgentCommand(absent, true, true)).toThrow(/configure.*agent/i);
+  expect(() => resolveAgentCommand(absent, true, true)).toThrow("timber setup --global");
 });
 
 test("agent runs literal args in selected cwd and waits for exit", async () => {

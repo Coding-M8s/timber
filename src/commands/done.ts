@@ -1,4 +1,3 @@
-import { commandConfig } from "../guidance";
 import { FormattedError } from "../display";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Worktree } from "../types";
@@ -32,12 +31,12 @@ function ambiguousMessage(input: string, candidates: readonly Worktree[]): strin
 /** Resolve one existing worktree; fresh safety checks and all mutations belong to cleanup. */
 export function createDoneHandler(
   services: Pick<CommandServices,
-    "discoverRepository" | "loadCommandConfig" | "resolveOpenTarget" | "cleanupWorktree">,
+    "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "cleanupWorktree">,
 ): CommandHandlers["done"] {
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or absolute worktree path to clean up.");
     const repository = await services.discoverRepository(context.cwd);
-    const config = commandConfig(await services.loadCommandConfig(repository), context);
+    const config = await services.loadConfig(repository);
     const resolution = await services.resolveOpenTarget(repository, input, config, { assertOpenable: false });
     if (resolution.kind === "not-found") {
       throw new Error(`No existing worktree or branch matches ${quoted(input)}. Check timber ls and use an exact branch or absolute worktree path.`);

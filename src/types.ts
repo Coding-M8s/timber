@@ -155,10 +155,3 @@ export type AgentResult =
   | { kind: "skipped" }
   | { kind: "exited"; exitCode: number; signal: NodeJS.Signals | null }
   | { kind: "failed"; message: string; retryCommand: string };
-
-/** One validated read for command behavior and end-of-response setup guidance. */
-export interface LoadedCommandConfig {
-  config: RepositoryConfig;
-  localExists: boolean;
-  globalExists: boolean;
-}

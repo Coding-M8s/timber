@@ -10,9 +10,6 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
   return {
     discoverRepository: unexpected("discoverRepository"),
     loadConfig: unexpected("loadConfig"),
-    loadCommandConfig: async repository => ({
-      config: await (overrides.loadConfig ?? unexpected("loadConfig"))(repository), localExists: true, globalExists: false,
-    }),
     resolveJiraTicket: unexpected("resolveJiraTicket"),
     findJiraSuggestions: unexpected("findJiraSuggestions"),
     listWorktrees: unexpected("listWorktrees"),
