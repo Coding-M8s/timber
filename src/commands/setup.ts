@@ -33,6 +33,7 @@ function summary(target: SetupTarget, file: ConfigFile, context: CommandContext)
   context.io.stdout(`Editor: ${config.editor ? safeDisplay(config.editor.command) : "off"}\n`);
   context.io.stdout(`Agent: ${config.agent ? safeDisplay(config.agent.command) : "off"}; launch by default: ${config.agent?.enabled ? "yes" : "no"}\n`);
   context.io.stdout(`Post-create hooks: ${config.hooks?.postCreate.length ?? 0}; Jira: ${config.jira ? "enabled" : "off"}\n`);
+  context.io.stdout(`Workflows: ${Object.keys(config.workflows ?? {}).length}\n`);
   context.io.stdout(`Base: ${safeDisplay(config.baseBranch ?? "automatic")}; remote: ${safeDisplay(config.remote ?? "automatic")}; worktree directory: ${safeDisplay(file.worktree_dir ?? config.worktreeDir ?? "default sibling directory")}\n`);
   context.io.stdout(target.scope === "global"
     ? "Relative worktree directories resolve from each repository's primary checkout.\n"

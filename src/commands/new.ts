@@ -1,13 +1,14 @@
-import { resolveAgentCommand, reportAgentResult } from "../agent";
+import { reportAgentResult } from "../agent";
 import { FormattedError, failureWithRetry, safeDisplay } from "../display";
 import type { CommandHandlers, CommandServices } from "../services";
 import { JiraLookupFailure } from "../jira/client";
 import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
 import type { JiraTicket } from "../types";
+import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 
 type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
-  "createWorktree" | "runSetup" | "launchEditor" | "launchAgent">;
+  "createWorktree" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent">;
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
@@ -29,7 +30,8 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const branchInput = normalizeBranchInput(branch);
     const repository = await services.discoverRepository(context.cwd);
     const config = await services.loadConfig(repository);
-    const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
+    const workflow = selectWorkflow(config, options.workflow ?? null);
+    const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, context.interactive === true, true);
     const base = await services.resolveBase(repository, config, options.base);
     const jiraConfig = config.jira;
     let ticket: JiraTicket | undefined;
@@ -68,14 +70,17 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     }
     const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branchInput;
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
+    if (options.workflow) await services.writeWorkflowAssociation(repository, worktree, options.workflow);
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
     if (ticket) context.io.stdout(`Jira: ${ticket.url}\n`);
 
-    if (config.hooks?.postCreate.length) {
-      await services.runSetup(repository, worktree, config, context.io);
+    if (config.hooks?.postCreate.length || workflow?.postCreate.length) {
+      await services.runSetup(repository, worktree, config, context.io,
+        options.workflow, workflow?.postCreate);
     }
 
-    const editor = await services.launchEditor(worktree, config, options.editor === false);
+    const editor = await services.launchEditor(worktree,
+      workflow === null ? config : { ...config, editor: workflowEditor(config, workflow) }, options.editor === false);
     if (editor.kind === "failed") {
       throw new Error(failureWithRetry(editor.message, editor.retryCommand, worktree.path));
     }

@@ -41,6 +41,22 @@ test("setup summary precedes saving and names repository destination", async () 
   expect(result.stdout).toContain("/repo/.timber.toml");
 });
 
+test("setup review counts workflows without displaying their executable arguments", async () => {
+  const existing = parseConfigSource('[workflows.review.agent]\ncommand = "wrapper"\nargs = ["PRIVATE_PROMPT"]\n', "existing.toml");
+  const destination: SetupTarget = { ...target,
+    file: { path: file.path, source: "configured", values: existing },
+    scopes: { ...target.scopes, local: { path: file.path, source: "configured", values: existing } } };
+  let output = "";
+  const handler = createSetupHandler({ inspectTarget: async () => destination,
+    prompt: () => ({ select: async (message) => message.includes("Review settings") ? "cancel" : "keep",
+      text: async () => null, confirm: async () => false, close() {} }),
+    checkExecutable: async () => true, save: async () => {} });
+  await handler({ global: false }, { cwd: "/repo", interactive: true,
+    io: { stdout: text => { output += text; }, stderr: () => {} } });
+  expect(output).toContain("Workflows: 1");
+  expect(output).not.toContain("PRIVATE_PROMPT");
+});
+
 test("declining replacement and cancelling questionnaire never writes settings", async () => {
   for (const options of [{ existing: true }, { cancel: true }, { tracked: true }]) {
     const result = await setup(options);

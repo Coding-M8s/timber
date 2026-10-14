@@ -99,6 +99,26 @@ test("help and parser errors do not invoke handlers", async () => {
 });
 
 for (const command of ["new", "open"] as const) {
+  test(`${command} forwards each workflow spelling through one option`, async () => {
+    const handler = mock(async () => {});
+    const h = harness({ [command]: handler });
+    for (const flag of ["--workflow", "-w", "--w"]) {
+      expect(await runCli([command, "feature", flag, "review"], h)).toBe(0);
+      expect(handler).toHaveBeenLastCalledWith("feature", { workflow: "review" }, h.context);
+    }
+  });
+
+  test(`${command} rejects repeated or mixed workflow aliases before dispatch`, async () => {
+    for (const flags of [["-w", "review", "--w", "develop"],
+      ["--workflow", "review", "--workflow", "review"]]) {
+      const handler = mock(async () => {});
+      const h = harness({ [command]: handler });
+      expect(await runCli([command, "feature", ...flags], h)).toBe(1);
+      expect(handler).not.toHaveBeenCalled();
+      expect(h.output().stderr).toMatch(/workflow.*more than once|conflict/i);
+    }
+  });
+
   test(`${command} preserves explicit agent choice independently of editor`, async () => {
     const handler = mock(async () => {});
     const h = harness({ [command]: handler });

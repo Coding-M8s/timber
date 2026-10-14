@@ -19,6 +19,7 @@ import { createWorktree } from "./git/create-worktree";
 import { resolveOpenTarget } from "./git/open-target";
 import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
+import { readWorkflowAssociation, writeWorkflowAssociation } from "./git/workflow-metadata";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
 import { createTerminalChooser, shouldEnableInteractiveSelection } from "./selection";
 
@@ -42,18 +43,19 @@ process.exitCode = await runCli(process.argv.slice(2), {
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
-      createWorktree, runSetup, launchEditor, launchAgent,
+      createWorktree, writeWorkflowAssociation, runSetup, launchEditor, launchAgent,
     }),
     open: createOpenHandler({
       discoverRepository,
       loadConfig: loadRepositoryConfig,
       resolveOpenTarget,
-      createWorktree,
+      createWorktree, readWorkflowAssociation, writeWorkflowAssociation,
       runSetup,
       launchEditor,
       launchAgent,
     }),
-    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig }),
+    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig,
+      readWorkflowAssociation }),
     done: createDoneHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,
     }),

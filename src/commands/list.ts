@@ -1,5 +1,6 @@
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Worktree } from "../types";
+import { alignedRows } from "../columns";
 
 /** Keep each worktree on one row, including paths with terminal control characters. */
 function display(value: string): string {
@@ -29,7 +30,7 @@ function statusSummary(tree: Worktree): string {
 
 /** Scoped validation and offline inventory; no Git mutation or launches. */
 export function createListHandler(
-  services: Pick<CommandServices, "discoverRepository" | "listWorktrees" | "loadConfig">,
+  services: Pick<CommandServices, "discoverRepository" | "listWorktrees" | "loadConfig" | "readWorkflowAssociation">,
 ): CommandHandlers["list"] {
   return async context => {
     const repository = await services.discoverRepository(context.cwd);
@@ -41,12 +42,19 @@ export function createListHandler(
     }
     const sorted = [...trees].sort((a, b) =>
       Number(b.isPrimary) - Number(a.isPrimary) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const rows = sorted.map(tree => [
-      tree.isPrimary ? "primary" : "linked",
-      tree.branch === null ? "(detached HEAD)" : display(tree.branch),
-      statusSummary(tree),
-      display(tree.path),
-    ].join("\t"));
-    context.io.stdout(`WORKTREE\tBRANCH\tSTATUS\tPATH\n${rows.join("\n")}\n`);
+    const rows = await Promise.all(sorted.map(async tree => {
+      const association = await services.readWorkflowAssociation(repository, tree);
+      if (association.kind === "invalid") {
+        context.io.stderr(`warning: Cannot read workflow association for ${display(tree.path)} (${association.reason}); Git worktree remains listed.\n`);
+      }
+      return [
+        tree.isPrimary ? "primary" : "linked",
+        tree.branch === null ? "(detached HEAD)" : display(tree.branch),
+        association.kind === "assigned" ? display(association.name) : association.kind === "unassigned" ? "-" : "?",
+        statusSummary(tree),
+        display(tree.path),
+      ];
+    }));
+    context.io.stdout(alignedRows(["WORKTREE", "BRANCH", "WORKFLOW", "STATUS", "PATH"], rows));
   };
 }

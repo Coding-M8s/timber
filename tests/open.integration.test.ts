@@ -338,6 +338,8 @@ test("interactive ambiguity creates only the explicitly selected local branch wo
       loadConfig: loadRepositoryConfig,
       resolveOpenTarget,
       createWorktree,
+      readWorkflowAssociation: async () => ({ kind: "unassigned" }),
+      writeWorkflowAssociation: async () => {},
       runSetup,
       launchEditor,
       launchAgent: async () => ({ kind: "skipped" }),
@@ -504,6 +506,7 @@ test("open safely displays a real control-character worktree path on success, ed
     await config(primary, ["[editor]", `command = ${toml(missingEditor)}`]);
 
     const opened = await cli(primary, "open", "feature/control", "--no-editor");
+    expect(opened.stderr).toBe("");
     expect(opened.exitCode).toBe(0);
     expect(opened.stdout).toContain("Opened existing worktree at \"");
     expect(opened.stdout).toContain("\\u001b[2JFAKE\\nROW\\u007f\\u0085\\u009b\\u2028\\u2029");

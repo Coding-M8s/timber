@@ -18,6 +18,15 @@ const executableSchema = z.strictObject({
   args: z.array(z.string()).default([]),
 });
 
+const postCreateSchema = z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")));
+const workflowSchema = z.strictObject({
+  description: z.string().trim().min(1).optional(),
+  post_create: postCreateSchema.default([]),
+  editor: z.union([z.literal(false), executableSchema]).optional(),
+  agent: z.union([z.literal(false), executableSchema]).optional(),
+});
+const workflowNameSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/u);
+
 const jiraSiteSchema = z.string().refine(value => {
   if (value !== value.trim() || /[\u0000-\u0020\u007f\\]/u.test(value)) return false;
   // Check the raw form before URL parsing, which normalizes dot segments and backslashes.
@@ -37,9 +46,10 @@ export const configFileSchema = z.strictObject({
   remote: z.string().trim().min(1).optional(),
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
   hooks: z.union([z.literal(false), z.strictObject({
-    post_create: z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")))
-      .default([]),
+    post_create: postCreateSchema.default([]),
   })]).optional(),
+  workflows: z.union([z.literal(false), z.record(workflowNameSchema,
+    z.union([z.literal(false), workflowSchema]))]).optional(),
   editor: z.union([z.literal(false), executableSchema]).optional(),
   agent: z.union([z.literal(false), z.strictObject({
     command: z.string().refine(value => value.trim().length > 0),
@@ -108,6 +118,18 @@ function configIssues(issues: readonly z.core.$ZodIssue[], prefix: readonly Prop
 
 export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): RepositoryConfig {
   const config = { ...scopes.global.values, ...scopes.local?.values };
+  const globalWorkflows = scopes.global.values.workflows;
+  const localWorkflows = scopes.local?.values.workflows;
+  const mergedWorkflows = localWorkflows === false ? {}
+    : { ...(typeof globalWorkflows === "object" ? globalWorkflows : {}),
+      ...(typeof localWorkflows === "object" ? localWorkflows : {}) };
+  const workflows = Object.fromEntries(Object.entries(mergedWorkflows)
+    .flatMap(([name, value]) => value === false ? [] : [[name, {
+      ...(value.description === undefined ? {} : { description: value.description }),
+      postCreate: value.post_create,
+      ...(value.editor === undefined ? {} : { editor: value.editor }),
+      ...(value.agent === undefined ? {} : { agent: value.agent }),
+    }]]));
   return {
     ...defaults,
     baseBranch: config.base_branch ?? null,
@@ -115,6 +137,7 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
     worktreeDir: config.worktree_dir === undefined ? null : resolve(primaryRoot, config.worktree_dir),
     editor: config.editor || null,
     agent: config.agent || null,
+    ...(globalWorkflows === undefined && localWorkflows === undefined ? {} : { workflows }),
     ...(config.hooks ? { hooks: { postCreate: config.hooks.post_create } } : {}),
     ...(config.jira ? { jira: {
       siteUrl: config.jira.site_url,

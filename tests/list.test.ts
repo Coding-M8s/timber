@@ -38,13 +38,14 @@ test("list marks the primary, shows branches and paths, and deduplicates Git sta
     worktreeFixture(),
     worktreeFixture({ path: "/manual tree", branch: null, isPrimary: false }),
   ];
-  expect(await list(trees)).toEqual({
-    exitCode: 0, stderr: "",
-    stdout: "WORKTREE\tBRANCH\tSTATUS\tPATH\n" +
-      "primary\tmain\tclean\t/repo\n" +
-      "linked\t(detached HEAD)\tclean\t/manual tree\n" +
-      "linked\tfeature/z\tdirty (2 modified, 1 untracked); 1 ignored\t/repo-worktrees/z-last\n",
-  });
+  const result = await list(trees);
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("WORKTREE  ");
+  expect(result.stdout).toContain("WORKFLOW  STATUS");
+  expect(result.stdout).toMatch(/primary\s+main\s+-\s+clean\s+\/repo\n/);
+  expect(result.stdout).toMatch(/linked\s+\(detached HEAD\)\s+-\s+clean\s+\/manual tree\n/);
+  expect(result.stdout).toMatch(/linked\s+feature\/z\s+-\s+dirty \(2 modified, 1 untracked\); 1 ignored\s+\/repo-worktrees\/z-last\n/);
   expect(trees[0]?.path).toBe("/repo-worktrees/z-last");
 });
 
@@ -55,12 +56,10 @@ test("unknown, missing, locked, and prunable rows remain visible without looking
     worktreeFixture({ locked: { reason: "private lock reason" },
       status: { kind: "unknown", reason: "cannot read status" } }),
   ]);
-  expect(result).toEqual({
-    exitCode: 0, stderr: "",
-    stdout: "WORKTREE\tBRANCH\tSTATUS\tPATH\n" +
-      "primary\tmain\tunknown (cannot read status); locked\t/repo\n" +
-      "linked\t(detached HEAD)\tunknown (path missing); missing; prunable\t/missing\n",
-  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/primary\s+main\s+-\s+unknown \(cannot read status\); locked\s+\/repo\n/);
+  expect(result.stdout).toMatch(/linked\s+\(detached HEAD\)\s+-\s+unknown \(path missing\); missing; prunable\s+\/missing\n/);
 });
 
 test("untracked files make a worktree dirty while ignored files remain explicitly visible", async () => {
@@ -77,8 +76,8 @@ test("untracked files make a worktree dirty while ignored files remain explicitl
 test("control characters in paths and status reasons cannot forge additional rows", async () => {
   const result = await list([worktreeFixture({ path: "/repo\nforged\tpath\u001b[31m",
     status: { kind: "unknown", reason: "failure\nforged" } })]);
-  expect(result.stdout).toBe("WORKTREE\tBRANCH\tSTATUS\tPATH\n" +
-    'primary\tmain\tunknown ("failure\\nforged")\t"/repo\\nforged\\tpath\\u001b[31m"\n');
+  expect(result.stdout).toMatch(/WORKTREE\s+BRANCH\s+WORKFLOW\s+STATUS\s+PATH\n/);
+  expect(result.stdout).toMatch(/primary\s+main\s+-\s+unknown \("failure\\nforged"\)\s+"\/repo\\nforged\\tpath\\u001b\[31m"\n/);
   expect(result.stderr).toBe("");
 });
 
@@ -90,6 +89,46 @@ test("C1 terminal controls and Unicode line separators are escaped in displayed 
 
 test("empty inventory has a clear successful result", async () => {
   expect(await list([])).toEqual({ exitCode: 0, stdout: "No worktrees found.\n", stderr: "" });
+});
+
+test("list shows assigned workflows in aligned columns and preserves all rows", async () => {
+  const trees = [worktreeFixture(), worktreeFixture({ path: "/wide/界", branch: "review", isPrimary: false })];
+  const result = await list(trees, {
+    readWorkflowAssociation: async (_repo, tree) => tree.isPrimary
+      ? { kind: "unassigned" } : { kind: "assigned", name: "review" },
+  });
+  expect(result.exitCode).toBe(0);
+  const lines = result.stdout.trimEnd().split("\n");
+  expect(lines).toHaveLength(3);
+  expect(lines[0]).toContain("WORKFLOW");
+  expect(lines[1]).toContain("-");
+  expect(lines[2]).toContain("review");
+  expect(lines[0]!.indexOf("WORKFLOW")).toBe(lines[1]!.indexOf("-"));
+  expect(lines[0]!.indexOf("WORKFLOW")).toBe(lines[2]!.lastIndexOf("review"));
+});
+
+test("list shows a saved name even when its definition is missing", async () => {
+  const result = await list([worktreeFixture()], {
+    readWorkflowAssociation: async () => ({ kind: "assigned", name: "retired" }),
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toMatch(/primary\s+main\s+retired\s+clean\s+\/repo\n/);
+});
+
+test("list keeps every Git row when an association is malformed or stale", async () => {
+  const result = await list([
+    worktreeFixture(),
+    worktreeFixture({ path: "/repo-worktrees/feature", branch: "feature", isPrimary: false }),
+  ], {
+    readWorkflowAssociation: async (_repo, tree) => tree.isPrimary
+      ? { kind: "invalid", reason: "malformed" } : { kind: "invalid", reason: "stale" },
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toMatch(/primary\s+main\s+\?\s+clean\s+\/repo\n/);
+  expect(result.stdout).toMatch(/linked\s+feature\s+\?\s+clean\s+\/repo-worktrees\/feature\n/);
+  expect(result.stderr).toContain("/repo (malformed)");
+  expect(result.stderr).toContain("/repo-worktrees/feature (stale)");
 });
 
 for (const service of ["discoverRepository", "listWorktrees"] as const) {

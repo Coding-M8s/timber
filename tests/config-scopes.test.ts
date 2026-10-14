@@ -73,3 +73,40 @@ test("empty or relative XDG_CONFIG_HOME uses the home fallback", async () => {
     }
   });
 });
+
+test("workflow definitions merge by name and replace complete tables", async () => {
+  await scopes(async (root, env) => {
+    await writeFile(join(env.XDG_CONFIG_HOME!, "timber/config.toml"), [
+      '[workflows.review]', 'description = "Global review"', 'post_create = ["global"]',
+      '[workflows.review.editor]', 'command = "code"', 'args = ["--global"]',
+      '[workflows.investigate]', 'post_create = ["investigate"]',
+      '[workflows.develop.agent]', 'command = "codex"', 'args = ["global"]',
+    ].join("\n"));
+    await writeFile(join(root, ".timber.toml"), [
+      '[workflows.review]', 'description = "Local review"', 'post_create = ["local"]',
+      '[workflows.review.editor]', 'command = "zed"',
+      '[workflows.develop]', 'agent = false',
+      '[workflows.investigate]', 'post_create = []',
+    ].join("\n"));
+    const config = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }), env);
+    expect(config.workflows).toEqual({
+      review: { description: "Local review", postCreate: ["local"], editor: { command: "zed", args: [] } },
+      develop: { postCreate: [], agent: false },
+      investigate: { postCreate: [] },
+    });
+  });
+});
+
+test("workflow false removes an inherited name and root false removes all names", async () => {
+  await scopes(async (root, env) => {
+    await writeFile(join(env.XDG_CONFIG_HOME!, "timber/config.toml"),
+      '[workflows.review]\npost_create = ["review"]\n[workflows.develop]\npost_create = []\n');
+    const local = join(root, ".timber.toml");
+    await writeFile(local, '[workflows]\nreview = false\n');
+    expect((await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }), env)).workflows)
+      .toEqual({ develop: { postCreate: [] } });
+    await writeFile(local, 'workflows = false\n');
+    expect((await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }), env)).workflows)
+      .toEqual({});
+  });
+});

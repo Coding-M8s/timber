@@ -219,6 +219,18 @@ async function expectConfigError(source: string, expected: string, forbidden: st
 }
 
 for (const example of [
+  { source: '[workflows."bad name"]\npost_create = []', field: "workflows.bad name" },
+  { source: '[workflows.review]\npost_create = [" "]', field: "workflows.review.post_create" },
+  { source: '[workflows.review.editor]\nargs = []', field: "workflows.review.editor.command" },
+  { source: '[workflows.review.agent]\ncommand = "claude"\nenabled = true', field: "workflows.review.agent.enabled" },
+  { source: '[workflows.review]\napi_token = "SECRET_MARKER"', field: "workflows.review.api_token" },
+]) {
+  test(`rejects invalid workflow field ${example.field} without exposing values`, async () => {
+    await expectConfigError(example.source, example.field, "SECRET_MARKER");
+  });
+}
+
+for (const example of [
   { source: "base_branch = 77777", field: "base_branch", value: "77777" },
   { source: "remote = 77777", field: "remote", value: "77777" },
   { source: "worktree_dir = 77777", field: "worktree_dir", value: "77777" },

@@ -124,7 +124,9 @@ def smoke(binary, expected, lab):
     cli("open", "core", "--no-editor", cwd=primary / "nested")
     check(snapshot(core) == before, "open created or modified an existing workspace")
     listings = [cli("ls", cwd=cwd).stdout for cwd in (primary, primary / "nested", core)]
-    check(len(set(listings)) == 1 and "primary\tmain\t" in listings[0], "Discovery/listing disagrees")
+    primary_rows = [line.split()[:3] for line in listings[0].splitlines()]
+    check(len(set(listings)) == 1 and ["primary", "main", "-"] in primary_rows,
+          "Discovery/listing disagrees")
     refuses("new", "core", "--base", "main", paths=(core,))
     cli("done", "core", "--keep-branch")
     check(not core.exists() and ref_exists("core"), "keep-branch did not retain the local ref")
