@@ -2,11 +2,28 @@
 
 This checklist exercises the real CLI through create, setup, reopen, list, and safe cleanup. It uses a disposable Git repository and a local bare remote; it needs no network access or credentials. The configured `post_create` hook is trusted shell code and runs with your account's permissions. Read the hook before running it.
 
-Use Linux x86_64, Git, Bun 1.4.2 or newer, and a Timber source checkout. These commands use synthetic names and data. `done` discards ignored files in the selected worktree by default, including `.setup-log`; the commands below create that file only in disposable worktrees.
+Use Linux x86_64 and Git. For a release exercise, set `TIMBER_BIN` to the absolute
+path of the downloaded, checksum-verified executable; Bun is not needed. For a
+source exercise, leave `TIMBER_BIN` unset and use Bun 1.4.2 and a source checkout.
+These commands use synthetic names and data. `done` discards ignored files in the selected worktree by default, including `.setup-log`; the commands below create that file only in disposable worktrees.
 
 ## Prepare a disposable repository
 
-Set `CHECKOUT` to the Timber source checkout, then run:
+For a source exercise set `CHECKOUT` to the absolute source checkout. Define this
+helper in the same shell as the remaining commands; it selects the downloaded
+binary when `TIMBER_BIN` is set:
+
+```bash
+timber_cli() {
+  if [ -n "${TIMBER_BIN:-}" ]; then
+    "$TIMBER_BIN" "$@"
+  else
+    bun --no-env-file "$CHECKOUT/src/index.ts" "$@"
+  fi
+}
+```
+
+Then prepare the disposable repository:
 
 ```bash
 LAB="$(mktemp -d "${TMPDIR:-/tmp}/timber-dogfooding.XXXXXX")"
@@ -46,25 +63,25 @@ The tracked `.gitignore` keeps `.timber.toml` and hook output out of Git status.
 Run `new`, then inspect the ignored setup log. It should contain five lines: the worktree path, primary repository path, worktree path, `TIM-16-workflow`, and `TIM-16`.
 
 ```bash
-(cd "$PRIMARY" && bun --no-env-file "$CHECKOUT/src/index.ts" new TIM-16-workflow --base main --no-editor --no-agent)
+(cd "$PRIMARY" && timber_cli new TIM-16-workflow --base main --no-editor --no-agent)
 cat "$WORKFLOW_TREE/.setup-log"
 ```
 
 Run ordinary `open` and confirm the log remains five lines. Then run explicit setup and confirm it grows to ten lines.
 
 ```bash
-(cd "$PRIMARY/nested" && bun --no-env-file "$CHECKOUT/src/index.ts" open TIM-16-workflow --no-editor --no-agent)
+(cd "$PRIMARY/nested" && timber_cli open TIM-16-workflow --no-editor --no-agent)
 wc -l < "$WORKFLOW_TREE/.setup-log"
-(cd "$PRIMARY/nested" && bun --no-env-file "$CHECKOUT/src/index.ts" open TIM-16-workflow --setup --no-editor --no-agent)
+(cd "$PRIMARY/nested" && timber_cli open TIM-16-workflow --setup --no-editor --no-agent)
 wc -l < "$WORKFLOW_TREE/.setup-log"
 ```
 
 List from the primary root, its nested directory, and the linked worktree. The output should be identical from all three locations, identify the primary row, and show one ignored file in the linked row.
 
 ```bash
-(cd "$PRIMARY" && bun --no-env-file "$CHECKOUT/src/index.ts" ls)
-(cd "$PRIMARY/nested" && bun --no-env-file "$CHECKOUT/src/index.ts" ls)
-(cd "$WORKFLOW_TREE" && bun --no-env-file "$CHECKOUT/src/index.ts" ls)
+(cd "$PRIMARY" && timber_cli ls)
+(cd "$PRIMARY/nested" && timber_cli ls)
+(cd "$WORKFLOW_TREE" && timber_cli ls)
 ```
 
 ## Prove published and integrated cleanup
@@ -76,8 +93,8 @@ git init --bare --initial-branch=main "$BARE"
 git -C "$PRIMARY" remote add origin "$BARE"
 git -C "$PRIMARY" push -u origin main
 
-(cd "$PRIMARY" && bun --no-env-file "$CHECKOUT/src/index.ts" new TIM-16-keep-branch --base main --no-editor --no-agent)
-(cd "$PRIMARY" && bun --no-env-file "$CHECKOUT/src/index.ts" new TIM-16-integrated --base main --no-editor --no-agent)
+(cd "$PRIMARY" && timber_cli new TIM-16-keep-branch --base main --no-editor --no-agent)
+(cd "$PRIMARY" && timber_cli new TIM-16-integrated --base main --no-editor --no-agent)
 
 printf 'workflow feature commit\n' >> "$WORKFLOW_TREE/tracked.txt"
 git -C "$WORKFLOW_TREE" add -- tracked.txt
@@ -94,7 +111,7 @@ git -C "$PRIMARY" merge-base --is-ancestor TIM-16-integrated main
 Record `git -C "$PRIMARY" worktree list --porcelain` and `git -C "$PRIMARY" show-ref` before cleanup. Run default cleanup on the published feature, then confirm that only its local worktree and local branch were removed. The remote branch must remain.
 
 ```bash
-(cd "$PRIMARY" && bun --no-env-file "$CHECKOUT/src/index.ts" done TIM-16-workflow)
+(cd "$PRIMARY" && timber_cli done TIM-16-workflow)
 git -C "$PRIMARY" worktree list --porcelain
 git -C "$PRIMARY" show-ref
 git --git-dir="$BARE" show-ref
@@ -103,8 +120,8 @@ git --git-dir="$BARE" show-ref
 Run `done --keep-branch` for the clean branch at the base. Confirm its worktree is gone and its local branch remains. Then clean up the integrated branch and confirm only the primary worktree remains.
 
 ```bash
-(cd "$PRIMARY" && bun --no-env-file "$CHECKOUT/src/index.ts" done TIM-16-keep-branch --keep-branch)
-(cd "$PRIMARY" && bun --no-env-file "$CHECKOUT/src/index.ts" done TIM-16-integrated)
+(cd "$PRIMARY" && timber_cli done TIM-16-keep-branch --keep-branch)
+(cd "$PRIMARY" && timber_cli done TIM-16-integrated)
 git -C "$PRIMARY" worktree list --porcelain
 git -C "$PRIMARY" show-ref
 git --git-dir="$BARE" show-ref

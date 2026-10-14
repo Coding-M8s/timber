@@ -119,7 +119,8 @@ table. Site URLs must be tenant origins on `*.atlassian.net`, with no credential
 nondefault port, query, fragment, or path other than `/`. Credentials are never
 configuration values: `resolveJiraTicket(config, key)` reads `JIRA_EMAIL` and
 `JIRA_API_TOKEN` lazily when called. Timber adds no `.env` loader and reads its
-process environment; Bun may populate that environment before startup unless run
+process environment. Standalone release builds disable `.env` and `bunfig.toml`
+autoload. Bun's source runner may populate that environment before startup unless run
 with `bun --no-env-file`. The client uses the configured site URL for unscoped
 tokens, or the fixed Atlassian Jira Cloud gateway selected by `cloudId` for scoped
 tokens. It rejects redirects, does not retry, validates the returned canonical key
