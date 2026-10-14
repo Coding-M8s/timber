@@ -42,7 +42,9 @@ Add that PATH export to your shell's startup file if needed. Keep the downloaded
 `build-info.json` and checksum result when reporting a release problem. Checksums
 detect altered downloads; they are not an independent signature. Update by
 repeating the same steps with another verified tag. Installation does not create
-repository defaults; edit the primary checkout's `.timber.toml` as documented below.
+repository defaults. Before using Timber, run `timber setup` inside your repository,
+or `timber setup --global` to configure defaults for this machine. The first CLI
+invocation prints this guidance when the installation path has no installer message.
 
 See [release verification and acceptance](docs/releases.md) for source builds,
 isolated checks, and the maintainer release process.
@@ -568,7 +570,7 @@ and one reviewer.
 Before using Timber, run `timber setup` inside your repository, or
 `timber setup --global` to configure defaults for this machine. From a source
 checkout, use `bun run dev setup` or `bun run dev setup --global`. The first CLI
-invocation also prints this hint; no standalone installer is shipped yet.
+invocation also prints this hint, including for the standalone executable.
 
 Setup asks about VS Code/Zed/custom editors, Claude/Codex/custom coding assistants,
 Jira ticket naming, and optional advanced settings for scripts, Git, and workspace
