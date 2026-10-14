@@ -14,7 +14,7 @@ test.each([
   "%s at the %s cancels successfully in a real terminal without changing Git or files",
   async (_key, stage, input) => {
     await withRepository(async primary => {
-      for (let index = 1; index <= 6; index++) await git(primary, "branch", `TIM-42-${index}`);
+      for (let index = 1; index <= 10; index++) await git(primary, "branch", `TIM-42-${index}`);
       const tracked = join(primary, "tracked.txt");
       await writeFile(tracked, "dirty work\n");
       const refs = await git(primary, "show-ref");
@@ -46,6 +46,11 @@ test.each([
         expect(await child.exited).toBe(0);
         expect(interrupted).toBe(true);
         expect(screen).toContain("Cancelled.");
+        const entries = screen.split(/\r?\n/u).filter(line => /^ *(?:\d+|[aq])\) /u.test(line));
+        expect(entries).toHaveLength(7);
+        expect(entries[5]).toBe(" a) Show all 10 matches");
+        expect(entries[6]).toBe(" q) Cancel");
+        for (const line of entries) expect(line.indexOf(") ") + 2).toBe(4);
         expect(await git(primary, "show-ref")).toBe(refs);
         expect(await git(primary, "worktree", "list", "--porcelain")).toBe(trees);
         expect(await readFile(tracked, "utf8")).toBe("dirty work\n");
