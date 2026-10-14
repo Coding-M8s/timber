@@ -229,13 +229,21 @@ all repositories and works outside Git. Both require interactive stdin/stdout an
 CI off; noninteractive use fails with guidance and no writes. Main questions cover editor, agent, and Jira ticket naming; scripts and Git/folder
 defaults live in an optional advanced section, skipped by default. Blank Enter
 leaves new settings absent or retains existing values. Each question is separated
-by a blank line. Terminal selectors support Up/Down arrows, numbered shortcuts,
-and Enter, with q/Escape/Ctrl-C/EOF cancellation and restored terminal input mode. Agents default to disabled. Executable
+by a blank line. Terminal selectors support Up/Down arrows and Enter; single-key
+number shortcuts 1–9 select immediately. Additional options in long menus use
+arrows, with no ambiguous multi-digit shortcuts; menus show a viewport sized to
+the terminal height and keep the highlighted choice visible. q/Escape/Ctrl-C/EOF cancel and
+terminal input mode is restored. Agents default to disabled. Executable
 checks do not launch anything; setup never changes refs, creates worktrees, runs
 hooks, or edits shell startup files. Jira credentials remain environment variables.
 
-Show the destination, scope, and summary before explicit save/replacement
-confirmation. Invalid existing TOML is preserved. Generated readable TOML
+Show the destination, scope, and summary with an explicit save/replacement choice,
+individual editor/agent/Jira/hooks/base-branch/remote/workspace-folder edit choices,
+and cancellation (the default). Editing preserves the other draft answers, uses
+current draft values for keep/reset choices, and returns to the updated review.
+Advanced sections remain editable even if skipped initially. Invalid scalar edits
+retry their input without discarding the draft. No writes occur until Save.
+Invalid existing TOML is preserved. Generated readable TOML
 round-trips through the actual parser. Local setup adds `/.timber.toml` to the
 Git-discovered common `info/exclude`, preserving existing entries, and verifies
 effective ignoring before publishing an untracked config. Conflicting project

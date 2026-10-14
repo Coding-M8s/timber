@@ -574,14 +574,18 @@ invocation also prints this hint, including for the standalone executable.
 
 Setup asks about VS Code/Zed/custom editors, Claude/Codex/custom coding assistants,
 Jira ticket naming, and optional advanced settings for scripts, Git, and workspace
-folders. Use Up/Down arrows and Enter, or type a choice number and Enter. Blank
-Enter skips new settings or keeps existing ones; advanced settings are skipped
+folders. Use Up/Down arrows and Enter, or press a numbered shortcut to choose
+immediately. Shortcuts cover the first nine options; use arrows for additional
+entries in long branch lists; the menu scrolls to keep your selection visible.
+Blank Enter skips new settings or keeps existing ones; advanced settings are skipped
 by default. Each question starts after a blank line. Agent launch
 defaults to off and is independent of editor opening. Configure Jira with its
 site origin and optional cloud UUID; supply `JIRA_EMAIL` and `JIRA_API_TOKEN`
 through the environment, never TOML. Setup requires an interactive terminal with
-CI off. It shows the absolute destination and summary before saving; replacing
-existing settings requires explicit confirmation.
+CI off. The final review shows the absolute destination and summary, with choices
+to save, edit any individual section, or cancel. Editing retains the other answers
+and returns to review; nothing is written until you choose Save. Replacing
+existing settings requires that explicit save choice.
 
 Precedence is CLI options > repository TOML > global TOML > built-in defaults.
 Absent keys inherit; a local optional table replaces the whole global table,

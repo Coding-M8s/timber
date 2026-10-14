@@ -303,5 +303,10 @@ precedence, whole-table replacement, and root-level false integration disables.
 Normalized editor/agent remain null when off; hooks/Jira remain omitted when off.
 Existing valid TOML and Git/editor/agent/hook/Jira service models remain valid.
 A partial executable table still requires command. The new setup handler owns
-questionnaire and persistence through injected prompts and storage services;
+questionnaire, draft review/edit loop, and persistence through injected prompts
+and storage services. Section editing changes only the draft and uses its current
+values for keep/reset choices; the original target snapshot remains available
+for concurrent-write detection at explicit save. Keyboard number shortcuts select
+immediately for the first nine options; arrows reach all options. Cancellation
+from review or section editing never publishes the draft;
 foreground agent launch and post-create setup remain separate operations.

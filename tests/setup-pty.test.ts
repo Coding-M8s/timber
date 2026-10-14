@@ -26,7 +26,7 @@ test("real terminal setup accepts defaults, saves excluded local TOML, and prese
   await withRepository(async (primary, directory) => {
     const refs = await git(primary, "show-ref");
     const index = await readFile(join(primary, ".git/index"));
-    const result = await terminal(primary, directory, [], "\n".repeat(4) + "y\n");
+    const result = await terminal(primary, directory, [], "\n".repeat(4) + "1");
     expect(result.code).toBe(0);
     expect(result.sent).toBe(true);
     expect(result.output).toContain("Saved repository settings");
@@ -41,7 +41,7 @@ test("real terminal setup accepts defaults, saves excluded local TOML, and prese
 
 test("arrow keys navigate setup choices and Enter confirms the highlighted item", async () => {
   await withRepository(async (primary, directory) => {
-    const result = await terminal(primary, directory, [], "\u001b[A\u001b[B\u001b[A\r\r\u001b[A\r\r" + "y\r");
+    const result = await terminal(primary, directory, [], "\u001b[A\u001b[B\u001b[A\r\r\u001b[A\r\r1");
     expect(result.code).toBe(0);
     expect(result.output).toContain("↑/↓");
     expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test"))
@@ -50,16 +50,16 @@ test("arrow keys navigate setup choices and Enter confirms the highlighted item"
   });
 });
 
-test("number shortcuts remain available alongside arrows", async () => {
+test("number shortcuts advance immediately alongside arrows", async () => {
   await withRepository(async (primary, directory) => {
-    const result = await terminal(primary, directory, [], "5\r\r\r\r" + "y\r");
+    const result = await terminal(primary, directory, [], "5\r\r\r1");
     expect(result.code).toBe(0);
     expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test"))
       .toEqual({ editor: false });
   });
 });
 
-test("keyboard prompts accept multi-digit shortcuts and literal text and restore terminal mode", async () => {
+test("long keyboard menus support arrows and preserve literal text and terminal mode", async () => {
   await withRepository(async (primary, directory) => {
     const fixture = fileURLToPath(new URL("./fixtures/setup-prompt-parent.ts", import.meta.url));
     let output = ""; let sent = false;
@@ -69,7 +69,7 @@ test("keyboard prompts accept multi-digit shortcuts and literal text and restore
         output += Buffer.from(bytes).toString("utf8");
         if (!sent && output.includes("Enter select")) {
           sent = true;
-          terminal.write("12\r\nhello wörld 'quotes'\r\n");
+          terminal.write("\u001b[B".repeat(11) + "\r\nhello wörld 'quotes'\r\n");
         }
       } },
     });
@@ -83,11 +83,40 @@ test("keyboard prompts accept multi-digit shortcuts and literal text and restore
 
 test("global setup saves outside Git in a real terminal", async () => {
   await withRepository(async (primary, directory) => {
-    const result = await terminal(directory, directory, ["--global"], "\n".repeat(4) + "y\n");
+    const result = await terminal(directory, directory, ["--global"], "\n".repeat(4) + "1");
     expect(result.code).toBe(0);
     expect(result.output).toContain("Saved machine defaults");
     expect(parseConfigSource(await readFile(join(directory, "machine/config/timber/config.toml"), "utf8"), "test")).toEqual({});
     expect(await git(primary, "status", "--porcelain=v1")).toBe("");
+  });
+});
+
+test("review edits only the selected section and saves the revised draft in a real terminal", async () => {
+  await withRepository(async (primary, directory) => {
+    const result = await terminal(primary, directory, [], "\r".repeat(4) + "42" + "https://example.atlassian.net\r\r1");
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("Saved repository settings");
+    expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test"))
+      .toEqual({ jira: { site_url: "https://example.atlassian.net" } });
+    expect(result.output.match(/Which editor should open/g)).toHaveLength(1);
+    expect(await git(primary, "status", "--porcelain=v1")).toBe("");
+  });
+});
+
+test("cancelling from review after an edit preserves existing files, exclusions, and index", async () => {
+  await withRepository(async (primary, directory) => {
+    const configPath = join(primary, ".timber.toml");
+    await writeFile(configPath, 'remote = "upstream"\n');
+    const exclude = await readFile(join(primary, ".git/info/exclude"));
+    const index = await readFile(join(primary, ".git/index"));
+    const refs = await git(primary, "show-ref");
+    const result = await terminal(primary, directory, [], "\r".repeat(4) + "259");
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("Cancelled.");
+    expect(await readFile(configPath, "utf8")).toBe('remote = "upstream"\n');
+    expect(await readFile(join(primary, ".git/info/exclude"))).toEqual(exclude);
+    expect(await readFile(join(primary, ".git/index"))).toEqual(index);
+    expect(await git(primary, "show-ref")).toBe(refs);
   });
 });
 
