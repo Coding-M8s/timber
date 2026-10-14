@@ -6,6 +6,8 @@ export function displayWidth(value: string): number {
     const point = segment.codePointAt(0)!;
     if (/^\p{Mark}/u.test(segment)) continue;
     const wide = /\p{Extended_Pictographic}/u.test(segment)
+      || /^\p{Regional_Indicator}{2}$/u.test(segment)
+      || /^[#*0-9]\ufe0f?\u20e3$/u.test(segment)
       || point >= 0x1100 && (point <= 0x115f || point >= 0x2329 && point <= 0x232a
         || point >= 0x2e80 && point <= 0xa4cf || point >= 0xac00 && point <= 0xd7a3
         || point >= 0xf900 && point <= 0xfaff || point >= 0xfe10 && point <= 0xfe6f

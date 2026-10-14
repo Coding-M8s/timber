@@ -4,6 +4,8 @@ import { createListHandler } from "../src/commands/list";
 import { createServiceDouble, repositoryFixture, worktreeFixture } from "./helpers/services";
 import type { CommandServices } from "../src/services";
 import type { Worktree } from "../src/types";
+import type { WorkflowAssociationRead } from "../src/git/workflow-metadata";
+import { expectColumnPositions } from "./helpers/columns";
 
 async function list(trees: readonly Worktree[], overrides: Partial<CommandServices> = {}) {
   const repository = repositoryFixture({ currentWorktreeRoot: "/repo-worktrees/feature" });
@@ -105,6 +107,90 @@ test("list shows assigned workflows in aligned columns and preserves all rows", 
   expect(lines[2]).toContain("review");
   expect(lines[0]!.indexOf("WORKFLOW")).toBe(lines[1]!.indexOf("-"));
   expect(lines[0]!.indexOf("WORKFLOW")).toBe(lines[2]!.lastIndexOf("review"));
+});
+
+test("every list column aligns for full mixed status, Unicode, workflow, and escaped values", async () => {
+  const trees = [
+    worktreeFixture({ path: "/z flag 🇺🇸1️⃣", branch: "🇺🇸1️⃣", isPrimary: false,
+      status: { kind: "known", modified: ["m", "m"], untracked: ["u"], ignored: ["i"] } }),
+    worktreeFixture({ branch: "very-long-primary-branch-name" }),
+    worktreeFixture({ path: "/a detached", branch: null, isPrimary: false }),
+    worktreeFixture({ path: "/b 界e\u0301", branch: "界e\u0301", isPrimary: false,
+      pathExists: false, locked: { reason: "lock" }, prunable: { reason: "prune" },
+      status: { kind: "unknown", reason: "path missing" } }),
+    worktreeFixture({ path: "/c\n\t\u001b[2J", branch: "control\nbranch", isPrimary: false,
+      status: { kind: "unknown", reason: "failure\n\u001b[2J" } }),
+  ];
+  const before = structuredClone(trees);
+  const result = await list(trees, {
+    readWorkflowAssociation: async (_repo, tree) => tree.isPrimary
+      ? { kind: "assigned", name: "long_workflow_name" }
+      : tree.path.startsWith("/b") ? { kind: "invalid", reason: "stale" }
+      : tree.path.startsWith("/z") ? { kind: "assigned", name: "review" } : { kind: "unassigned" },
+  });
+  const cells = [
+    ["WORKTREE", "BRANCH", "WORKFLOW", "STATUS", "PATH"],
+    ["primary", "very-long-primary-branch-name", "long_workflow_name", "clean", "/repo"],
+    ["linked", "(detached HEAD)", "-", "clean", "/a detached"],
+    ["linked", "界e\u0301", "?", "unknown (path missing); missing; locked; prunable", "/b 界e\u0301"],
+    ["linked", '"control\\nbranch"', "-", 'unknown ("failure\\n\\u001b[2J")', '"/c\\n\\t\\u001b[2J"'],
+    ["linked", "🇺🇸1️⃣", "review", "dirty (1 modified, 1 untracked); 1 ignored", "/z flag 🇺🇸1️⃣"],
+  ];
+  const widths = cells.map(row => row.map(cell => cell.length));
+  widths[3]![1] = 3;
+  widths[3]![4] = 6;
+  widths[5]![1] = 4;
+  widths[5]![4] = 12;
+  expect(result.exitCode).toBe(0);
+  expectColumnPositions(result.stdout, cells, widths);
+  expect(trees).toEqual(before);
+  expect(result.stderr).toBe("warning: Cannot read workflow association for /b 界e\u0301 (stale); Git worktree remains listed.\n");
+});
+
+test("warnings follow sorted inventory regardless of metadata completion order", async () => {
+  const trees = [worktreeFixture({ path: "/linked", isPrimary: false }), worktreeFixture()];
+  async function run(reverse: boolean) {
+    const records = trees.map(() => Promise.withResolvers<WorkflowAssociationRead>());
+    const started = Promise.withResolvers<void>();
+    let reads = 0;
+    const pending = list(trees, {
+      readWorkflowAssociation: (_repo, tree) => {
+        if (++reads === 2) started.resolve();
+        return records[tree.isPrimary ? 0 : 1]!.promise;
+      },
+    });
+    await started.promise;
+    for (const index of reverse ? [1, 0] : [0, 1]) {
+      records[index]!.resolve({ kind: "invalid", reason: "stale" });
+      await Promise.resolve();
+    }
+    return pending;
+  }
+  const forward = await run(false);
+  const reverse = await run(true);
+  expect(reverse).toEqual(forward);
+  expect(reverse.stderr.split("\n").slice(0, -1)).toEqual([
+    "warning: Cannot read workflow association for /repo (stale); Git worktree remains listed.",
+    "warning: Cannot read workflow association for /linked (stale); Git worktree remains listed.",
+  ]);
+});
+
+test.each([0, 3])("formatting %i worktrees uses only one collected inventory", async count => {
+  const calls: string[] = [];
+  const trees = Array.from({ length: count }, (_, index) => worktreeFixture({
+    path: `/repo-${index}`, isPrimary: index === 0,
+  }));
+  const result = await list(trees, {
+    discoverRepository: async () => { calls.push("discover"); return repositoryFixture(); },
+    loadConfig: async () => {
+      calls.push("config");
+      return { baseBranch: null, remote: null, worktreeDir: null, editor: null, agent: null };
+    },
+    listWorktrees: async () => { calls.push("list"); return trees; },
+    readWorkflowAssociation: async (_repo, tree) => { calls.push(tree.path); return { kind: "unassigned" }; },
+  });
+  expect(result.exitCode).toBe(0);
+  expect(calls).toEqual(["discover", "config", "list", ...trees.map(tree => tree.path)]);
 });
 
 test("list shows a saved name even when its definition is missing", async () => {
