@@ -2,7 +2,7 @@ import { resolveConfig } from "../config";
 import type { ConfigFile } from "../config";
 import { safeDisplay } from "../display";
 import type { CommandContext, CommandHandlers } from "../services";
-import { questionnaire } from "../setup/questions";
+import { editSetupSection, questionnaire } from "../setup/questions";
 import { renderConfig } from "../setup/render";
 import { SetupCancelled, SetupVisibilityError } from "../setup/types";
 import type { SetupPrompt, SetupTarget } from "../setup/types";
@@ -13,6 +13,16 @@ export interface SetupServices {
   checkExecutable(command: string): Promise<boolean>;
   save(target: SetupTarget, source: string, trackedApproved: boolean, signal?: AbortSignal): Promise<void>;
 }
+
+const sections: readonly { value: keyof ConfigFile; label: string }[] = [
+  { value: "editor", label: "Edit editor" },
+  { value: "agent", label: "Edit coding assistant" },
+  { value: "jira", label: "Edit Jira ticket naming" },
+  { value: "hooks", label: "Edit workspace setup scripts" },
+  { value: "base_branch", label: "Edit starting branch" },
+  { value: "remote", label: "Edit Git remote" },
+  { value: "worktree_dir", label: "Edit workspace folder" },
+];
 
 function summary(target: SetupTarget, file: ConfigFile, context: CommandContext): void {
   const scope = { ...target.file, values: file };
@@ -54,10 +64,20 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
         }
         const file = await questionnaire(target, prompt, context.io, services.checkExecutable);
         if (file === null) throw new SetupCancelled();
-        summary(target, file, context);
+        while (true) {
+          summary(target, file, context);
+          const choice = await prompt.select("Review settings: save, edit a section, or cancel", [
+            { value: "save", label: target.file.source === null ? "Save these settings" : "Save and replace existing configuration" },
+            ...sections,
+            { value: "cancel", label: "Cancel without saving" },
+          ], "cancel");
+          if (choice === null || choice === "cancel") throw new SetupCancelled();
+          if (choice === "save") break;
+          const section = sections.find(section => section.value === choice);
+          if (!section) throw new Error("Invalid setup review choice; no settings saved.");
+          await editSetupSection(section.value, file, target, prompt, context.io, services.checkExecutable);
+        }
         const source = renderConfig(file);
-        const save = await prompt.confirm(target.file.source === null ? "Save these settings?" : "Replace existing configuration with these settings?", false);
-        if (save !== true) throw new SetupCancelled();
         try { await services.save(target, source, trackedApproved, prompt.signal); }
         catch (error) {
           if (!(error instanceof SetupVisibilityError)) throw error;

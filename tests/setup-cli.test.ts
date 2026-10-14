@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createSetupHandler } from "../src/commands/setup";
 import { placeholderHandlers, runCli } from "../src/cli";
+import { parseConfigSource } from "../src/config";
 import type { SetupPrompt, SetupTarget } from "../src/setup/types";
 import { repositoryFixture } from "./helpers/services";
 
@@ -15,9 +16,10 @@ async function setup(options: { interactive?: boolean; tracked?: boolean; existi
     file: { ...file, source: options.existing ? 'remote = "upstream"' : null,
       values: options.existing ? { remote: "upstream" } : {} } };
   const prompt: SetupPrompt = {
-    select: async (message, _choices, defaultValue) => options.cancel ? null : message.includes("Tracked") ? "cancel" : defaultValue,
+    select: async (message, _choices, defaultValue) => options.cancel ? null : message.includes("Tracked") ? "cancel"
+      : message.includes("Review settings") ? options.save ? "save" : "cancel" : defaultValue,
     text: async () => { throw new Error("unexpected text"); },
-    confirm: async () => options.save ?? false, close() {},
+    confirm: async () => false, close() {},
   };
   const handler = createSetupHandler({
     inspectTarget: async (global, cwd) => { expect(cwd).toBe("/repo"); expect(global).toBe(options.global ?? false); return destination; },
@@ -63,4 +65,75 @@ test("setup --global dispatches scope and help without prompting", async () => {
     io: { stdout: text => { stdout += text; }, stderr: () => {} } } });
   expect(code).toBe(0);
   expect(stdout).toContain("--global");
+});
+
+test("review can edit every section without restarting or losing other draft answers", async () => {
+  const selections = ["keep", "keep", "keep", "editor", "code", "agent", "codex", "jira", "configure",
+    "hooks", "custom", "finish", "base_branch", "custom", "remote", "custom", "worktree_dir", "custom", "save"];
+  const texts = ["https://example.atlassian.net", "bun install", "trunk", "upstream", "../review-workspaces"];
+  const questions: string[] = [];
+  let saved: unknown; let closed = false;
+  const prompt: SetupPrompt = {
+    select: async (message, choices) => {
+      questions.push(message);
+      const answer = selections.shift();
+      if (answer === undefined || !choices.some(choice => choice.value === answer)) throw new Error(`Unexpected question: ${message}`);
+      return answer;
+    },
+    confirm: async () => false,
+    text: async () => { const answer = texts.shift(); if (answer === undefined) throw new Error("Unexpected text question"); return answer; },
+    close() { closed = true; },
+  };
+  const handler = createSetupHandler({ inspectTarget: async () => structuredClone(target), prompt: () => prompt,
+    checkExecutable: async () => true, save: async (_target, source) => { saved = parseConfigSource(source, "test.toml"); } });
+  await handler({ global: false }, { cwd: "/repo", interactive: true, io: { stdout() {}, stderr() {} } });
+  expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"] },
+    agent: { command: "codex", args: [], enabled: false }, jira: { site_url: "https://example.atlassian.net" },
+    hooks: { post_create: ["bun install"] }, base_branch: "trunk", remote: "upstream", worktree_dir: "../review-workspaces" });
+  expect(questions.filter(question => question.includes("Which editor"))).toHaveLength(2);
+  expect(questions.filter(question => question.includes("Use an AI"))).toHaveLength(2);
+  expect(selections).toEqual([]);
+  expect(texts).toEqual([]);
+  expect(target.file.values).toEqual({});
+  expect(closed).toBe(true);
+});
+
+test("review uses current draft choices to reset a newly configured override", async () => {
+  const selections = ["code", "keep", "keep", "editor", "inherit", "save"];
+  let saved: unknown;
+  const prompt: SetupPrompt = {
+    select: async (message, choices) => {
+      const answer = selections.shift();
+      if (answer === undefined || !choices.some(choice => choice.value === answer)) throw new Error(`Unexpected question: ${message}`);
+      return answer;
+    },
+    confirm: async () => false, text: async () => { throw new Error("Unexpected text question"); }, close() {},
+  };
+  const handler = createSetupHandler({ inspectTarget: async () => structuredClone(target), prompt: () => prompt,
+    checkExecutable: async () => true, save: async (_target, source) => { saved = parseConfigSource(source, "test.toml"); } });
+  await handler({ global: false }, { cwd: "/repo", interactive: true, io: { stdout() {}, stderr() {} } });
+  expect(saved).toEqual({});
+  expect(selections).toEqual([]);
+});
+
+test("an invalid folder edit retries that input without discarding the setup draft", async () => {
+  const selections = ["code", "keep", "keep", "worktree_dir", "custom", "save"];
+  const texts = ["", "../corrected-folder"];
+  let saved: unknown; let stderr = "";
+  const prompt: SetupPrompt = {
+    select: async (message, choices) => {
+      const answer = selections.shift();
+      if (answer === undefined || !choices.some(choice => choice.value === answer)) throw new Error(`Unexpected question: ${message}`);
+      return answer;
+    },
+    confirm: async () => false,
+    text: async () => { const answer = texts.shift(); if (answer === undefined) throw new Error("Unexpected text question"); return answer; },
+    close() {},
+  };
+  const handler = createSetupHandler({ inspectTarget: async () => structuredClone(target), prompt: () => prompt,
+    checkExecutable: async () => true, save: async (_target, source) => { saved = parseConfigSource(source, "test.toml"); } });
+  await handler({ global: false }, { cwd: "/repo", interactive: true, io: { stdout() {}, stderr: text => { stderr += text; } } });
+  expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"] }, worktree_dir: "../corrected-folder" });
+  expect(texts).toEqual([]);
+  expect(stderr).toContain("nonempty");
 });

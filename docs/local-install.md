@@ -57,9 +57,12 @@ contain an older implementation.
    timber setup --global
    ```
 
-   Choose an installed editor or assistant with arrows or number shortcuts.
+   Choose an installed editor or assistant with arrows plus Enter, or press a
+   numbered shortcut to choose immediately without Enter.
    Enter skips new settings or keeps current values. Skip Jira and advanced
-   settings if you do not need them. Review the summary, then answer `y` to save.
+   settings if you do not need them. Review the summary, then choose Save (`1`).
+   You can also select any section to revise just those answers and return to
+   review; Cancel leaves your settings unchanged.
    Setup prints the destination, normally `~/.config/timber/config.toml`.
    CI must be off; use `env -u CI timber setup --global` if your terminal carries
    a CI variable. Existing configuration and the first-use marker survive

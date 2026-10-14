@@ -73,32 +73,37 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
       if (defaultIndex < 0) throw new Error("Invalid setup default choice.");
       title(message);
       let selected = defaultIndex;
-      let digits = "";
-      const width = Math.max(1, ((output as Writable & { columns?: number }).columns ?? 80) - 1);
+      const terminal = output as Writable & { columns?: number; rows?: number };
+      const width = Math.max(1, (terminal.columns ?? 80) - 1);
+      const visibleCount = Math.min(choices.length, Math.max(1, (terminal.rows || 24) - message.split("\n").length - 4));
+      let first = 0;
       const draw = (redraw: boolean) => {
-        if (redraw) output.write(`\u001b[${choices.length + 1}A`);
-        choices.forEach((choice, index) => {
-          const label = `${index === selected ? "›" : " "} ${index + 1}) ${safeDiagnostic(choice.label)}${index === defaultIndex ? " (default)" : ""}`;
+        if (selected < first) first = selected;
+        if (selected >= first + visibleCount) first = selected - visibleCount + 1;
+        if (redraw) output.write(`\u001b[${visibleCount + 1}A`);
+        choices.slice(first, first + visibleCount).forEach((choice, offset) => {
+          const index = first + offset;
+          const shortcut = index < 9 ? `${index + 1}) ` : "   ";
+          const label = `${index === selected ? "›" : " "} ${shortcut}${safeDiagnostic(choice.label)}${index === defaultIndex ? " (default)" : ""}`;
           output.write(`\r\u001b[2K${fitLine(label, width)}\n`);
         });
-        output.write(`\r\u001b[2K${fitLine(`↑/↓ or 1-${choices.length} · Enter select · Esc cancel`, width)}\n`);
+        const position = visibleCount < choices.length ? ` · ${first + 1}–${first + visibleCount}/${choices.length}` : "";
+        output.write(`\r\u001b[2K${fitLine(`↑/↓ · 1-${Math.min(9, choices.length)} choose now · Enter select · Esc cancel${position}`, width)}\n`);
       };
       draw(false);
       while (true) {
         const key = await next();
         if (key === null || key.name === "escape" || key.sequence?.toLowerCase() === "q") return null;
-        if (key.name === "return" || key.name === "enter") {
-          if (digits && (Number(digits) < 1 || Number(digits) > choices.length)) { digits = ""; continue; }
-          return choices[selected]!.value;
-        }
+        if (key.name === "return" || key.name === "enter") return choices[selected]!.value;
         if (key.name === "up" || key.name === "down") {
-          digits = "";
           selected = (selected + (key.name === "up" ? -1 : 1) + choices.length) % choices.length;
-        } else if (/^\d$/u.test(key.sequence ?? "")) {
-          digits += key.sequence;
-          const index = Number(digits) - 1;
-          if (choices[index]) selected = index;
-        } else if (key.name === "backspace") { digits = ""; selected = defaultIndex; }
+        } else if (/^[1-9]$/u.test(key.sequence ?? "")) {
+          const index = Number(key.sequence) - 1;
+          if (!choices[index]) continue;
+          selected = index;
+          draw(true);
+          return choices[selected]!.value;
+        } else if (key.name === "backspace") selected = defaultIndex;
         else continue;
         draw(true);
       }

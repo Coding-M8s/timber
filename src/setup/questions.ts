@@ -88,7 +88,7 @@ async function launcher(
 }
 
 async function scalar(key: "base_branch" | "remote" | "worktree_dir", values: readonly string[], file: ConfigFile,
-  target: SetupTarget, prompt: SetupPrompt): Promise<void> {
+  target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
   const selected = await choose(prompt, ({ base_branch: "Which branch should new work start from?\nUsually main or master. Skip to let Git choose automatically.",
     remote: "Which Git remote should Timber use?\nA remote is where your repository is hosted, usually origin. Skip for automatic selection.",
     worktree_dir: "Where should new workspaces be stored?\nSkip to put them beside this repository, in <repository-name>-worktrees." })[key], [option("keep", keepLabel(target, key)),
@@ -96,57 +96,82 @@ async function scalar(key: "base_branch" | "remote" | "worktree_dir", values: re
     ...values.map((value, index) => option(`value:${index}`, safeDisplay(value))), option("custom", "Custom value")]);
   if (selected === "keep") return;
   if (selected === "automatic") { delete file[key]; return; }
-  const value = selected === "custom" ? await text(prompt, ({ base_branch: "Branch name", remote: "Remote name", worktree_dir: "Workspace folder" })[key], file[key] ?? "")
-    : values[Number(selected.slice(6))]!;
-  file[key] = value;
+  if (selected !== "custom") { file[key] = values[Number(selected.slice(6))]!; return; }
+  const label = ({ base_branch: "Branch name", remote: "Remote name", worktree_dir: "Workspace folder" })[key];
+  while (true) {
+    const result = configFileSchema.shape[key].safeParse(await text(prompt, label, file[key] ?? ""));
+    if (result.success && result.data !== undefined) { file[key] = result.data; return; }
+    io.stderr(`Enter a nonempty ${label.toLowerCase()}.\n`);
+  }
+}
+
+async function jiraSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
+  const jira = await choose(prompt,
+    "Use Jira tickets to name branches?\nJira is a work ticket tracker. This lets timber new TEAM-123 use the ticket title. Skip if you don't use Jira.",
+    [option("keep", keepLabel(target, "jira")), option("configure", "Yes, connect my team's Jira"),
+      ...("jira" in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
+      option("none", "Do not use Jira")]);
+  if (jira === "inherit") delete file.jira;
+  if (jira === "none") file.jira = false;
+  if (jira === "configure") {
+    io.stdout("\nUse JIRA_EMAIL and JIRA_API_TOKEN environment variables for login. Setup never asks for your password or token.\n");
+    while (true) {
+      const site_url = await text(prompt, "Your team's Jira address, e.g. https://my-team.atlassian.net");
+      const scoped = await confirm(prompt, "Does your Jira API token use scopes? Most users can press Enter to skip.");
+      const cloud_id = scoped ? await text(prompt, "Jira cloud ID (UUID for your scoped token)") : "";
+      const input = { jira: { site_url, ...(cloud_id ? { cloud_id } : {}) } };
+      const result = configFileSchema.safeParse(input);
+      if (result.success) { file.jira = result.data.jira; break; }
+      io.stderr("Enter an HTTPS Jira address ending in .atlassian.net and, if needed, a valid cloud UUID.\n");
+    }
+  }
+}
+
+async function hookSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
+  const hooks = await choose(prompt,
+    "Run scripts when a workspace is first created?\nFor example, install project dependencies. These are trusted shell commands run with your permissions.",
+    [option("keep", keepLabel(target, "hooks")), option("custom", "Add setup scripts"),
+      ...("hooks" in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
+      option("none", "Do not run scripts")]);
+  if (hooks === "inherit") delete file.hooks;
+  if (hooks === "none") file.hooks = false;
+  if (hooks === "custom") {
+    const commands: string[] = [];
+    while (true) {
+      const source = await text(prompt, "Setup command, e.g. bun install");
+      if (!source.trim() || source.includes("\0")) { io.stderr("Enter a nonempty command without NUL characters.\n"); continue; }
+      commands.push(source);
+      if (await choose(prompt, "Add another setup command?", [option("finish", "Done"), option("add", "Add another command")]) === "finish") break;
+    }
+    file.hooks = { post_create: commands };
+  }
+}
+
+/** Edit only one section, using current draft values for keep/reset choices. */
+export async function editSetupSection(section: keyof ConfigFile, file: ConfigFile, target: SetupTarget,
+  prompt: SetupPrompt, io: CommandIO, available: (command: string) => Promise<boolean>): Promise<void> {
+  const current = { ...target, file: { ...target.file, values: file } };
+  switch (section) {
+    case "editor": case "agent": await launcher(section, file, current, prompt, io, available); break;
+    case "jira": await jiraSettings(file, current, prompt, io); break;
+    case "hooks": await hookSettings(file, current, prompt, io); break;
+    case "base_branch": await scalar(section, target.branches, file, current, prompt, io); break;
+    case "remote": await scalar(section, target.repository?.remotes.map(remote => remote.name) ?? [], file, current, prompt, io); break;
+    case "worktree_dir": await scalar(section, [], file, current, prompt, io); break;
+  }
 }
 
 export async function questionnaire(target: SetupTarget, prompt: SetupPrompt, io: CommandIO,
   available: (command: string) => Promise<boolean>): Promise<ConfigFile | null> {
   const file: ConfigFile = structuredClone(target.file.values);
   try {
-    await launcher("editor", file, target, prompt, io, available);
-    await launcher("agent", file, target, prompt, io, available);
-    const jira = await choose(prompt,
-      "Use Jira tickets to name branches?\nJira is a work ticket tracker. This lets timber new TEAM-123 use the ticket title. Skip if you don't use Jira.",
-      [option("keep", keepLabel(target, "jira")), option("configure", "Yes, connect my team's Jira"),
-        ...( "jira" in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
-        option("none", "Do not use Jira")]);
-    if (jira === "inherit") delete file.jira;
-    if (jira === "none") file.jira = false;
-    if (jira === "configure") {
-      io.stdout("\nUse JIRA_EMAIL and JIRA_API_TOKEN environment variables for login. Setup never asks for your password or token.\n");
-      while (true) {
-        const site_url = await text(prompt, "Your team's Jira address, e.g. https://my-team.atlassian.net");
-        const scoped = await confirm(prompt, "Does your Jira API token use scopes? Most users can press Enter to skip.");
-        const cloud_id = scoped ? await text(prompt, "Jira cloud ID (UUID for your scoped token)") : "";
-        const input = { jira: { site_url, ...(cloud_id ? { cloud_id } : {}) } };
-        const result = configFileSchema.safeParse(input);
-        if (result.success) { file.jira = result.data.jira; break; }
-        io.stderr("Enter an HTTPS Jira address ending in .atlassian.net and, if needed, a valid cloud UUID.\n");
-      }
+    for (const section of ["editor", "agent", "jira"] as const) {
+      await editSetupSection(section, file, target, prompt, io, available);
     }
     if (await confirm(prompt, "Advanced settings: add workspace setup scripts or change Git/folder defaults? Skip if you're unsure.")) {
-      const hooks = await choose(prompt,
-        "Run scripts when a workspace is first created?\nFor example, install project dependencies. These are trusted shell commands run with your permissions.",
-        [option("keep", keepLabel(target, "hooks")), option("custom", "Add setup scripts"),
-          ...( "hooks" in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
-          option("none", "Do not run scripts")]);
-      if (hooks === "inherit") delete file.hooks;
-      if (hooks === "none") file.hooks = false;
-      if (hooks === "custom") {
-        const commands: string[] = [];
-        while (true) {
-          const source = await text(prompt, "Setup command, e.g. bun install");
-          if (!source.trim() || source.includes("\0")) { io.stderr("Enter a nonempty command without NUL characters.\n"); continue; }
-          commands.push(source);
-          if (await choose(prompt, "Add another setup command?", [option("finish", "Done"), option("add", "Add another command")]) === "finish") break;
-        }
-        file.hooks = { post_create: commands };
+      for (const section of ["hooks", "base_branch", "remote", "worktree_dir"] as const) {
+        await editSetupSection(section, file, target, prompt, io, available);
       }
-      await scalar("base_branch", target.branches, file, target, prompt);
-      await scalar("remote", target.repository?.remotes.map(remote => remote.name) ?? [], file, target, prompt);
-      await scalar("worktree_dir", [], file, target, prompt);
     }
     const parsed = configFileSchema.safeParse(file);
     if (!parsed.success) throw new Error("Setup values are invalid. Correct base_branch, remote, or worktree_dir and rerun setup; no settings saved.");
