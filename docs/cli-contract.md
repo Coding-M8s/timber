@@ -68,7 +68,8 @@ the trailing slash is normalized away. `cloud_id`, when present, must be a UUID.
 Credentials are read lazily from `JIRA_EMAIL` and `JIRA_API_TOKEN` only when a
 recognized ticket is resolved. Never put credentials in repository config, logs,
 tickets, or commits. Timber does not load `.env` files; it reads these values only
-from its process environment. Bun's source runner automatically loads `.env` files
+from its process environment. Standalone release builds disable automatic `.env`
+and `bunfig.toml` loading. Bun's source runner automatically loads `.env` files
 before Timber starts unless disabled. To run a source checkout without Bun loading
 them, use `bun --no-env-file src/index.ts ...`. An absent `[jira]` disables lookup
 even if the environment contains credentials.

@@ -21,3 +21,15 @@ jobs:
       - run: bun test
       - run: bun run build
       - run: bun dist/index.js --help
+      - run: bun run build:release
+      - name: Verify standalone checksums
+        run: cd dist/release && sha256sum -c SHA256SUMS
+      - run: docker build -f tests/release/Dockerfile -t timber-release-smoke .
+      - name: Exercise standalone binary without Bun or Node
+        run: |
+          VERSION="$(bun --no-env-file -p 'require("./package.json").version')"
+          docker run --rm --network none \
+            --mount "type=bind,src=$PWD/dist/release,dst=/release,readonly" \
+            timber-release-smoke \
+            --binary "/release/timber-v$VERSION-linux-x64" \
+            --expected-version "$VERSION" --require-no-runtime

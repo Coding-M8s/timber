@@ -4,10 +4,20 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { version } from "../package.json";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (...args: string[]) => execa(process.execPath, [entry, ...args], {
   reject: false, timeout: 5_000, env: { CI: "true" },
+});
+
+test("version works outside a repository and matches package metadata", async () => {
+  const result = await execa(process.execPath, [entry, "--version"], {
+    cwd: tmpdir(), reject: false, timeout: 5_000,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe(version);
+  expect(result.stderr).toBe("");
 });
 
 test("help succeeds on stdout and describes all implemented commands", async () => {

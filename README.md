@@ -8,11 +8,51 @@ branch. `done` safely removes a linked worktree and deletes its local branch
 only when Git proves its commits are published to the live upstream or
 integrated into the validated base.
 
+## Install the standalone CLI
+
+Release assets run without Bun or Node. Git must be installed and available on
+`PATH`; configured editors, agents, and hook tools must be installed separately.
+Only Linux x86_64 is packaged. The verified standalone environment is Ubuntu
+24.04 with glibc 2.39 and Git 2.43.0; other distributions, architectures, macOS,
+Windows, and musl/Alpine are not verified.
+
+Tagged downloads become available after the release owner publishes a verified
+release. Until then, use the source checkout below. This repository is private:
+authenticate [GitHub CLI](https://cli.github.com/) with repository read access,
+or download the three assets from the authenticated GitHub Releases page.
+GitHub CLI is a download tool, not a Timber runtime dependency.
+
+Choose a published tag in place of `vX.Y.Z`. Run the download, verification, and
+installation chain together; installation runs only when all checks pass:
+
+```bash
+TIMBER_TAG=vX.Y.Z
+DOWNLOAD_DIR="$(mktemp -d "timber-download.XXXXXX")"
+gh release download "$TIMBER_TAG" --repo Coding-M8s/timber \
+  --dir "$DOWNLOAD_DIR" \
+  --pattern "timber-$TIMBER_TAG-linux-x64" \
+  --pattern build-info.json --pattern SHA256SUMS \
+  && (cd "$DOWNLOAD_DIR" && sha256sum -c SHA256SUMS) \
+  && install -Dm755 "$DOWNLOAD_DIR/timber-$TIMBER_TAG-linux-x64" "$HOME/.local/bin/timber" \
+  && "$HOME/.local/bin/timber" --version
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add that PATH export to your shell's startup file if needed. Keep the downloaded
+`build-info.json` and checksum result when reporting a release problem. Checksums
+detect altered downloads; they are not an independent signature. Update by
+repeating the same steps with another verified tag. Installation does not create
+repository defaults; edit the primary checkout's `.timber.toml` as documented below.
+
+See [release verification and acceptance](docs/releases.md) for source builds,
+isolated checks, and the maintainer release process.
+
 ## Development
 
 Each developer needs Bun **1.4.2** (pinned in `.bun-version` and `package.json`)
 and Git on their `PATH`. Python 3 is needed for the Linux PTY integration tests. The version declarations do not install Bun. Linux
-x86_64 is the verified development target; Node and Docker are not required.
+x86_64 is the verified development target; Node is not required. Docker is
+needed only for isolated standalone verification, not the ordinary source suite.
 
 ### Install prerequisites
 
@@ -52,10 +92,14 @@ bun dist/index.js --help
 ```
 
 `build` creates a Bun JavaScript bundle in `dist/index.js`; it is not a standalone
-release binary. Standalone packaging belongs to TIM-17. `src/index.ts` also has a
+release binary. `bun run build:release` additionally creates
+`dist/release/timber-v0.1.0-dev.0-linux-x64`, `build-info.json`, and `SHA256SUMS`.
+The binary name follows the version in `package.json`; `timber --version` reports
+that same version. `src/index.ts` also has a
 Bun shebang and is the package's `timber` bin entry. No global installation is
 needed for development. GitHub CI runs locked installation, typecheck, tests, build
-and bundled help on Ubuntu x86_64. Other platforms are not verified.
+and bundled help on Ubuntu x86_64, then compiles and verifies the standalone
+executable in a container without Bun or Node. Other platforms are not verified.
 
 ## Commands
 
@@ -107,8 +151,10 @@ site_url = "https://example.atlassian.net"
 
 Set `JIRA_EMAIL` and `JIRA_API_TOKEN` in the environment when creating a ticket
 branch. Timber reads `process.env` only when `new` resolves a configured ticket
-ID; it never opens `.env` files itself. Bun may populate the process environment
-from `.env` before Timber starts. Use `bun --no-env-file src/index.ts new ABU-834`
+ID; it never opens `.env` files itself. Standalone releases disable automatic
+loading of `.env` and `bunfig.toml`; export credentials into the invoking process.
+Bun's source runner may populate the process environment from `.env` before
+Timber starts. Use `bun --no-env-file src/index.ts new ABU-834`
 to disable that Bun behavior. Site URL configuration contains no credentials.
 Without `cloud_id`, Timber calls the configured site for an unscoped token. With
 `cloud_id`, it uses Atlassian's fixed Jira Cloud gateway for a scoped token.
@@ -460,6 +506,24 @@ workspace. Nonzero exits and interrupts also retain the branch, worktree,
 and its files. Agent output goes directly to the terminal; Timber does not
 capture or log command arguments.
 
+## Troubleshooting
+
+| Symptom | Next step |
+| --- | --- |
+| Release download says unavailable/404 | Confirm the exact published tag and authenticate GitHub CLI with read access to this private repository. |
+| Checksum mismatch | Stop installation. Download all assets again into a new directory; report a repeated mismatch to the release owner. |
+| `timber` not found or permission denied | Check `command -v timber`, your PATH, and executable permissions. The install command above sets mode 755. |
+| Wrong executable format, missing loader, or incompatible libc | Use the verified Linux x86_64/glibc environment; other platforms are not supported by this asset. |
+| Git/editor/agent executable missing | Install the required tool or correct its executable/PATH. Configure literal argument arrays; skip optional launches with `--no-editor`/`--no-agent`. |
+| Setup or launch failed after creation | Workspace remains. Fix the prerequisite, then use the printed `open` retry; `--setup` reruns every hook. |
+| Jira authorization/network failure | Check exported credentials, token type/site/cloud ID, permissions, and connectivity. Never paste tokens into config or bug reports. |
+| Remote unavailable | Existing local worktrees can open offline; remote materialization needs a successful refresh. |
+| Cleanup refused | Read the named files/commits and preservation evidence. Commit or move your work deliberately; `--keep-branch` does not bypass safety. `--keep-ignored` preserves ignored content in place. |
+
+`done` discards ignored files by default, including `.env` and `node_modules`.
+Use `--keep-ignored` to refuse that removal. Partial cleanup can leave the worktree
+removed and branch retained; inspect the reported state before retrying.
+
 ## Release scope
 
 - **0.1 — Worktree CLI:** repository discovery, local/remote branch resolution, four commands, repository configuration, optional editor opening, conservative cleanup.
@@ -472,6 +536,7 @@ TypeScript and Bun are the development direction, with Commander, Execa, Zod, an
 
 - [Implementation tickets](https://github.com/Coding-M8s/timber/issues)
 - [Real workflow dogfooding checklist](docs/dogfooding.md)
+- [Release build, installation verification, and acceptance](docs/releases.md)
 - [Delivery board](https://github.com/orgs/Coding-M8s/projects/2/views/2) · [Timber CLI Project](https://github.com/orgs/Coding-M8s/projects/2)
 - [Behavioral contract](docs/cli-contract.md)
 - [Shared TypeScript contracts and service seams](docs/shared-contracts.md)

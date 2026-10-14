@@ -1,4 +1,5 @@
 import { Command, CommanderError } from "commander";
+import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
 import type { CommandContext, CommandHandlers, NewOptions, OpenOptions } from "./services";
 import type { CleanupOptions } from "./types";
@@ -25,6 +26,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
   let exitCode = 0;
   const program = new Command()
     .name("timber")
+    .version(version)
     .description("Manage Git worktrees.")
     .exitOverride()
     .configureOutput({ writeOut: context.io.stdout, writeErr: context.io.stderr });

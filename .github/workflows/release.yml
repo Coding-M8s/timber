@@ -1,0 +1,121 @@
+name: Release candidate
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run build
+      - run: bun dist/index.js --help
+      - name: Build exact tagged source
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bun run build:release --tag "$RELEASE_TAG"
+      - run: cd dist/release && sha256sum -c SHA256SUMS
+      - run: docker build -f tests/release/Dockerfile -t timber-release-smoke .
+      - name: Verify executable without external runtime
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          docker run --rm --network none \
+            --mount "type=bind,src=$PWD/dist/release,dst=/release,readonly" \
+            timber-release-smoke \
+            --binary "/release/timber-$RELEASE_TAG-linux-x64" \
+            --expected-version "${RELEASE_TAG#v}" --require-no-runtime \
+            | tee candidate-smoke.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-linux-x64
+          path: |
+            dist/release/
+            candidate-smoke.json
+          if-no-files-found: error
+
+  draft:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-linux-x64
+          path: candidate
+      - name: Create or verify matching draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" --build-info candidate/dist/release/build-info.json
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --json isDraft --jq .isDraft > draft-state; then
+            test "$(cat draft-state)" = true || {
+              echo "Refusing to modify a published release." >&2
+              exit 1
+            }
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --draft --title "$RELEASE_TAG" \
+              --notes "Linux x86_64 candidate; tested on Ubuntu 24.04 (glibc). Verify SHA256SUMS before installation. Publication requires release-owner review of README and docs/releases.md." \
+              "candidate/dist/release/timber-$RELEASE_TAG-linux-x64" \
+              candidate/dist/release/build-info.json \
+              candidate/dist/release/SHA256SUMS
+          fi
+          mkdir downloaded
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir downloaded --pattern "timber-$RELEASE_TAG-linux-x64" \
+            --pattern build-info.json --pattern SHA256SUMS
+          cmp candidate/dist/release/SHA256SUMS downloaded/SHA256SUMS
+          cmp candidate/dist/release/build-info.json downloaded/build-info.json
+          (cd downloaded && sha256sum -c SHA256SUMS)
+          chmod +x "downloaded/timber-$RELEASE_TAG-linux-x64"
+          python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" --build-info downloaded/build-info.json
+      - run: docker build -f tests/release/Dockerfile -t timber-release-smoke .
+      - name: Smoke downloaded GitHub release assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          docker run --rm --network none \
+            --mount "type=bind,src=$PWD/downloaded,dst=/release,readonly" \
+            timber-release-smoke \
+            --binary "/release/timber-$RELEASE_TAG-linux-x64" \
+            --expected-version "${RELEASE_TAG#v}" --require-no-runtime \
+            | tee downloaded-smoke.json
+          echo "Verified draft; owner must review acceptance evidence before publication."
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: downloaded-release-verification
+          path: downloaded-smoke.json
+          if-no-files-found: ignore

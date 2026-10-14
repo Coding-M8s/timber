@@ -1,0 +1,8 @@
+**
+!scripts/
+!scripts/smoke-release.py
+!tests/
+!tests/helpers/
+!tests/helpers/pty-runner.py
+!tests/release/
+!tests/release/Dockerfile
