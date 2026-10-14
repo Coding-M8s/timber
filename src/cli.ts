@@ -3,6 +3,8 @@ import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
 import type { CommandContext, CommandHandlers, NewOptions, OpenOptions } from "./services";
 import type { CleanupOptions } from "./types";
+import { bashCompletionScript, formatBashCandidate, parseBashCompletion } from "./completion/bash";
+import { completionCandidates } from "./completion/candidates";
 
 const placeholder = (name: string, ticket: string) => async (): Promise<void> => {
   throw new Error(`timber ${name} is not implemented yet (${ticket}). See timber ${name} --help.`);
@@ -21,10 +23,9 @@ export interface CliDependencies {
   handlers?: CommandHandlers;
 }
 
-/** argv contains user arguments only. No process exit, terminal reads, or Git calls. */
-export async function runCli(argv: readonly string[], dependencies: CliDependencies): Promise<number> {
+/** Build one source of truth for dispatch, help and completion metadata. */
+export function createCli(dependencies: CliDependencies, onExitCode: (code: number) => void = () => {}): Command {
   const { context, handlers = placeholderHandlers } = dependencies;
-  let exitCode = 0;
   const program = new Command()
     .name("timber")
     .version(version)
@@ -54,7 +55,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
         ...(options.editor === false ? { editor: false as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      exitCode = (await handlers.new(branch.join(" "), normalized, context)) ?? 0;
+      onExitCode((await handlers.new(branch.join(" "), normalized, context)) ?? 0);
     });
 
   agentOptions(program.command("open <input>"))
@@ -67,7 +68,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
         ...(options.setup === true ? { setup: true as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      exitCode = (await handlers.open(input, normalized, context)) ?? 0;
+      onExitCode((await handlers.open(input, normalized, context)) ?? 0);
     });
 
   program.command("setup")
@@ -99,6 +100,34 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
       return handlers.done(input, normalized, context);
     });
 
+  program.command("completion <shell>")
+    .description("Print a completion script for Bash; does not modify shell startup files")
+    .action((shell: string) => {
+      if (shell !== "bash") throw new Error("Only Bash completion is supported. Run timber completion bash.");
+      context.io.stdout(bashCompletionScript());
+    });
+
+  program.command("__complete <line>", { hidden: true })
+    .option("--bash", "Format candidates for literal Bash insertion")
+    .option("--word-breaks <characters>", "Bash Readline word separators")
+    .action(async (line: string, options: { bash?: boolean; wordBreaks?: string }) => {
+      const request = { cwd: context.cwd, ...parseBashCompletion(line, options.wordBreaks) };
+      // Already typed expansion syntax is not a literal selector. In particular,
+      // quoting a suffix cannot protect an unquoted prefix retained by Readline.
+      if (options.bash && request.hasExpansion) return;
+      for (const candidate of await completionCandidates(program, request)) {
+        const insertion = candidate.slice(request.replacementPrefix.length);
+        context.io.stdout((options.bash ? formatBashCandidate(insertion, request.quote) : candidate) + "\0");
+      }
+    });
+  return program;
+}
+
+/** argv contains user arguments only. No process exit or terminal reads. */
+export async function runCli(argv: readonly string[], dependencies: CliDependencies): Promise<number> {
+  const { context } = dependencies;
+  let exitCode = 0;
+  const program = createCli(dependencies, code => { exitCode = code; });
   try {
     await program.parseAsync(argv.length === 0 ? ["--help"] : [...argv], { from: "user" });
     return exitCode;

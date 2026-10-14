@@ -272,3 +272,28 @@ configured agent fails before mutation and points to local/global setup.
 Malformed configuration still reports its actionable error. `ls` validates both
 scopes while remaining offline and read-only. Guidance never starts setup or
 blocks CI implicitly.
+
+## Bash completion (TIM-23)
+
+`timber completion bash` emits an activation script without editing shell startup
+files. The generator and hidden completion transport bypass installation guidance,
+first-use state writes, and interactive selection. Unsupported shells produce an
+actionable error; Zsh/Fish are future adapters.
+
+Public command and flag suggestions derive from the same Commander definitions
+as dispatch and help. Repository suggestions read fresh Git worktree inventory
+and cached refs without loading configuration, scanning file status, contacting
+remotes, changing files/refs, running hooks, or launching editors/agents.
+`done` offers only linked worktrees by branch/absolute path, including detached
+paths. `open` also offers primary paths, local branches, and explicit
+`remote/branch` cached selectors. Symbolic remote HEAD entries are omitted.
+`new --base` can complete local/cached branch refs.
+
+Prefix matching is literal and results are deduplicated and sorted. Missing Git,
+inaccessible metadata, and non-repositories quietly yield no target candidates;
+command/flag completion still works. Dirty/stale/locked entries remain discoverable
+and never imply safe cleanup. Normal execution retains all preservation checks.
+Shell-independent candidate lookup returns raw selectors. Bash transports them
+with NUL separators and quotes insertion literally, including spaces and shell
+metacharacters, without evaluating candidate text. See [Bash completion](completion.md)
+for activation and the actually verified Bash/Linux environment.

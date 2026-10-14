@@ -175,8 +175,8 @@ async function inspectWorktree(tree: Worktree, repository: RepositoryContext): P
   return tree;
 }
 
-/** Git's inventory is authoritative; per-worktree failures remain visible as unknown rows. */
-export async function listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]> {
+/** Read Git's registered paths/branches without visiting worktrees or scanning files. */
+export async function listWorktreeInventory(repository: RepositoryContext): Promise<readonly Worktree[]> {
   const result = await runGit(repository.currentWorktreeRoot, ["worktree", "list", "--porcelain", "-z"]);
   if (result.exitCode !== 0) {
     throw new Error("Cannot list Git worktrees; check repository access and that Git is installed.");
@@ -209,5 +209,11 @@ export async function listWorktrees(repository: RepositoryContext): Promise<read
     }
     trees.push(tree);
   }
+  return trees;
+}
+
+/** Git's inventory is authoritative; per-worktree failures remain visible as unknown rows. */
+export async function listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]> {
+  const trees = await listWorktreeInventory(repository);
   return Promise.all(trees.map(tree => inspectWorktree(tree, repository)));
 }
