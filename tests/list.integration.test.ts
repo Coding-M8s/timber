@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { git, withRepository } from "./helpers/git";
+import { expectColumnPositions } from "./helpers/columns";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (cwd: string) => execa(process.execPath, [entry, "ls"], {
@@ -12,10 +13,12 @@ const cli = (cwd: string) => execa(process.execPath, [entry, "ls"], {
 
 test("timber ls works offline from nested and linked paths and preserves real Git state", async () => {
   await withRepository(async (primary, directory) => {
-    const linked = join(directory, "primary repo-worktrees", "feature");
-    const detached = join(directory, "manual detached");
+    const unicode = "界e\u0301🇺🇸1️⃣";
+    const linked = join(directory, "primary repo-worktrees", `feature ${unicode}`);
+    const detached = join(directory, "manual\tdetached");
     const stale = join(directory, "stale");
-    await git(primary, "worktree", "add", "-b", "feature/list", linked);
+    const branch = `feature/list-${unicode}`;
+    await git(primary, "worktree", "add", "-b", branch, linked);
     await git(primary, "worktree", "add", "--detach", detached);
     await git(primary, "worktree", "add", "-b", "stale", stale);
     await git(primary, "remote", "add", "upstream", join(directory, "unreachable.git"));
@@ -43,13 +46,19 @@ test("timber ls works offline from nested and linked paths and preserves real Gi
     expect(fromPrimary.stderr).toContain("warning: Cannot read workflow association");
     expect(fromLinked.stderr).toBe(fromPrimary.stderr);
     expect(fromPrimary.stdout).toBe(fromLinked.stdout);
-    const rows = fromPrimary.stdout.split("\n");
-    expect(rows).toHaveLength(5);
-    expect(rows[0]).toMatch(/^WORKTREE\s+BRANCH\s+WORKFLOW\s+STATUS\s+PATH$/);
-    expect(rows[1]).toMatch(/primary\s+trunk\s+-\s+dirty \(0 modified, 1 untracked\)/);
-    expect(rows.find(row => row.endsWith(linked))).toMatch(/linked\s+feature\/list\s+-\s+dirty \(1 modified, 1 untracked\); 1 ignored/);
-    expect(rows.find(row => row.endsWith(detached))).toMatch(/linked\s+\(detached HEAD\)\s+-\s+clean/);
-    expect(rows.find(row => row.endsWith(stale))).toMatch(/unknown.*missing.*prunable/);
+    const linkedRows = [
+      { path: linked, cells: ["linked", branch, "-", "dirty (1 modified, 1 untracked); 1 ignored", linked] },
+      { path: detached, cells: ["linked", "(detached HEAD)", "-", "clean", JSON.stringify(detached)] },
+      { path: stale, cells: ["linked", "stale", "?", "unknown (Worktree path is missing); missing; prunable", stale] },
+    ].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    const cells = [
+      ["WORKTREE", "BRANCH", "WORKFLOW", "STATUS", "PATH"],
+      ["primary", "trunk", "-", "dirty (0 modified, 1 untracked)", primary],
+      ...linkedRows.map(row => row.cells),
+    ];
+    // Known fixture text has seven display cells but ten UTF-16 code units.
+    const widths = cells.map(row => row.map(cell => cell.includes(unicode) ? cell.length - unicode.length + 7 : cell.length));
+    expectColumnPositions(fromPrimary.stdout + "\n", cells, widths);
     expect(await git(primary, "show-ref")).toBe(refs);
     expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(inventory);
     expect(await readFile(indexPath)).toEqual(index);
