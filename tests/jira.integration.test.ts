@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createNewHandler } from "../src/commands/new";
 import { createOpenHandler } from "../src/commands/open";
 import { placeholderHandlers, runCli } from "../src/cli";
-import { loadRepositoryConfig } from "../src/config";
+import { loadCommandConfig, loadRepositoryConfig } from "../src/config";
 import { launchEditor } from "../src/editor";
 import { resolveBase } from "../src/git/branches";
 import { createWorktree } from "../src/git/create-worktree";
@@ -194,7 +194,7 @@ function handlersFor(
 ): CommandHandlers {
   const shared = {
     discoverRepository,
-    loadConfig: loadRepositoryConfig,
+    loadCommandConfig,
     createWorktree,
     runSetup: async (...args: Parameters<typeof runSetup>) => {
       if (lifecycle) lifecycle.setup += 1;

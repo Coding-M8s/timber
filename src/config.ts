@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parse } from "smol-toml";
 import { z } from "zod";
-import type { RepositoryConfig, RepositoryContext } from "./types";
+import { globalConfigPath } from "./config-paths";
+import type { LoadedCommandConfig, RepositoryConfig, RepositoryContext } from "./types";
 
 const defaults: RepositoryConfig = {
   baseBranch: null,
@@ -31,37 +32,48 @@ const jiraSiteSchema = z.string().refine(value => {
   }
 }).transform(value => new URL(value).origin);
 
-const configFileSchema = z.strictObject({
+export const configFileSchema = z.strictObject({
   base_branch: z.string().trim().min(1).optional(),
   remote: z.string().trim().min(1).optional(),
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
-  hooks: z.strictObject({
+  hooks: z.union([z.literal(false), z.strictObject({
     post_create: z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")))
       .default([]),
-  }).optional(),
-  editor: executableSchema.optional(),
-  agent: z.strictObject({
+  })]).optional(),
+  editor: z.union([z.literal(false), executableSchema]).optional(),
+  agent: z.union([z.literal(false), z.strictObject({
     command: z.string().refine(value => value.trim().length > 0),
     args: z.array(z.string()).default([]),
     enabled: z.boolean().default(false),
-  }).optional(),
-  jira: z.strictObject({
+  })]).optional(),
+  jira: z.union([z.literal(false), z.strictObject({
     site_url: jiraSiteSchema,
     cloud_id: z.uuid().optional(),
-  }).optional(),
+  })]).optional(),
 });
 
-export async function loadRepositoryConfig(repository: RepositoryContext): Promise<RepositoryConfig> {
-  const configPath = join(repository.primaryWorktreeRoot, ".timber.toml");
-  let source: string;
-  try {
-    source = await readFile(configPath, "utf8");
-  } catch (error) {
-    const code = errorCode(error);
-    if (code === "ENOENT") return { ...defaults };
-    throw new Error(`Cannot read repository config ${configPath} (${code ?? "unknown"})`);
-  }
+export type ConfigFile = z.infer<typeof configFileSchema>;
+export interface ConfigScope { path: string; source: string | null; values: ConfigFile }
+export interface ConfigScopes { global: ConfigScope; local: ConfigScope | null }
 
+export async function readConfigScope(path: string): Promise<ConfigScope> {
+  let source: string;
+  try { source = await readFile(path, "utf8"); }
+  catch (error) {
+    const code = errorCode(error);
+    if (code === "ENOENT") return { path, source: null, values: {} };
+    throw new Error(`Cannot read config ${path} (${code ?? "unknown"})`);
+  }
+  return { path, source, values: parseConfigSource(source, path) };
+}
+
+export async function loadConfigScopes(primaryRoot?: string, env: NodeJS.ProcessEnv = process.env): Promise<ConfigScopes> {
+  const global = await readConfigScope(globalConfigPath(env));
+  const local = primaryRoot === undefined ? null : await readConfigScope(join(primaryRoot, ".timber.toml"));
+  return { global, local };
+}
+
+export function parseConfigSource(source: string, configPath: string): ConfigFile {
   let input: unknown;
   try {
     input = parse(source);
@@ -71,7 +83,7 @@ export async function loadRepositoryConfig(repository: RepositoryContext): Promi
 
   const result = configFileSchema.safeParse(input);
   if (!result.success) {
-    const details = result.error.issues.flatMap(issue => {
+    const details = configIssues(result.error.issues).flatMap(issue => {
       const paths = issue.code === "unrecognized_keys"
         ? issue.keys.map(key => [...issue.path, key])
         : [issue.path];
@@ -81,26 +93,47 @@ export async function loadRepositoryConfig(repository: RepositoryContext): Promi
         return `${field} ${problem}`;
       });
     });
-    throw new Error(`Invalid repository config ${configPath}: ${details.join("; ")}`);
+    throw new Error(`Invalid config ${configPath}: ${details.join("; ")}`);
   }
 
-  const config = result.data;
+  return result.data;
+}
+
+// The false/table unions retain the existing precise field diagnostics.
+function configIssues(issues: readonly z.core.$ZodIssue[], prefix: readonly PropertyKey[] = []): z.core.$ZodIssue[] {
+  return issues.flatMap(issue => issue.code === "invalid_union"
+    ? configIssues(issue.errors[1] ?? [], [...prefix, ...issue.path])
+    : [{ ...issue, path: [...prefix, ...issue.path] }]);
+}
+
+export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): RepositoryConfig {
+  const config = { ...scopes.global.values, ...scopes.local?.values };
   return {
+    ...defaults,
     baseBranch: config.base_branch ?? null,
     remote: config.remote ?? null,
-    worktreeDir: config.worktree_dir === undefined
-      ? null
-      : resolve(repository.primaryWorktreeRoot, config.worktree_dir),
-    editor: config.editor ?? null,
-    agent: config.agent ?? null,
-    ...(config.hooks === undefined ? {} : { hooks: { postCreate: config.hooks.post_create } }),
-    ...(config.jira === undefined ? {} : {
-      jira: {
-        siteUrl: config.jira.site_url,
-        ...(config.jira.cloud_id === undefined ? {} : { cloudId: config.jira.cloud_id }),
-      },
-    }),
+    worktreeDir: config.worktree_dir === undefined ? null : resolve(primaryRoot, config.worktree_dir),
+    editor: config.editor || null,
+    agent: config.agent || null,
+    ...(config.hooks ? { hooks: { postCreate: config.hooks.post_create } } : {}),
+    ...(config.jira ? { jira: {
+      siteUrl: config.jira.site_url,
+      ...(config.jira.cloud_id === undefined ? {} : { cloudId: config.jira.cloud_id }),
+    } } : {}),
   };
+}
+
+export async function loadCommandConfig(repository: RepositoryContext, env: NodeJS.ProcessEnv = process.env): Promise<LoadedCommandConfig> {
+  const scopes = await loadConfigScopes(repository.primaryWorktreeRoot, env);
+  return {
+    config: resolveConfig(scopes, repository.primaryWorktreeRoot),
+    localExists: scopes.local?.source !== null,
+    globalExists: scopes.global.source !== null,
+  };
+}
+
+export async function loadRepositoryConfig(repository: RepositoryContext, env: NodeJS.ProcessEnv = process.env): Promise<RepositoryConfig> {
+  return (await loadCommandConfig(repository, env)).config;
 }
 
 function errorCode(error: unknown): string | undefined {
