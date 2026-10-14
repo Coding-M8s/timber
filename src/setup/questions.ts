@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import { configFileSchema } from "../config";
 import type { ConfigFile } from "../config";
 import { safeDisplay } from "../display";
@@ -70,6 +71,10 @@ async function launcher(
         io.stderr("Enter a nonempty executable and a JSON array containing only strings.\n");
         continue;
       }
+      if (executable.includes("/") && !isAbsolute(executable)) {
+        io.stderr("Use a program name on PATH or an absolute path. Relative executable paths change meaning in another workspace.\n");
+        continue;
+      }
       command = { command: executable, args };
     } else {
       command = (presets as Record<string, { command: string; args: string[] }>)[selected]!;
@@ -89,10 +94,17 @@ async function launcher(
 
 async function scalar(key: "base_branch" | "remote" | "worktree_dir", values: readonly string[], file: ConfigFile,
   target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
-  const selected = await choose(prompt, ({ base_branch: "Which branch should new work start from?\nUsually main or master. Skip to let Git choose automatically.",
-    remote: "Which Git remote should Timber use?\nA remote is where your repository is hosted, usually origin. Skip for automatic selection.",
-    worktree_dir: "Where should new workspaces be stored?\nSkip to put them beside this repository, in <repository-name>-worktrees." })[key], [option("keep", keepLabel(target, key)),
-    option("automatic", "Use automatic settings (leave blank)"),
+  const inherits = target.scope === "repository" && key in target.scopes.global.values;
+  const question = ({ base_branch: "Which branch should new work start from?\nUsually main or master.",
+    remote: "Which Git remote should Timber use?\nA remote is where your repository is hosted, usually origin.",
+    worktree_dir: "Where should new workspaces be stored?" })[key];
+  const resetHelp = inherits ? 'Choose "Use machine defaults" to inherit this setting.' : ({
+    base_branch: 'Choose "Use automatic settings" to let Git choose the branch.',
+    remote: 'Choose "Use automatic settings" for automatic remote selection.',
+    worktree_dir: 'Choose "Use automatic settings" to put workspaces beside this repository, in <repository-name>-worktrees.',
+  })[key];
+  const selected = await choose(prompt, `${question}\n${resetHelp}`, [option("keep", keepLabel(target, key)),
+    option("automatic", inherits ? "Use machine defaults" : "Use automatic settings (leave blank)"),
     ...values.map((value, index) => option(`value:${index}`, safeDisplay(value))), option("custom", "Custom value")]);
   if (selected === "keep") return;
   if (selected === "automatic") { delete file[key]; return; }

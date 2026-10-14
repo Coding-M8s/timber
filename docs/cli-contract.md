@@ -234,7 +234,9 @@ number shortcuts 1–9 select immediately. Additional options in long menus use
 arrows, with no ambiguous multi-digit shortcuts; menus show a viewport sized to
 the terminal height and keep the highlighted choice visible. q/Escape/Ctrl-C/EOF cancel and
 terminal input mode is restored. Agents default to disabled. Executable
-checks do not launch anything; setup never changes refs, creates worktrees, runs
+checks do not launch anything; new custom executable selections must be program
+names on PATH or absolute paths, never relative paths that change meaning across
+workspaces. Setup never changes refs, creates worktrees, runs
 hooks, or edits shell startup files. Jira credentials remain environment variables.
 
 Show the destination, scope, and summary with an explicit save/replacement choice,

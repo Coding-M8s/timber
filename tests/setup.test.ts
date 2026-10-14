@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { questionnaire } from "../src/setup/questions";
+import { editSetupSection, questionnaire } from "../src/setup/questions";
 import { renderConfig } from "../src/setup/render";
 import { parseConfigSource, resolveConfig } from "../src/config";
 import type { SetupPrompt, SetupTarget } from "../src/setup/types";
@@ -26,6 +26,51 @@ const io = () => {
   return { io: { stdout: (text: string) => { output += text; }, stderr: (text: string) => { output += text; } },
     output: () => output };
 };
+
+for (const section of ["editor", "agent"] as const) {
+  test(`${section} rejects a relative executable before availability checking`, async () => {
+    const file = {};
+    const capture = io();
+    const checked: string[] = [];
+    await editSetupSection(section, file, target(), scripted([
+      "custom", "./tools/launcher", "[]", "none",
+    ]), capture.io, async command => { checked.push(command); return true; });
+    expect(file).toEqual({ [section]: false });
+    expect(checked).toEqual([]);
+    expect(capture.output()).toContain("absolute path");
+  });
+
+  test(`${section} retains absolute executable paths and literal arguments`, async () => {
+    const file = {};
+    await editSetupSection(section, file, target(), scripted([
+      "custom", "/opt/my tools/launcher", '["--flag", "literal argument"]', false,
+    ]), io().io, async () => true);
+    expect(file).toEqual({ [section]: {
+      command: "/opt/my tools/launcher", args: ["--flag", "literal argument"],
+      ...(section === "agent" ? { enabled: false } : {}),
+    } });
+  });
+}
+
+for (const section of ["base_branch", "remote", "worktree_dir"] as const) {
+  test(`${section} reset describes inherited machine defaults`, async () => {
+    const file = { [section]: "local-value" };
+    const destination = target(file);
+    destination.scopes.global.values = { [section]: "machine-value" };
+    const prompt = scripted([]);
+    prompt.select = async (message, choices) => {
+      expect(message).toContain("machine defaults");
+      expect(message).not.toContain("Skip for automatic");
+      expect(choices.find(choice => choice.value === "automatic")?.label).toBe("Use machine defaults");
+      return "automatic";
+    };
+    await editSetupSection(section, file, destination, prompt, io().io, async () => true);
+    expect(file).not.toHaveProperty(section);
+    const config = resolveConfig({ ...destination.scopes, local: { ...destination.file, values: file } }, "/repo");
+    expect(config[({ base_branch: "baseBranch", remote: "remote", worktree_dir: "worktreeDir" } as const)[section]])
+      .toBe(section === "worktree_dir" ? "/repo/machine-value" : "machine-value");
+  });
+}
 
 test("guided choices keep editor and agent separate with agent disabled by default", async () => {
   const capture = io();
