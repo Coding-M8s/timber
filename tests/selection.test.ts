@@ -21,6 +21,57 @@ async function choose(inputText: string, options = choices, message = "Several b
   return { value: await pending, screen: output.join("") };
 }
 
+function menuLines(screen: string): string[] {
+  // Stream fixtures do not echo Enter; remove prompts to recover menu line boundaries.
+  return screen.replace(/Choose [^\n]+: |This will display all \d+ matches\. Continue\? \[y\/N\] /gu, "\n")
+    .split("\n").filter(line => /^ *(?:\d+|[aq])\) /u.test(line));
+}
+
+test.each([9, 10, 99, 100])("aligns collapsed and expanded labels for %i choices", async count => {
+  const options = Array.from({ length: count }, (_, index) => ({
+    value: `stable-${index + 1}`, label: `Option ${index + 1}`,
+  }));
+  const result = await choose(`a\ny\n${count}\n`, options);
+  const lines = menuLines(result.screen);
+  const width = String(count).length;
+  expect(result.value).toBe(`stable-${count}`);
+  expect(lines.slice(0, 5).map(line => line.trimStart())).toEqual(
+    options.slice(0, 5).map((choice, index) => `${index + 1}) ${choice.label}`));
+  expect(lines[5]?.trimStart()).toBe(`a) Show all ${count} matches`);
+  expect(lines[6]?.trimStart()).toBe("q) Cancel");
+  expect(lines.slice(7, -1).map(line => line.trimStart())).toEqual(
+    options.map((choice, index) => `${index + 1}) ${choice.label}`));
+  expect(lines.at(-1)?.trimStart()).toBe("q) Cancel");
+  for (const line of lines) expect(line.indexOf(") ") + 2).toBe(width + 2);
+});
+
+test("declined expansion and invalid answers retain three-digit padding and five choices", async () => {
+  const options = Array.from({ length: 100 }, (_, index) => ({
+    value: `stable-${index + 1}`, label: `Option ${index + 1}`,
+  }));
+  const result = await choose("a\nn\n10\n0\n101\n1\n", options);
+  expect(result.value).toBe("stable-1");
+  expect(result.screen.match(/Invalid choice\./gu)).toHaveLength(3);
+  expect(result.screen).not.toContain("Option 6");
+  for (const line of menuLines(result.screen)) expect(line.indexOf(") ") + 2).toBe(5);
+});
+
+test("cancels a padded menu or its expansion confirmation without choosing", async () => {
+  const options = Array.from({ length: 100 }, (_, index) => ({
+    value: `stable-${index + 1}`, label: `界e\u0301 ${index + 1}\n\u001b[2J`,
+  }));
+  for (const input of ["q\n", "a\nq\n", "a\n", "\u001b\n", "\u0003\n", ""]) {
+    const result = await choose(input, options);
+    expect(result.value).toBeNull();
+    expect(result.screen).toContain("  1) 界e\u0301 1\\n\\u001b[2J");
+    expect(result.screen).not.toContain("\u001b[2J");
+  }
+});
+
+test("empty choices cancel without printing or waiting", async () => {
+  expect(await choose("", [])).toEqual({ value: null, screen: "" });
+});
+
 test("shows five initial suggestions and returns the stable value for a numeric choice", async () => {
   const result = await choose("3\n");
 
