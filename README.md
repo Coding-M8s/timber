@@ -104,6 +104,8 @@ executable in a container without Bun or Node. Other platforms are not verified.
 ## Commands
 
 ```bash
+timber setup
+timber setup --global
 timber new my-feature
 timber new Investigate slow API usage page
 timber new "Investigate slow API usage page" --no-editor
@@ -341,9 +343,9 @@ refresh the index, open an editor, launch an agent, or change files or refs.
 
 ## Repository configuration
 
-Timber reads `.timber.toml` from the primary worktree root. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent configuration from 0.1 also supports opt-in foreground launching in 0.2; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
+Timber reads `.timber.toml` from the primary worktree root and machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml` on Linux. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent configuration from 0.1 also supports opt-in foreground launching in 0.2; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
 
-Editor opening stays off when `[editor]` is absent. When `open` selects or creates a worktree, Timber starts the configured editor after the required Git and setup work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
+Editor opening stays off when neither scope enables `[editor]`, or the repository sets `editor = false`. When `open` selects or creates a worktree, Timber starts the configured editor after the required Git and setup work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
 
 ### Zed
 
@@ -375,7 +377,7 @@ Timber preserves configured flags such as `--wait`, but returns as soon as the e
 
 ### Setup hooks (0.2)
 
-Add trusted shell commands to the primary checkout's `.timber.toml`:
+Add trusted shell commands to repository settings or machine defaults:
 
 ```toml
 [hooks]
@@ -387,8 +389,8 @@ post_create = [
 
 `new` runs these steps after creating the branch/worktree. `open` runs them when
 it creates a worktree for an existing local or remote branch. Reopening an
-existing worktree skips setup unless you explicitly pass `--setup`. Missing
-hooks, an empty table, or an empty list perform no setup. Only `post_create` is
+existing worktree skips setup unless you explicitly pass `--setup`. Missing effective
+hooks, an empty replacement table/list, or local `hooks = false` perform no setup. Only `post_create` is
 supported; invalid values and unknown keys are rejected before Git creation.
 `--no-editor` skips the editor while still allowing setup.
 
@@ -435,7 +437,7 @@ Agent launching starts only after setup succeeds.
 
 ### Optional interactive agents (0.2)
 
-Configure the installed tool in the primary checkout's `.timber.toml`:
+Configure the installed tool through `timber setup`, repository TOML, or machine defaults:
 
 ```toml
 [agent]
@@ -444,7 +446,7 @@ command = "claude"
 args = []
 ```
 
-For first-time setup, locate the primary checkout:
+For guided first-time setup, run `timber setup` or `timber setup --global`. To edit repository settings manually, locate the primary checkout:
 
 ```bash
 git worktree list
@@ -453,7 +455,7 @@ git worktree list
 The first listed worktree is the primary checkout. Create or edit
 `.timber.toml` there, even when running Timber from a linked worktree.
 Merge the agent table into any existing configuration; do not replace other
-settings. Timber reads this file but does not create it automatically.
+settings. Guided setup creates this file after explicit confirmation.
 
 Install your preferred agent separately and make its executable available on
 `PATH`. For a development smoke test, run this from the checkout containing
@@ -472,11 +474,10 @@ exiting the agent, reopen that same workspace with:
 bun run dev open agent-smoke-test --agent --no-editor
 ```
 
-Repository defaults are separate from installing Timber. Guided defaults
-setup is tracked in [TIM-18](https://github.com/Coding-M8s/timber/issues/25).
-A future setup flow should ask which editor/agent to use and whether agent
-launching should be enabled, then preserve existing configuration. Until
-that flow exists, configuration is explicit as shown above.
+Repository defaults are separate from installing Timber. `timber setup` asks
+which editor/agent to use and whether agent launching should be enabled, while
+preserving existing values you keep. `timber setup --global` configures defaults
+for all repositories.
 
 For Codex, use `command = "codex"` instead. Executable names on `PATH` and
 absolute executable paths are supported. Each argument is passed literally;
@@ -561,3 +562,57 @@ TIM-11 provides the scaffold and shared contracts. TIM-1 provides Git discovery,
 TIM-6 provides configuration, and TIM-14 implements the list command against
 those service seams. Use independent ticket branches and PRs with one implementer
 and one reviewer.
+
+## Guided setup and machine defaults
+
+Before using Timber, run `timber setup` inside your repository, or
+`timber setup --global` to configure defaults for this machine. From a source
+checkout, use `bun run dev setup` or `bun run dev setup --global`. The first CLI
+invocation also prints this hint; no standalone installer is shipped yet.
+
+Setup asks about VS Code/Zed/custom editors, Claude/Codex/custom coding assistants,
+Jira ticket naming, and optional advanced settings for scripts, Git, and workspace
+folders. Use Up/Down arrows and Enter, or type a choice number and Enter. Blank
+Enter skips new settings or keeps existing ones; advanced settings are skipped
+by default. Each question starts after a blank line. Agent launch
+defaults to off and is independent of editor opening. Configure Jira with its
+site origin and optional cloud UUID; supply `JIRA_EMAIL` and `JIRA_API_TOKEN`
+through the environment, never TOML. Setup requires an interactive terminal with
+CI off. It shows the absolute destination and summary before saving; replacing
+existing settings requires explicit confirmation.
+
+Precedence is CLI options > repository TOML > global TOML > built-in defaults.
+Absent keys inherit; a local optional table replaces the whole global table,
+including arguments and hook lists. Relative worktree directories in either
+scope resolve from the current repository's primary checkout. To disable
+inherited features locally, use these root-level values instead of their tables:
+
+```toml
+editor = false
+agent = false
+hooks = false
+jira = false
+```
+
+`[agent]` with a command and `enabled = false` disables automatic launch but
+keeps `--agent` available. `agent = false` removes the inherited command. Both
+files must be valid, including values overridden by the other scope. Empty valid
+settings suppress the recurring missing-settings reminder.
+
+Local setup writes the primary checkout's `.timber.toml`, including from linked
+worktrees, and excludes it through Git-local `info/exclude`. It preserves shared
+`.gitignore` and the index. If project ignore rules override that exclusion,
+choose global settings or cancel. If config is already tracked, explicitly choose
+whether to edit it or use global defaults; ignore rules cannot hide tracked
+changes. A hidden/excluded dotfile is not encrypted and can still be force-added.
+Edit the printed config path directly later; keep secrets out of both scopes.
+Setup never launches tools, executes hooks, creates worktrees, or changes refs.
+
+Saves publish validated TOML atomically and detect concurrent changes. New files
+use no-clobber creation; existing replacements cannot guarantee protection against
+an unrelated editor changing the file between the final check and rename.
+Cancellation before publication preserves settings and restores owned exclusion
+changes when safe; after publication setup reports saved state. A hard crash can
+leave an extra ignore entry. External ignore-rule edits can change visibility
+after setup's check. First-use markers live under
+`${XDG_STATE_HOME:-$HOME/.local/state}/timber/`, outside repositories.

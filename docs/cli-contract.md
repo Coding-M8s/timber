@@ -6,7 +6,7 @@
 4. `open <input>` resolves an existing worktree, exact local branch, then exact remote branch. An explicit remote such as `origin/feature/foo` selects that remote. When cached refs cannot identify one local target, `open` discovers live remote heads without changing refs, respecting the explicit/configured remote or checking all remotes. Discovery failure blocks materialization; existing local targets remain offline.
 5. A ticket prefix such as `ABU-834` may match branch names on a delimiter boundary. Multiple matches must include every distinct candidate in one chooser when interactive; mark candidates that require manual selection, and do not mutate if one is selected. Without a chooser, show at most five sorted candidates and the total, with exact manual-selection guidance. Do not use arbitrary substring matching.
 6. Refresh the selected remote before creating from a remote branch. An existing local worktree can open offline. A failed remote refresh must not be reported as success.
-7. Base selection: `--base`, repository config, configured remote's default branch, then an unambiguous existing `main` or `master`. Never guess if resolution is ambiguous.
+7. Base selection: `--base`, repository/global config, configured remote's default branch, then an unambiguous existing `main` or `master`. Never guess if resolution is ambiguous.
 8. Worktree paths default to a sibling directory, `../<repository-name>-worktrees/<safe-branch-slug>`. Resolve config paths relative to the primary repository root. Reject collisions, path traversal, and attempts to target the primary repository.
 9. `ls` lists the current repository's primary and linked worktrees, including ones created outside Timber, and identifies the primary worktree.
 10. `done` resolves cleanup targets among registered worktrees; remote-only and unchecked branches do not make a single matching worktree ambiguous. Multiple worktrees use the five-option chooser (or a capped diagnostic without a terminal), and selection is revalidated by absolute path and branch before cleanup. Cancellation succeeds without mutation. `done` never removes the primary worktree. Modified or untracked files always block cleanup. Unpublished or unknown publication blocks cleanup unless commits are contained in the validated base or Git proves that merging the local branch into that base adds no file changes.
@@ -30,11 +30,11 @@ Git to validate. Do not slugify punctuation, truncate names, or append suffixes.
 
 ## Repository configuration
 
-Read only `.timber.toml` from the primary worktree root. Do not search nested or linked-worktree directories, the caller's current directory, or global config. A missing file uses the defaults below; unknown keys and invalid values are errors. Global config is deferred.
+Read `.timber.toml` from the primary worktree root and Linux machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml`. Empty or relative XDG paths use the HOME fallback. Do not search nested or linked-worktree configuration. Validate both existing files independently; unknown keys, unreadable files, and invalid values are errors even when overridden in the other scope. Missing files use defaults.
 
 The supported 0.1 keys are `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2.
 
-Explicit CLI values take precedence over config, and config takes precedence over documented service defaults. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional 0.2 extensions described below.
+Precedence is explicit CLI options > repository TOML > global TOML > built-in defaults. Absent keys inherit. Present optional tables replace the whole lower-scope table: executable/argument combinations stay together, and argument arrays and hook lists never concatenate. Relative `worktree_dir` in either scope resolves against the current repository's primary root. Root-level `editor = false`, `agent = false`, `hooks = false`, or `jira = false` explicitly disables that inherited integration; `true` is invalid. An agent table with a command and `enabled = false` still supports explicit `--agent`, whereas `agent = false` removes the inherited command. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional 0.2 extensions described below.
 
 ```toml
 base_branch = "main"
@@ -63,8 +63,8 @@ The editor executable must be available on `PATH` or configured by absolute path
 
 ## Jira ticket lookup (0.2, TIM-10)
 
-Jira lookup is enabled only when the primary repository's `.timber.toml` has a
-`[jira]` table. The strict table accepts `site_url` and optional `cloud_id` only:
+Jira lookup is enabled when the resolved repository/global configuration has a
+`[jira]` table; local `jira = false` disables a global Jira integration. The strict table accepts `site_url` and optional `cloud_id` only:
 
 ```toml
 [jira]
@@ -82,7 +82,7 @@ tickets, or commits. Timber does not load `.env` files; it reads these values on
 from its process environment. Standalone release builds disable automatic `.env`
 and `bunfig.toml` loading. Bun's source runner automatically loads `.env` files
 before Timber starts unless disabled. To run a source checkout without Bun loading
-them, use `bun --no-env-file src/index.ts ...`. An absent `[jira]` disables lookup
+them, use `bun --no-env-file src/index.ts ...`. An absent effective `[jira]` (including local `jira = false`) disables lookup
 even if the environment contains credentials.
 
 Only a whole input matching `^[A-Z][A-Z0-9]*-[0-9]+$` is recognized as a ticket,
@@ -220,3 +220,43 @@ errors that might contain secrets.
 Existing editor failure behavior remains: new returns nonzero, while open
 reports failure and returns success after completed Git work. Both suppress
 agent startup.
+
+## Guided configuration (TIM-18)
+
+`timber setup` guides configuration in the primary checkout from its root, a nested
+directory, or a linked checkout. `timber setup --global` configures defaults for
+all repositories and works outside Git. Both require interactive stdin/stdout and
+CI off; noninteractive use fails with guidance and no writes. Main questions cover editor, agent, and Jira ticket naming; scripts and Git/folder
+defaults live in an optional advanced section, skipped by default. Blank Enter
+leaves new settings absent or retains existing values. Each question is separated
+by a blank line. Terminal selectors support Up/Down arrows, numbered shortcuts,
+and Enter, with q/Escape/Ctrl-C/EOF cancellation and restored terminal input mode. Agents default to disabled. Executable
+checks do not launch anything; setup never changes refs, creates worktrees, runs
+hooks, or edits shell startup files. Jira credentials remain environment variables.
+
+Show the destination, scope, and summary before explicit save/replacement
+confirmation. Invalid existing TOML is preserved. Generated readable TOML
+round-trips through the actual parser. Local setup adds `/.timber.toml` to the
+Git-discovered common `info/exclude`, preserving existing entries, and verifies
+effective ignoring before publishing an untracked config. Conflicting project
+ignore rules lead to global setup or cancellation, never shared `.gitignore` edits.
+Tracked config needs explicit edit/global/cancel selection; setup never untracks
+or stages it. Exclusion is local visibility control, not encryption or protection
+from a forced add. Keep secrets outside both config files.
+
+Use validated temporary files, atomic publication and no-clobber creation for new
+config. Detect concurrent changes and coordinate Timber writers with locks.
+Existing-file replacement has a remaining check-to-rename race with unrelated
+editors; ignoring is verified at a point in time. Cancellation before config
+publication restores owned exclusion changes when safe; concurrent edits survive
+with an incomplete-rollback diagnostic. Publication is the commit point; later
+interrupts finish cleanup and report saved state. An uncatchable crash can leave
+an extra exclusion entry; the two paths are not one atomic transaction.
+
+The first CLI invocation prints installation guidance, using a best-effort marker
+under `${XDG_STATE_HOME:-$HOME/.local/state}/timber/` outside repositories. Ordinary
+repository commands append a stderr setup reminder when both validated config
+files are absent; even an empty valid config suppresses it. `ls` now validates
+configuration while remaining offline and read-only. Help/setup and discovery or
+configuration errors do not emit a missing-settings reminder. Reminders never
+start setup, block CI, or change command exit status.

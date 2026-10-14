@@ -14,7 +14,7 @@ a reviewed contract change first.
 | `src/types.ts` | Shared domain values for all lanes |
 | `src/services.ts` | Plain asynchronous command service functions |
 | `discoverRepository`, `listWorktrees` | TIM-1; TIM-4 extends worktree targeting |
-| `loadConfig` | TIM-6 |
+| `loadConfig`, `loadCommandConfig` | TIM-6; TIM-18 adds validated scopes and presence |
 | `resolveJiraTicket`, `findJiraSuggestions` | TIM-10 |
 | `resolveBranch`, `resolveBase` | TIM-2 |
 | `resolveOpenTarget` | TIM-4 |
@@ -112,7 +112,7 @@ and `enabled` defaults to `false`. TIM-6 parses and retains this setting in 0.1;
 TIM-9 owns launching in 0.2. No agent launches from config loading, and this shape
 does not create a provider framework. Hooks and Jira are optional 0.2 integrations.
 
-`RepositoryConfig.jira` is omitted when `[jira]` is absent, preserving the existing
+`RepositoryConfig.jira` is omitted when effective `[jira]` is absent or explicitly disabled, preserving the existing
 config shape; when present it contains a normalized HTTPS `siteUrl` and optional
 UUID `cloudId`. Config loading accepts only `site_url` and `cloud_id` in that strict
 table. Site URLs must be tenant origins on `*.atlassian.net`, with no credentials,
@@ -287,3 +287,21 @@ editor failure exit policies while suppressing agent startup in both cases.
 
 `src/display.ts` holds the existing safe path/diagnostic/retry rendering shared
 with open; agent recovery uses the same control-character escaping.
+
+## TIM-18 configuration and setup contract
+
+`LoadedCommandConfig` contains `config: RepositoryConfig`, `localExists`, and
+`globalExists`. `loadCommandConfig(repository)` derives all three from one
+validated repository/global read. Each of new/open/list/done consumes that seam,
+passes the normalized config to existing Git/launch services, and records absence
+for an end-of-response reminder. `loadRepositoryConfig` remains a compatibility
+wrapper returning `RepositoryConfig`. Config bytes and sparse scope data remain
+private to setup; no raw source enters diagnostics or runtime domain models.
+
+The [CLI contract](cli-contract.md#repository-configuration) defines global
+precedence, whole-table replacement, and root-level false integration disables.
+Normalized editor/agent remain null when off; hooks/Jira remain omitted when off.
+Existing valid TOML and Git/editor/agent/hook/Jira service models remain valid.
+A partial executable table still requires command. The new setup handler owns
+questionnaire and persistence through injected prompts and storage services;
+foreground agent launch and post-create setup remain separate operations.

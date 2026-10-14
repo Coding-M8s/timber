@@ -1,6 +1,6 @@
 import type {
   AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
-  EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
+  EditorResult, LoadedCommandConfig, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
 import type { TerminalChooser } from "./selection";
@@ -11,6 +11,8 @@ export interface CommandServices {
   discoverRepository(cwd: string): Promise<RepositoryContext>;
   /** TIM-6: defaults + validated repository config; never search relative to caller cwd. */
   loadConfig(repository: RepositoryContext): Promise<RepositoryConfig>;
+  /** TIM-18: one validated scoped read for execution and reminders. */
+  loadCommandConfig(repository: RepositoryContext): Promise<LoadedCommandConfig>;
   /** TIM-10: resolve one configured Jira Cloud issue; never fall back to a literal branch. */
   resolveJiraTicket(config: JiraConfig, key: string): Promise<JiraTicket>;
   /** TIM-10: return only validated active ticket alternatives for an exact missing/done key. */
@@ -61,6 +63,8 @@ export interface CommandIO {
 
 export interface CommandContext {
   cwd: string;
+  /** Invocation-local reminder state, set only after successful config validation. */
+  settingsMissing?: boolean;
   /** Invoking stdin/stdout are terminals and CI is off. Absence means false. */
   interactive?: boolean;
   io: CommandIO;
@@ -85,6 +89,7 @@ export interface OpenOptions {
 }
 
 export interface CommandHandlers {
+  setup(options: { global: boolean }, context: CommandContext): Promise<void>;
   new: (branch: string, options: NewOptions, context: CommandContext) => Promise<void | number>;
   open(input: string, options: OpenOptions, context: CommandContext): Promise<void | number>;
   list(context: CommandContext): Promise<void>;

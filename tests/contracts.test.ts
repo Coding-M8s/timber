@@ -26,6 +26,7 @@ test("a list handler can use Git service doubles without Git, config or network"
   const exitCode = await runCli(["ls"], {
     context: { cwd: "/repo/nested", io: { stdout: text => { stdout += text; }, stderr: () => { throw new Error("unexpected stderr"); } } },
     handlers: {
+      setup: async () => { throw new Error("unexpected setup"); },
       new: async () => { throw new Error("unexpected new"); },
       open: async () => { throw new Error("unexpected open"); },
       done: async () => { throw new Error("unexpected done"); },

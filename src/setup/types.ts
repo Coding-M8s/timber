@@ -1,0 +1,34 @@
+import type { ConfigScope, ConfigScopes } from "../config";
+import type { ChoiceOption } from "../selection";
+import type { RepositoryContext } from "../types";
+
+export interface SetupPrompt {
+  select(message: string, choices: readonly ChoiceOption[], defaultValue: string): Promise<string | null>;
+  text(message: string, defaultValue?: string): Promise<string | null>;
+  confirm(message: string, defaultValue: boolean): Promise<boolean | null>;
+  close(): void;
+  signal?: AbortSignal;
+}
+
+export interface FileSnapshot {
+  path: string;
+  source: Buffer | null;
+  mode: number;
+}
+
+export interface SetupTarget {
+  scope: "repository" | "global";
+  path: string;
+  file: ConfigScope;
+  scopes: ConfigScopes;
+  repository: RepositoryContext | null;
+  branches: readonly string[];
+  tracked: boolean;
+  exclude: FileSnapshot | null;
+}
+
+export class SetupCancelled extends Error {
+  constructor() { super("Setup cancelled before saving."); }
+}
+
+export class SetupVisibilityError extends Error {}

@@ -1,3 +1,4 @@
+import { missingSettingsReminder } from "./guidance";
 import { Command, CommanderError } from "commander";
 import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
@@ -9,6 +10,7 @@ const placeholder = (name: string, ticket: string) => async (): Promise<void> =>
 };
 
 export const placeholderHandlers: CommandHandlers = {
+  setup: placeholder("setup", "TIM-18"),
   new: placeholder("new", "TIM-12"),
   open: placeholder("open", "TIM-13"),
   list: placeholder("ls", "TIM-14"),
@@ -22,7 +24,9 @@ export interface CliDependencies {
 
 /** argv contains user arguments only. No process exit, terminal reads, or Git calls. */
 export async function runCli(argv: readonly string[], dependencies: CliDependencies): Promise<number> {
-  const { context, handlers = placeholderHandlers } = dependencies;
+  const { handlers = placeholderHandlers } = dependencies;
+  const context: CommandContext = { ...dependencies.context };
+  delete context.settingsMissing;
   let exitCode = 0;
   const program = new Command()
     .name("timber")
@@ -69,6 +73,11 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
       exitCode = (await handlers.open(input, normalized, context)) ?? 0;
     });
 
+  program.command("setup")
+    .description("Guide repository settings or machine defaults without launching tools")
+    .option("--global", "Configure defaults for all repositories on this machine", false)
+    .action((options: { global: boolean }) => handlers.setup({ global: options.global }, context));
+
   program.command("ls")
     .description("List this repository's worktrees with branches and file status (read-only)")
     .action(() => handlers.list(context));
@@ -106,5 +115,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
       : safeDiagnostic(message);
     context.io.stderr(`error: ${rendered}\n`);
     return 1;
+  } finally {
+    if (context.settingsMissing) context.io.stderr(`${missingSettingsReminder}\n`);
   }
 }

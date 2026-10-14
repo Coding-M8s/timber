@@ -36,6 +36,7 @@ test.each(["new", "open"] as const)("%s passes setup context and blocks editor o
   let stderr = "";
   const context = { cwd: "/repo", io: { stdout: () => {}, stderr: (text: string) => { stderr += text; } } };
   const handlers: CommandHandlers = {
+    setup: async () => { throw new Error("unexpected setup"); },
     new: createNewHandler(services), open: createOpenHandler(services),
     list: async () => {}, done: async () => {},
   };

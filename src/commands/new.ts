@@ -1,3 +1,4 @@
+import { commandConfig } from "../guidance";
 import { resolveAgentCommand, reportAgentResult } from "../agent";
 import { FormattedError, failureWithRetry, safeDisplay } from "../display";
 import type { CommandHandlers, CommandServices } from "../services";
@@ -6,7 +7,7 @@ import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
 import type { JiraTicket } from "../types";
 
 type NewServices = Pick<CommandServices,
-  "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
+  "discoverRepository" | "loadCommandConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
   "createWorktree" | "runSetup" | "launchEditor" | "launchAgent">;
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
@@ -28,7 +29,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
   return async (branch, options, context) => {
     const branchInput = normalizeBranchInput(branch);
     const repository = await services.discoverRepository(context.cwd);
-    const config = await services.loadConfig(repository);
+    const config = commandConfig(await services.loadCommandConfig(repository), context);
     const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
     const base = await services.resolveBase(repository, config, options.base);
     const jiraConfig = config.jira;

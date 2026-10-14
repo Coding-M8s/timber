@@ -10,7 +10,7 @@ function harness(overrides: Partial<CommandHandlers> = {}) {
     io: { stdout: text => { stdout += text; }, stderr: text => { stderr += text; } },
   };
   const unexpected = async () => { throw new Error("unexpected command"); };
-  const handlers: CommandHandlers = { new: unexpected, open: unexpected, list: unexpected, done: unexpected, ...overrides };
+  const handlers: CommandHandlers = { setup: unexpected, new: unexpected, open: unexpected, list: unexpected, done: unexpected, ...overrides };
   return { context, handlers, output: () => ({ stdout, stderr }) };
 }
 

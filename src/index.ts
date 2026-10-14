@@ -1,11 +1,16 @@
 #!/usr/bin/env bun
+import { showInstallationHint } from "./guidance";
+import { createSetupHandler } from "./commands/setup";
+import { createSetupPrompt } from "./setup/terminal";
+import { checkExecutable } from "./setup/executable";
+import { inspectSetupTarget, saveSetupConfig } from "./setup/storage";
 import { launchAgent } from "./agent";
 import { placeholderHandlers, runCli } from "./cli";
 import { createDoneHandler } from "./commands/done";
 import { createListHandler } from "./commands/list";
 import { createNewHandler } from "./commands/new";
 import { createOpenHandler } from "./commands/open";
-import { loadRepositoryConfig } from "./config";
+import { loadCommandConfig } from "./config";
 import { launchEditor } from "./editor";
 import { runSetup } from "./hooks";
 import { resolveBase } from "./git/branches";
@@ -25,25 +30,29 @@ const choose = shouldEnableInteractiveSelection({
 
 const ci = process.env.CI?.toLowerCase();
 
+await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
+
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
     ...placeholderHandlers,
+    setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
+      prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
+      discoverRepository, loadCommandConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
       createWorktree, runSetup, launchEditor, launchAgent,
     }),
     open: createOpenHandler({
       discoverRepository,
-      loadConfig: loadRepositoryConfig,
+      loadCommandConfig,
       resolveOpenTarget,
       createWorktree,
       runSetup,
       launchEditor,
       launchAgent,
     }),
-    list: createListHandler({ discoverRepository, listWorktrees }),
+    list: createListHandler({ discoverRepository, listWorktrees, loadCommandConfig }),
     done: createDoneHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,
+      discoverRepository, loadCommandConfig, resolveOpenTarget, cleanupWorktree,
     }),
   },
   context: {

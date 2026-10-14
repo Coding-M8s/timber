@@ -1,3 +1,4 @@
+import { commandConfig } from "../guidance";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Worktree } from "../types";
 
@@ -27,12 +28,13 @@ function statusSummary(tree: Worktree): string {
   return parts.join("; ");
 }
 
-/** Only discovery and listing are needed; config, fetching, and mutation are absent. */
+/** Scoped validation and offline inventory; no Git mutation or launches. */
 export function createListHandler(
-  services: Pick<CommandServices, "discoverRepository" | "listWorktrees">,
+  services: Pick<CommandServices, "discoverRepository" | "listWorktrees" | "loadCommandConfig">,
 ): CommandHandlers["list"] {
   return async context => {
     const repository = await services.discoverRepository(context.cwd);
+    commandConfig(await services.loadCommandConfig(repository), context);
     const trees = await services.listWorktrees(repository);
     if (trees.length === 0) {
       context.io.stdout("No worktrees found.\n");
