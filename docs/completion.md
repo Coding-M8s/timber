@@ -43,7 +43,7 @@ session, run `complete -r timber`.
   own flags from the same Commander definitions used for CLI parsing and help.
 - `timber done <Tab>` lists registered linked worktrees by branch and absolute
   path, excluding the primary checkout. Detached worktrees use paths. Where
-  several worktrees share a branch, choose an absolute path to identify one.
+  several worktrees share a branch, only their absolute paths are suggested.
   Local branch names that look like remote selectors also use absolute paths.
 - `timber open <Tab>` lists registered worktrees, local branches, and cached
   remote branches. Remote selectors include the remote name, such as
@@ -54,7 +54,9 @@ session, run `complete -r timber`.
 Each attempt reads fresh Git metadata, including worktrees created outside Timber.
 Completion works in the primary checkout, its nested directories, and linked
 checkouts. It uses no network and does not fetch; newly published remote branches
-appear only after you update cached refs explicitly.
+appear only after you update cached refs explicitly. The Git reads for one Tab
+press share a one-second deadline and skip optional locks, so a stalled Git
+yields no target suggestions instead of a hanging prompt.
 
 Paths containing spaces, quotes, or shell metacharacters are inserted as one
 literal argument. Quote or escape shell syntax already entered in a prefix;
@@ -72,7 +74,7 @@ use --keep-ignored to refuse removal when they exist.
 
 ## Verified environment
 
-Verified on Linux x86_64 with GNU Bash 5.3.15, Git 2.55.0, and Bun 1.4.2 for
+Verified on Linux x86_64 with GNU Bash 5.2.21, Git 2.43.0, and Bun 1.4.2 for
 source tests and standalone builds. The tests load the generated script in Bash
 and press Tab in a controlling terminal, checking the resulting argument bytes.
 Other Bash versions, operating systems, Zsh, and Fish have not been verified.
@@ -90,6 +92,12 @@ bun run typecheck
 bun test
 bun run build
 bun run build:release
+TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v0.1.0-dev.0-linux-x64" \
+  bun test tests/completion-bash.test.ts
 ```
+
+`TIMBER_COMPLETION_EXECUTABLE` is a test-harness selector, not a Timber CLI
+option. It makes the Bash suite generate the script from, and send its queries
+to, the built executable instead of the source entry.
 
 Release builds require exactly the packageManager version in package.json.

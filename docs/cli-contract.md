@@ -286,12 +286,14 @@ and cached refs without loading configuration, scanning file status, contacting
 remotes, changing files/refs, running hooks, or launching editors/agents.
 `done` offers only linked worktrees by branch/absolute path, including detached
 paths. `open` also offers primary paths, local branches, and explicit
-`remote/branch` cached selectors. Symbolic remote HEAD entries are omitted.
+`remote/branch` cached selectors. A branch registered in several worktrees is
+offered only by path, since its name is ambiguous at execution. Symbolic remote HEAD entries are omitted.
 `new --base` can complete local/cached branch refs.
 
 Prefix matching is literal and results are deduplicated and sorted. Missing Git,
 inaccessible metadata, and non-repositories quietly yield no target candidates;
-command/flag completion still works. Dirty/stale/locked entries remain discoverable
+command/flag completion still works. The Git reads behind one Tab press share a
+one-second deadline and skip optional locks; a stalled Git yields none as well. Dirty/stale/locked entries remain discoverable
 and never imply safe cleanup. Normal execution retains all preservation checks.
 Shell-independent candidate lookup returns raw selectors. Bash transports them
 with NUL separators and quotes insertion literally, including spaces and shell

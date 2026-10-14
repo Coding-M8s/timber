@@ -35,6 +35,7 @@ test("completion reads fresh Git targets from primary, nested and linked checkou
       expect(await candidates("timber done ", cwd)).toEqual(done);
       expect(await candidates("timber open TIM-23", cwd)).toEqual(["TIM-23-one", "TIM-23-two"]);
       expect(await candidates("timber done --keep-branch TIM-", cwd)).toEqual(["TIM-23-one"]);
+      expect(await candidates("timber done --typo TIM-", cwd)).toEqual(["TIM-23-one"]);
       expect(await candidates("timber new --base ori", cwd)).toEqual(["origin/shared"]);
       expect(await candidates("timber new --base=oth", cwd)).toEqual(["--base=other/shared"]);
     }
@@ -57,14 +58,18 @@ test("completion reads fresh Git targets from primary, nested and linked checkou
   });
 });
 
-test("duplicate branch worktrees retain unambiguous path selectors", async () => {
+test("duplicate branch worktrees offer only unambiguous path selectors", async () => {
   await withRepository(async (primary, directory) => {
     const one = join(directory, "one");
     const two = join(directory, "two");
     await git(primary, "worktree", "add", "-b", "shared", one);
     await git(primary, "worktree", "add", "--force", two, "shared");
-    expect(await candidates("timber done ", primary)).toEqual([one, two, "shared"].sort());
-    expect(await candidates("timber open sh", primary)).toEqual(["shared"]);
+    await git(primary, "branch", "shared-sibling");
+    expect(await candidates("timber done ", primary)).toEqual([one, two].sort());
+    expect(await candidates("timber open sh", primary)).toEqual(["shared-sibling"]);
+    expect(await candidates("timber open ", primary)).toEqual([one, two, primary, "shared-sibling", "trunk"].sort());
+    await git(primary, "worktree", "remove", two);
+    expect(await candidates("timber done sh", primary)).toEqual(["shared"]);
   });
 });
 
@@ -124,6 +129,7 @@ test("CLI completion cannot launch tools, contact remotes, inspect status, or wr
     const realGit = (await execa("which", ["git"])).stdout;
     await writeFile(join(bin, "git"), [
       "#!/bin/sh",
+      '[ "${GIT_OPTIONAL_LOCKS-}" = 0 ] || exit 95',
       'printf "%s\\n" "$1" >> "$TIMBER_GIT_CALLS"',
       'case "$1" in',
       '  rev-parse|symbolic-ref|for-each-ref) ;;',
@@ -158,5 +164,39 @@ test("CLI completion cannot launch tools, contact remotes, inspect status, or wr
     });
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
+  });
+});
+
+test("a stalled Git read ends quietly within the completion deadline", async () => {
+  await withRepository(async (primary, directory) => {
+    const bin = join(directory, "stall bin");
+    const pidFile = join(directory, "stalled pid");
+    const stall = join(directory, "ignore-term.ts");
+    await mkdir(bin);
+    await writeFile(stall, [
+      "import { writeFileSync } from 'node:fs';",
+      "writeFileSync(process.env.TIMBER_STALL_PID!, `${process.pid}\\n`);",
+      "process.on('SIGTERM', () => {});",
+      "setInterval(() => {}, 1000);",
+    ].join("\n"));
+    await writeFile(join(bin, "git"), [
+      "#!/bin/sh",
+      'if [ "$1" = for-each-ref ]; then exec "$TIMBER_BUN" "$TIMBER_STALL"; fi',
+      'exec "$TIMBER_REAL_GIT" "$@"',
+    ].join("\n"), { mode: 0o755 });
+    const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+    const started = Date.now();
+    const result = await execa(process.execPath, ["--no-env-file", entry, "__complete", "--", "timber open t"], {
+      cwd: primary, timeout: 5_000, env: {
+        PATH: bin + ":" + process.env.PATH, XDG_STATE_HOME: join(directory, "state"),
+        TIMBER_REAL_GIT: (await execa("which", ["git"])).stdout, TIMBER_BUN: process.execPath,
+        TIMBER_STALL: stall, TIMBER_STALL_PID: pidFile,
+      },
+    });
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+    const pid = Number(await readFile(pidFile, "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
   });
 });

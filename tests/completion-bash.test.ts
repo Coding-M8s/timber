@@ -2,18 +2,23 @@ import { expect, test } from "bun:test";
 import { execa } from "execa";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { git, withRepository } from "./helpers/git";
 import { candidates } from "./helpers/completion";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+/** TIMBER_COMPLETION_EXECUTABLE selects a built artifact instead of the source entry. */
+const executable = process.env.TIMBER_COMPLETION_EXECUTABLE ? resolve(process.env.TIMBER_COMPLETION_EXECUTABLE) : undefined;
+const timber = executable ? [executable] : [process.execPath, "--no-env-file", entry];
+const timberEnv = { TIMBER_BUN: process.execPath, TIMBER_ENTRY: entry, TIMBER_EXECUTABLE: executable ?? "" };
+const timberBackend = 'if [[ -n $TIMBER_EXECUTABLE ]]; then "$TIMBER_EXECUTABLE" "$@"; else "$TIMBER_BUN" --no-env-file "$TIMBER_ENTRY" "$@"; fi';
 const ptyRunner = fileURLToPath(new URL("./helpers/pty-runner.py", import.meta.url));
 
 async function withScript(cwd: string, run: (script: string, directory: string) => Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), "timber completion "));
   try {
-    const result = await execa(process.execPath, ["--no-env-file", entry, "completion", "bash"], {
+    const result = await execa(timber[0]!, [...timber.slice(1), "completion", "bash"], {
       cwd, reject: false, env: { XDG_STATE_HOME: join(directory, "state") },
     });
     expect(result.exitCode).toBe(0);
@@ -29,7 +34,7 @@ async function withScript(cwd: string, run: (script: string, directory: string) 
 
 async function bashCandidates(cwd: string, script: string, line: string) {
   const source = [
-    'timber() { "$TIMBER_BUN" --no-env-file "$TIMBER_ENTRY" "$@"; }',
+    "timber() { " + timberBackend + "; }",
     'source "$TIMBER_SCRIPT"',
     'COMP_LINE=$TIMBER_LINE',
     'COMP_POINT=${#COMP_LINE}',
@@ -39,7 +44,7 @@ async function bashCandidates(cwd: string, script: string, line: string) {
     'if (("${#COMPREPLY[@]}")); then printf \'%s\\0\' "${COMPREPLY[@]}"; fi',
   ].join("\n");
   const result = await execa("bash", ["--noprofile", "--norc", "-c", source], {
-    cwd, env: { TIMBER_BUN: process.execPath, TIMBER_ENTRY: entry, TIMBER_SCRIPT: script, TIMBER_LINE: line },
+    cwd, env: { ...timberEnv, TIMBER_SCRIPT: script, TIMBER_LINE: line },
   });
   expect(result.stderr).toBe("");
   return result.stdout.split("\0").filter(Boolean);
@@ -80,7 +85,7 @@ test("Readline Tab inserts metacharacter paths as one literal argument", async (
         "bind 'set enable-bracketed-paste off'",
         'timber() {',
         '  if [[ $1 == __complete ]]; then',
-        '    "$TIMBER_BUN" --no-env-file "$TIMBER_ENTRY" "$@"',
+        "    " + timberBackend,
         '  else',
         '    python3 -c \'import json,os,sys; open(os.environ["TIMBER_CAPTURE"],"w").write(json.dumps(sys.argv[1:]))\' "$@"',
         '  fi',
@@ -92,7 +97,7 @@ test("Readline Tab inserts metacharacter paths as one literal argument", async (
         const payload = join(scratch, "pty.json");
         await writeFile(payload, JSON.stringify({
           command: ["bash", "--noprofile", "--rcfile", rc, "-i"], cwd: primary,
-          env: { TIMBER_BUN: process.execPath, TIMBER_ENTRY: entry, TIMBER_SCRIPT: script, TIMBER_CAPTURE: capture },
+          env: { ...timberEnv, TIMBER_SCRIPT: script, TIMBER_CAPTURE: capture },
           input: "timber done " + prefix + "\t\nexit\n",
         }));
         const result = await execa("python3", [ptyRunner, payload], { timeout: 10_000 });
@@ -121,7 +126,7 @@ test("Readline insertion respects equal/colon word breaks and a closed quoted pr
         "bind 'set enable-bracketed-paste off'",
         'timber() {',
         '  if [[ $1 == __complete ]]; then',
-        '    "$TIMBER_BUN" --no-env-file "$TIMBER_ENTRY" "$@"',
+        "    " + timberBackend,
         '  else',
         '    python3 -c \'import json,os,sys; open(os.environ["TIMBER_CAPTURE"],"w").write(json.dumps(sys.argv[1:]))\' "$@"',
         '  fi',
@@ -142,7 +147,7 @@ test("Readline insertion respects equal/colon word breaks and a closed quoted pr
         const payload = join(scratch, "pty.json");
         await writeFile(payload, JSON.stringify({
           command: ["bash", "--noprofile", "--rcfile", rc, "-i"], cwd: primary,
-          env: { TIMBER_BUN: process.execPath, TIMBER_ENTRY: entry, TIMBER_SCRIPT: script, TIMBER_CAPTURE: capture },
+          env: { ...timberEnv, TIMBER_SCRIPT: script, TIMBER_CAPTURE: capture },
           input: item.input + "\t\nexit\n",
         }));
         const result = await execa("python3", [ptyRunner, payload], { timeout: 10_000 });
