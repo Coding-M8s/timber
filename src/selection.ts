@@ -37,6 +37,7 @@ export function createTerminalChooser(input: Readable, output: Writable): Termin
   return async (message, choices) => {
     validateChoices(choices);
     if (choices.length === 0) return null;
+    const numberWidth = String(choices.length).length;
 
     const readline = createInterface({ input, crlfDelay: Infinity });
     let interrupted = false;
@@ -59,10 +60,10 @@ export function createTerminalChooser(input: Readable, output: Writable): Termin
       const display = (expanded: boolean): void => {
         const visible = expanded ? choices : choices.slice(0, 5);
         for (const [index, choice] of visible.entries()) {
-          output.write(`${index + 1}) ${safeText(choice.label)}\n`);
+          output.write(`${String(index + 1).padStart(numberWidth)}) ${safeText(choice.label)}\n`);
         }
-        if (!expanded && choices.length > 5) output.write(`a) Show all ${choices.length} matches\n`);
-        output.write("q) Cancel\n");
+        if (!expanded && choices.length > 5) output.write(`${"a".padStart(numberWidth)}) Show all ${choices.length} matches\n`);
+        output.write(`${"q".padStart(numberWidth)}) Cancel\n`);
       };
 
       output.write(`${message.split("\n").map(safeText).join("\n")}\n`);
