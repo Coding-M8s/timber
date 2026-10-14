@@ -61,6 +61,38 @@ args = ["--new-window"]
 
 The editor executable must be available on `PATH` or configured by absolute path. Editor and agent commands are executable names plus argument arrays, never shell command strings. Pass editor arguments literally and append the absolute selected worktree path as the final argument. On startup failure after worktree creation, retain the worktree and provide a retry command of the form `timber open -- '<absolute-worktree-path>'`; retry opens the existing worktree after the user fixes the editor configuration or `PATH`. The retry string is display text and must not be executed internally. Trusted shell hooks, when implemented, receive context through environment variables; do not substitute branch names or ticket text into shell source.
 
+## Named worktree workflows (TIM-25)
+
+`new` and `open` accept `--workflow <name>`, `-w <name>`, and `--w <name>` with identical behavior. Supplying two spellings or repeating one is an error before mutation. Names must match `^[a-z][a-z0-9_-]*$` and are case-sensitive. Invalid or unknown names fail before Git creation, hooks, editor, or agent launch. One workflow can be assigned to each worktree. No workflow is selected implicitly.
+
+Define names in either config scope:
+
+```toml
+[workflows.review]
+description = "Review a teammate's branch"
+post_create = ["bun install --frozen-lockfile"]
+
+[workflows.review.editor]
+command = "code"
+args = ["--new-window"]
+
+[workflows.review.agent]
+command = "/absolute/path/to/review-wrapper"
+args = ["--initial"]
+```
+
+Each workflow table accepts only `description` (a nonblank string), `post_create` (an array of nonblank shell sources without NUL), `editor` (a complete executable/argument table or `false`), and `agent` (a complete executable/argument table or `false`). Launcher `args` default to `[]`; workflow agents have no `enabled` key. Omitted editor/agent fields inherit ordinary `[editor]`/`[agent]` settings, while `false` suppresses the inherited launcher. Workflow agent tables request an initial launch on creation when interactive; an inherited ordinary agent still honors its `enabled` flag. Explicit `--agent` on a workflow with `agent = false` selects the ordinary configured agent, if any. `--no-editor` and `--no-agent` always suppress those launches.
+
+Both config scopes are validated independently. Workflow definitions merge by name: a repository definition replaces the complete same-name global definition, including scripts and launcher arguments. A repository `[workflows]` table can set `review = false` to remove that inherited name; root `workflows = false` disables all inherited names. Hook lists and argument arrays never concatenate across scopes. Guided `timber setup` preserves workflow values through save and displays the effective count; edit workflow definitions directly in TOML.
+
+On local worktree creation, including `open` materializing an existing local or remote branch, Timber saves the selected name, runs ordinary `post_create` hooks, runs workflow `post_create` hooks, opens the effective editor, then starts the initial agent. The name is saved before scripts run. Setup receives `TIMBER_WORKFLOW` as environment data; an unassigned worktree has no inherited `TIMBER_WORKFLOW`. Shell source is never interpolated. A user's executable or wrapper may supply its preferred prompt or open a separate window; Timber itself keeps the agent in the invoking foreground terminal and passes arguments literally.
+
+An existing worktree can be assigned or reassigned with `open --workflow <name>`; this saves the name and opens the selected editor without creation scripts or an implicit agent. Ordinary later `open` uses the saved name and the current workflow editor configuration, but never replays creation scripts or any implicit agent, even when global `[agent].enabled = true`. Repeating `open --workflow <same-name>` behaves the same. `open --setup` deliberately reruns ordinary then workflow scripts from the start once; it does not imply an agent launch. `open --agent` deliberately launches the current workflow agent or inherited ordinary agent, including its initial prompt arguments; `--no-agent` suppresses it. Explicit agent launch requires an interactive stdin/stdout terminal with CI off before mutation. Config-driven agent launch skips noninteractive use.
+
+The association is local JSON inside the selected worktree's private Git administrative directory, never a committed worktree file or a branch/release tag. It stores a version, name, and Git/worktree identity paths only. Reads verify Git's reciprocal identity and record identity. Missing records mean unassigned; stale or malformed records never select another workflow. A missing workflow definition leaves the saved name visible in `ls` and makes ordinary `open` fail with guidance to restore it or explicitly assign a valid one. `ls` shows `?` and a safe warning for unreadable/stale metadata while keeping every Git row. Git removal of a linked worktree removes its private administrative metadata; retaining a branch does not retain the workflow association.
+
+Failures after creation retain the worktree, refs, and script files. Script failures stop editor and agent launch; editor startup failure stops agent launch. An ordinary reopen does not retry creation actions. Repair and deliberately rerun scripts with `timber open --setup -- '<absolute-worktree-path>'`; retry the editor with plain `timber open -- '<absolute-worktree-path>'`; retry the agent with `timber open --agent --no-editor -- '<absolute-worktree-path>'`. A failed association write reports an explicit `open --workflow <name>` repair command. Scripts must tolerate explicit reruns. Timber does not promise exactly-once side effects across crashes. Keep secrets out of config, metadata, and diagnostics.
+
 ## Jira ticket lookup (0.2, TIM-10)
 
 Jira lookup is enabled when the resolved repository/global configuration has a

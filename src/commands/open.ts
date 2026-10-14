@@ -1,8 +1,9 @@
-import { resolveAgentCommand, reportAgentResult } from "../agent";
+import { reportAgentResult, resolveAgentCommand } from "../agent";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
 
 import { FormattedError, failureWithRetry, jsonDisplay, safeDisplay } from "../display";
+import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 
 function exactSelector(target: OpenTarget): string {
   if (target.kind === "worktree") return target.worktree.path;
@@ -107,14 +108,19 @@ function branchRequest(branch: Branch) {
 export function createOpenHandler(
   services: Pick<CommandServices,
     "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" |
-    "runSetup" | "launchEditor" | "launchAgent">,
+    "readWorkflowAssociation" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent">,
 ): CommandHandlers["open"] {
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
 
     const repository = await services.discoverRepository(context.cwd);
     const config = await services.loadConfig(repository);
-    const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
+    if (options.workflow !== undefined) {
+      const requested = selectWorkflow(config, options.workflow);
+      resolveWorkflowAgent(config, requested, options.agent, context.interactive === true, true);
+    } else if (options.agent === true && config.workflows === undefined) {
+      resolveAgentCommand(config, true, context.interactive === true);
+    }
     const resolution = await services.resolveOpenTarget(repository, input, config, { discoverRemote: true });
 
     if (resolution.kind === "not-found") {
@@ -151,6 +157,20 @@ export function createOpenHandler(
       selected = resolution.value;
     }
     const created = selected.kind === "branch";
+    let workflowName = options.workflow ?? null;
+    let savedName: string | null = null;
+    if (selected.kind === "worktree") {
+      const association = await services.readWorkflowAssociation(repository, selected.worktree);
+      if (association.kind === "invalid" && options.workflow === undefined) {
+        throw new Error("Workflow metadata is stale or unreadable. Inspect the worktree's private Git metadata or assign a configured workflow explicitly with --workflow <name>.");
+      }
+      if (association.kind === "assigned") {
+        savedName = association.name;
+        if (options.workflow === undefined) workflowName = association.name;
+      }
+    }
+    const workflow = selectWorkflow(config, workflowName);
+    const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, context.interactive === true, created);
     let worktree: Worktree;
     if (selected.kind === "branch") {
       worktree = await services.createWorktree(repository, branchRequest(selected.branch), config);
@@ -158,11 +178,17 @@ export function createOpenHandler(
       worktree = selected.worktree;
     }
 
-    if ((created || options.setup) && config.hooks?.postCreate.length) {
-      await services.runSetup(repository, worktree, config, context.io);
+    if (options.workflow !== undefined && (created || savedName !== options.workflow)) {
+      await services.writeWorkflowAssociation(repository, worktree, options.workflow);
     }
 
-    const editor = await services.launchEditor(worktree, config, options.editor === false);
+    if ((created || options.setup) && (config.hooks?.postCreate.length || workflow?.postCreate.length)) {
+      await services.runSetup(repository, worktree, config, context.io,
+        workflowName ?? undefined, workflow?.postCreate);
+    }
+
+    const editor = await services.launchEditor(worktree,
+      workflow === null ? config : { ...config, editor: workflowEditor(config, workflow) }, options.editor === false);
     if (editor.kind === "failed") {
       context.io.stderr(`error: ${failureWithRetry(editor.message, editor.retryCommand, worktree.path)}\n`);
     }

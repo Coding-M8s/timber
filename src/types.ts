@@ -74,6 +74,14 @@ export interface AgentConfig extends ExecutableCommand {
   enabled: boolean;
 }
 
+/** One named workflow; absent launcher fields inherit ordinary settings. */
+export interface WorkflowConfig {
+  description?: string;
+  postCreate: readonly string[];
+  editor?: ExecutableCommand | false;
+  agent?: ExecutableCommand | false;
+}
+
 /** Jira Cloud site used for ticket lookup; credentials are supplied at runtime. */
 export interface JiraConfig {
   siteUrl: string;
@@ -95,6 +103,8 @@ export interface RepositoryConfig {
   editor: ExecutableCommand | null;
   /** Parsed in 0.1; opt-in foreground launching is available in 0.2. */
   agent: AgentConfig | null;
+  /** Missing when neither config scope mentions workflows. */
+  workflows?: Readonly<Record<string, WorkflowConfig>>;
   /** Trusted 0.2 shell source. Absent hooks mean setup is off. */
   hooks?: { postCreate: readonly string[] };
   /** Absent means Jira ticket lookup is disabled for this repository. */

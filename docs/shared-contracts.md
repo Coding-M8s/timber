@@ -310,3 +310,11 @@ for concurrent-write detection at explicit save. Keyboard number shortcuts selec
 immediately for the first nine options; arrows reach all options. Cancellation
 from review or section editing never publishes the draft;
 foreground agent launch and post-create setup remain separate operations.
+
+## TIM-25 named workflow contract
+
+`RepositoryConfig.workflows` is present when either config scope mentions workflows. It maps validated lowercase names to complete normalized definitions. Global and repository definitions merge by name; a local same-name table replaces the entire global table, a local `false` removes one inherited name, and root `workflows = false` removes all. `WorkflowConfig` reuses the existing `ExecutableCommand` shape for editor and agent; this keeps TIM-20 able to use the same executable/argument pair without a provider model. Absent workflow launcher fields inherit ordinary settings, while `false` disables inheritance.
+
+`readWorkflowAssociation(repository, worktree)` returns assigned, unassigned, or invalid metadata. `writeWorkflowAssociation(repository, worktree, name)` writes a versioned, atomic, private Git-admin record after reciprocal Git identity validation. The record contains the name and canonical paths only. `open` rejects invalid saved records and missing saved definitions instead of selecting another workflow; a valid explicit assignment can replace a stale identity record. `ls` keeps all Git rows and renders invalid records as `?`.
+
+`new` and branch-materializing `open` save an explicitly selected workflow before running setup. One setup invocation runs resolved ordinary scripts then workflow scripts, with `TIMBER_WORKFLOW` in the environment. Existing-worktree `open` without `--setup` never runs creation scripts. When a workflow is selected, existing-worktree `open` never launches an implicit agent, even if ordinary agent defaults are enabled; `--agent` is an explicit launch. No-workflow worktrees retain the earlier ordinary-agent behavior. Editor selection is reevaluated from current config on every open. CLI `--workflow`, `-w`, and `--w` normalize to the same option, and duplicate aliases fail before dispatch.

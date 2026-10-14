@@ -93,6 +93,17 @@ test("keeping existing values retains custom arguments hooks and explicit off wi
   expect(file).not.toHaveProperty("worktree_dir");
 });
 
+test("guided setup preserves named workflow definitions and disables during save", async () => {
+  const existing = parseConfigSource([
+    '[workflows.review]', 'post_create = ["printf review"]',
+    '[workflows.review.editor]', 'command = "zed"', 'args = ["--new"]',
+    '[workflows]', 'investigate = false',
+  ].join("\n"), "test.toml");
+  const file = await questionnaire(target(existing), scripted(["keep", "keep", "keep", false]), io().io,
+    async () => true);
+  expect(parseConfigSource(renderConfig(file!), "saved.toml").workflows).toEqual(existing.workflows);
+});
+
 test("custom commands, hooks, and Jira values round trip with literal quotes and paths", async () => {
   const capture = io();
   const file = await questionnaire(target(), scripted([

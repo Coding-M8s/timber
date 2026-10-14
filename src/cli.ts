@@ -45,25 +45,39 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       });
   }
 
-  agentOptions(program.command("new <branch...>"))
-    .description("Create a worktree from a branch name or sentence; configured Jira ticket IDs become descriptive branches")
+  function workflowOptions(command: Command): Command {
+    let count = 0;
+    return command
+      .option("-w, --workflow <name>", "Select a named worktree workflow")
+      .option("--w <name>", "Alias for --workflow")
+      .on("option:workflow", () => { count++; })
+      .on("option:w", () => { count++; })
+      .hook("preAction", () => {
+        if (count > 1) command.error("Specify a workflow only once; workflow aliases conflict.");
+      });
+  }
+
+  workflowOptions(agentOptions(program.command("new <branch...>")))
+    .description("Create a worktree from a branch name or sentence; configured Jira ticket IDs and named workflows are supported")
     .option("--base <ref>", "Override the configured base branch")
     .option("--no-editor", "Skip opening the configured editor")
-    .action(async (branch: string[], options: { base?: string; editor: boolean; agent?: boolean }) => {
+    .action(async (branch: string[], options: { base?: string; workflow?: string; w?: string; editor: boolean; agent?: boolean }) => {
       const normalized: NewOptions = {
         ...(options.base === undefined ? {} : { base: options.base }),
+        ...(options.workflow === undefined && options.w === undefined ? {} : { workflow: options.workflow ?? options.w }),
         ...(options.editor === false ? { editor: false as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
       onExitCode((await handlers.new(branch.join(" "), normalized, context)) ?? 0);
     });
 
-  agentOptions(program.command("open <input>"))
-    .description("Open an existing branch or worktree")
+  workflowOptions(agentOptions(program.command("open <input>")))
+    .description("Open an existing branch or worktree, remembering its named workflow")
     .option("--no-editor", "Skip opening the configured editor")
-    .option("--setup", "Rerun all post_create setup hooks in the selected worktree")
-    .action(async (input: string, options: { editor: boolean; setup?: boolean; agent?: boolean }) => {
+    .option("--setup", "Rerun ordinary and workflow post_create hooks in the selected worktree")
+    .action(async (input: string, options: { workflow?: string; w?: string; editor: boolean; setup?: boolean; agent?: boolean }) => {
       const normalized: OpenOptions = {
+        ...(options.workflow === undefined && options.w === undefined ? {} : { workflow: options.workflow ?? options.w }),
         ...(options.editor === false ? { editor: false as const } : {}),
         ...(options.setup === true ? { setup: true as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
@@ -77,7 +91,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .action((options: { global: boolean }) => handlers.setup({ global: options.global }, context));
 
   program.command("ls")
-    .description("List this repository's worktrees with branches and file status (read-only)")
+    .description("List this repository's worktrees with branches, workflows, and file status (read-only)")
     .action(() => handlers.list(context));
 
   program.command("done <branch-or-worktree>")

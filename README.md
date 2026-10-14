@@ -109,9 +109,11 @@ executable in a container without Bun or Node. Other platforms are not verified.
 timber setup
 timber setup --global
 timber new my-feature
+timber new my-feature --workflow review
 timber new Investigate slow API usage page
 timber new "Investigate slow API usage page" --no-editor
 timber open my-feature
+timber open my-feature -w review
 timber open origin/my-feature
 timber open TIM-42
 timber open "/absolute/path/to/my-feature-worktree"
@@ -328,8 +330,8 @@ and unrelated worktrees stay intact.
 
 Run `timber ls` (or `bun run dev ls`) from any nested directory in the primary
 or a linked worktree. Timber reads Git's inventory, including worktrees created
-manually and outside the default Timber directory. It prints a tab-separated
-table with `WORKTREE`, `BRANCH`, `STATUS`, and absolute `PATH` columns, primary
+manually and outside the default Timber directory. It prints a space-aligned
+table with `WORKTREE`, `BRANCH`, `WORKFLOW`, `STATUS`, and absolute `PATH` columns, primary
 first and linked paths sorted deterministically.
 
 The primary worktree is marked `primary`; detached HEAD shows `(detached HEAD)`.
@@ -339,6 +341,8 @@ Ignored content is reported separately and does not by itself make Git status
 dirty. Missing or inaccessible worktrees stay visible with `unknown` status;
 `missing`, `locked`, and `prunable` markers describe their state. Control
 characters in paths are escaped so each worktree occupies one row.
+`WORKFLOW` shows the saved name, `-` when unassigned, and `?` when local
+workflow metadata cannot be trusted. A narrow terminal may wrap a complete row.
 
 Listing works offline and requires no `.timber.toml`. It does not fetch, prune,
 refresh the index, open an editor, launch an agent, or change files or refs.
@@ -362,6 +366,67 @@ startup files. See [activation, installation, and verified environment](docs/com
 Timber reads `.timber.toml` from the primary worktree root and machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml` on Linux. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent configuration from 0.1 also supports opt-in foreground launching in 0.2; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
 
 Editor opening stays off when neither scope enables `[editor]`, or the repository sets `editor = false`. When `open` selects or creates a worktree, Timber starts the configured editor after the required Git and setup work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
+
+### Named worktree workflows
+
+Use `--workflow review`, `-w review`, or `--w review` with `new` or `open`.
+Each spelling selects the same named workflow; using more than one in a command
+is an error. Names use lowercase letters, digits, hyphens, and underscores,
+starting with a letter. Define as many names as needed in repository or machine
+TOML:
+
+```toml
+[workflows.review]
+description = "Review someone else's branch"
+post_create = ["bun install --frozen-lockfile"]
+
+[workflows.review.editor]
+command = "code"
+args = ["--new-window"]
+
+[workflows.review.agent]
+command = "/absolute/path/to/review-wrapper"
+args = ["--initial-review"]
+```
+
+The workflow editor and agent may be omitted to inherit ordinary defaults, or
+set to `false` to disable them. `post_create` defaults to an empty list. A
+repository workflow replaces the same global workflow as a whole; lists and
+command arguments do not merge. Set `review = false` inside a repository
+`[workflows]` table to remove an inherited name, or root `workflows = false`
+to remove all inherited names. Both config scopes are validated even when one
+overrides the other. `timber setup` preserves existing workflow values and shows
+the effective count; edit workflow definitions directly in TOML.
+
+On creation, Timber saves the selected workflow, runs ordinary setup scripts,
+then workflow setup scripts, opens the selected editor, then starts its optional
+initial agent in the invoking terminal. `open` creating a worktree for an
+existing branch counts as creation. The scripts receive `TIMBER_WORKFLOW` as an
+environment variable; Timber never substitutes it into shell source. A custom
+agent wrapper can supply its prompt and open a separate window if desired.
+Timber passes executable arguments literally and owns only a foreground agent.
+
+Later `open` commands remember the workflow and use its current editor settings.
+They do not rerun setup or launch an implicit agent, including when ordinary
+agent defaults are enabled. Repeating `open -w review` on the same worktree also
+skips those creation actions. Assigning another workflow to an existing
+worktree changes its editor without replaying creation actions. `open --setup`
+deliberately reruns ordinary and workflow scripts once; `open --agent` deliberately
+starts the selected agent again. `--no-editor` and `--no-agent` suppress their
+respective launches. Explicit `--agent` requires an interactive terminal with CI
+off. A normal reopen never retries a failed setup or initial prompt.
+
+The selected name is saved only in that worktree's private Git administrative
+metadata, with identity checks; it is not a committed file or branch tag. Git
+worktree removal removes the association. If a saved definition is deleted,
+restore it or run `open --workflow <valid-name>` to reassign the worktree.
+Creation-stage failures retain the worktree and refs. After fixing a failed
+script, run `timber open --setup -- '<absolute-worktree-path>'`; for editor
+startup, run plain `timber open -- '<absolute-worktree-path>'`; for an initial
+agent retry, run `timber open --agent --no-editor -- '<absolute-worktree-path>'`.
+Explicit script retries start from the first step; make scripts safe to rerun.
+No exactly-once guarantee is made across crashes. Keep secrets out of TOML,
+scripts, and diagnostics.
 
 ### Zed
 

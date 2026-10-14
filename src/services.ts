@@ -3,6 +3,7 @@ import type {
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
+import type { WorkflowAssociationRead } from "./git/workflow-metadata";
 import type { TerminalChooser } from "./selection";
 
 /** Function seams for command implementations; no concrete Git engine in TIM-11. */
@@ -34,6 +35,8 @@ export interface CommandServices {
    * Default path: ../<repository-name>-worktrees/<safe-branch-slug>.
    */
   createWorktree(repository: RepositoryContext, request: CreateWorktreeRequest, config: RepositoryConfig): Promise<Worktree>;
+  readWorkflowAssociation(repository: RepositoryContext, worktree: Worktree): Promise<WorkflowAssociationRead>;
+  writeWorkflowAssociation(repository: RepositoryContext, worktree: Worktree, name: string): Promise<void>;
   /** TIM-5: inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
   /**
@@ -49,7 +52,8 @@ export interface CommandServices {
   /** TIM-8: executable + args, no shell; null config or disabled means skipped. */
   launchEditor(worktree: Worktree, config: RepositoryConfig, disabled: boolean): Promise<EditorResult>;
   /** TIM-7: sequential trusted /bin/sh hooks; rejection retains workspace and blocks launch. */
-  runSetup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, io: CommandIO): Promise<void>;
+  runSetup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, io: CommandIO,
+    workflowName?: string, workflowScripts?: readonly string[]): Promise<void>;
   /** TIM-9: await the owned foreground child; null command skips launching. */
   launchAgent(worktree: Worktree, command: ExecutableCommand | null): Promise<AgentResult>;
 }
@@ -70,6 +74,7 @@ export interface CommandContext {
 
 export interface NewOptions {
   base?: string;
+  workflow?: string;
   /** False from --no-editor; undefined defers to config (off when unconfigured). */
   editor?: false;
   /** Explicit enable/disable; omission defers to agent.enabled. */
@@ -77,6 +82,7 @@ export interface NewOptions {
 }
 
 export interface OpenOptions {
+  workflow?: string;
   editor?: false;
   /** Explicitly rerun all setup steps for an existing worktree. */
   setup?: true;

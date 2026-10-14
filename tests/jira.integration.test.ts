@@ -196,6 +196,8 @@ function handlersFor(
     discoverRepository,
     loadConfig: loadRepositoryConfig,
     createWorktree,
+    readWorkflowAssociation: async () => ({ kind: "unassigned" } as const),
+    writeWorkflowAssociation: async () => {},
     runSetup: async (...args: Parameters<typeof runSetup>) => {
       if (lifecycle) lifecycle.setup += 1;
       return runSetup(...args);
