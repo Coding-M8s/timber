@@ -17,6 +17,35 @@
 15. CLI success means required Git/setup work completed. If editor/agent startup fails after creation, retain the workspace and explain how to retry. Editor launch success is process startup only: Timber returns promptly and does not report a later nonzero editor exit, even when editor args include `--wait`.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
 
+## Bash completion (TIM-23)
+
+`timber completion bash` prints the Bash completion script and works outside a
+Git repository without reading settings or writing startup files. Users may
+source it for the current session or save it under their own Bash completion
+directory. The generated script contains the query call; candidate-query output
+is NUL-delimited data and must never be sourced or evaluated as shell code.
+
+Command and option candidates come from the live Commander command tree. Target
+candidates come from a fresh, offline snapshot on every Tab press. `done`
+suggests registered non-primary worktree paths and unambiguous branch names,
+including dirty, locked, detached, and stale registered entries where their path
+is available. `open` also suggests local branches, worktree paths, and explicit
+names for cached remote refs. The primary worktree is never a `done` target;
+detached targets are identified by path. No target list is read from human
+`timber ls` output.
+
+Completion reads installed Git metadata only. It does not fetch, contact Git or
+Jira servers, inspect per-file worktree status, mutate refs/index/worktrees,
+read Timber settings, write first-use markers, run hooks, launch editors or
+agents, or invoke a chooser. Query errors, unavailable Git, inaccessible or
+missing repositories, and timeouts produce an empty quiet reply with no
+filesystem fallback. Suggestions are not a safety or openability assertion:
+normal commands re-resolve and revalidate the selected target, and stale
+entries can fail those checks. Completion preserves literal printable paths
+through Bash insertion; paths containing terminal control characters are
+omitted from display. It is Bash-only and does not complete `new`'s free-form
+branch name or values for `--base`.
+
 ## `new` branch input
 
 Quoted and unquoted sentence arguments are joined into the same raw input by the

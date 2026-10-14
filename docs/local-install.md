@@ -51,6 +51,33 @@ contain an older implementation.
    Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` once if that directory
    is not already on PATH in fresh terminals.
 
+   **Optional Bash completion.** In the current Bash session, run:
+
+   ```bash
+   source <(timber completion bash)
+   complete -p timber
+   ```
+
+   To save the generated script instead, create and source the standard
+   bash-completion directory yourself:
+
+   ```bash
+   mkdir -p "$HOME/.local/share/bash-completion/completions"
+   timber completion bash > "$HOME/.local/share/bash-completion/completions/timber"
+   source "$HOME/.local/share/bash-completion/completions/timber"
+   ```
+
+   The directory is a storage convention; automatic loading depends on your
+   Bash setup. You may add the source line above to `~/.bashrc` yourself. Timber
+   does not edit shell startup files. Regenerate the saved script after an
+   upgrade. Disable completion in the current shell with `complete -r timber`;
+   to remove persistent loading, remove your optional `.bashrc` line and delete
+   the saved script:
+
+   ```bash
+   rm "$HOME/.local/share/bash-completion/completions/timber"
+   ```
+
 4. **Configure machine defaults.** In a normal interactive terminal:
 
    ```bash

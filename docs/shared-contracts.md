@@ -14,6 +14,7 @@ a reviewed contract change first.
 | `src/types.ts` | Shared domain values for all lanes |
 | `src/services.ts` | Plain asynchronous command service functions |
 | `discoverRepository`, `listWorktrees` | TIM-1; TIM-4 extends worktree targeting |
+| `listWorktreeInventory`, `listCompletionTargets` | TIM-23; additive read-only completion seams |
 | `loadConfig` | TIM-6; TIM-18 adds validated repository/global scopes |
 | `resolveJiraTicket`, `findJiraSuggestions` | TIM-10 |
 | `resolveBranch`, `resolveBase` | TIM-2 |
@@ -97,6 +98,24 @@ remote branch creation.
 created outside Timber. Status is either known file lists or an explicit unknown
 reason. Count each modified/untracked file once when formatting TIM-14 output;
 unknown status must not appear clean. Missing/stale rows must remain visible.
+
+TIM-23's `WorktreeInventory` carries only Git registration metadata: absolute path,
+branch, head, primary, lock and prunable state. It does not stat worktree paths or
+claim file status. `listWorktreeInventory(repository, options)` shares the existing
+NUL porcelain parser with `listWorktrees`; the latter continues to inspect each row
+and return the full `Worktree` shape. `GitReadOptions.signal` is optional and is
+passed through Execa's `cancelSignal`; ordinary callers omit it. Completion creates
+one one-second signal for repository discovery, inventory and cached branch reads,
+sets `GIT_OPTIONAL_LOCKS=0`, and force-kills a child that ignores cancellation.
+The read path uses Git metadata only (`rev-parse`, `remote`, `symbolic-ref`,
+`worktree list` and `for-each-ref`): it never runs status scans, fetch, `ls-remote`,
+hooks, Timber configuration loading or worktree mutations. `done` offers registered
+non-primary paths and unique branch names; detached and ambiguous registrations
+remain selectable by absolute path. `open` offers registered paths, safe local
+branch names and explicit cached `<remote>/<branch>` selectors for every remote.
+If a local branch name begins with a configured remote prefix, completion omits
+that spelling as a local selector; a checked-out instance remains available by
+absolute path. Normal command resolution and cleanup safety remain authoritative.
 
 `RepositoryConfig` is the normalized 0.1 shape, extended by optional features in
 their owning tickets. Null base/remote/worktree directory

@@ -20,6 +20,14 @@ test("version works outside a repository and matches package metadata", async ()
   expect(result.stderr).toBe("");
 });
 
+test("unsupported completion shells fail with a normal actionable CLI diagnostic", async () => {
+  const result = await cli("completion", "fish");
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("error:");
+  expect(result.stderr).not.toContain("Before using Timber");
+});
+
 test("help succeeds on stdout and describes all implemented commands", async () => {
   const result = await cli("--help");
   expect(result.exitCode).toBe(0);

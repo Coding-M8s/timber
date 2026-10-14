@@ -6,6 +6,7 @@ import { checkExecutable } from "./setup/executable";
 import { inspectSetupTarget, saveSetupConfig } from "./setup/storage";
 import { launchAgent } from "./agent";
 import { placeholderHandlers, runCli } from "./cli";
+import { listCompletionTargets } from "./completion/targets";
 import { createDoneHandler } from "./commands/done";
 import { createListHandler } from "./commands/list";
 import { createNewHandler } from "./commands/new";
@@ -22,47 +23,56 @@ import { listWorktrees } from "./git/worktrees";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
 import { createTerminalChooser, shouldEnableInteractiveSelection } from "./selection";
 
-const choose = shouldEnableInteractiveSelection({
-  stdinIsTTY: process.stdin.isTTY === true,
-  stdoutIsTTY: process.stdout.isTTY === true,
-  ...(process.env.CI === undefined ? {} : { ci: process.env.CI }),
-}) ? createTerminalChooser(process.stdin, process.stdout) : undefined;
+const io = {
+  stdout: (text: string) => { process.stdout.write(text); },
+  stderr: (text: string) => { process.stderr.write(text); },
+};
 
-const ci = process.env.CI?.toLowerCase();
+if (process.argv[2] === "completion") {
+  process.exitCode = await runCli(process.argv.slice(2), {
+    context: { cwd: process.cwd(), io },
+    completion: { listTargets: listCompletionTargets },
+  });
+} else {
+  const choose = shouldEnableInteractiveSelection({
+    stdinIsTTY: process.stdin.isTTY === true,
+    stdoutIsTTY: process.stdout.isTTY === true,
+    ...(process.env.CI === undefined ? {} : { ci: process.env.CI }),
+  }) ? createTerminalChooser(process.stdin, process.stdout) : undefined;
 
-await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
+  const ci = process.env.CI?.toLowerCase();
 
-process.exitCode = await runCli(process.argv.slice(2), {
-  handlers: {
-    ...placeholderHandlers,
-    setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
-      prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
-    new: createNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
-      createWorktree, runSetup, launchEditor, launchAgent,
-    }),
-    open: createOpenHandler({
-      discoverRepository,
-      loadConfig: loadRepositoryConfig,
-      resolveOpenTarget,
-      createWorktree,
-      runSetup,
-      launchEditor,
-      launchAgent,
-    }),
-    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig }),
-    done: createDoneHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,
-    }),
-  },
-  context: {
-    cwd: process.cwd(),
-    interactive: process.stdin.isTTY === true && process.stdout.isTTY === true
-      && (!ci || ci === "0" || ci === "false"),
-    io: {
-      stdout: text => { process.stdout.write(text); },
-      stderr: text => { process.stderr.write(text); },
+  await showInstallationHint({ stdout: io.stdout, stderr: io.stderr });
+
+  process.exitCode = await runCli(process.argv.slice(2), {
+    handlers: {
+      ...placeholderHandlers,
+      setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
+        prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
+      new: createNewHandler({
+        discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
+        createWorktree, runSetup, launchEditor, launchAgent,
+      }),
+      open: createOpenHandler({
+        discoverRepository,
+        loadConfig: loadRepositoryConfig,
+        resolveOpenTarget,
+        createWorktree,
+        runSetup,
+        launchEditor,
+        launchAgent,
+      }),
+      list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig }),
+      done: createDoneHandler({
+        discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,
+      }),
     },
-    ...(choose ? { choose } : {}),
-  },
-});
+    context: {
+      cwd: process.cwd(),
+      interactive: process.stdin.isTTY === true && process.stdout.isTTY === true
+        && (!ci || ci === "0" || ci === "false"),
+      io,
+      ...(choose ? { choose } : {}),
+    },
+  });
+}

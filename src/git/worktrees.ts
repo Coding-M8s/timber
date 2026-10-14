@@ -1,11 +1,15 @@
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
-import type { RepositoryContext, Worktree, WorktreeStatus } from "../types";
+import type { GitReadOptions, RepositoryContext, Worktree, WorktreeInventory, WorktreeStatus } from "../types";
 
-async function runGit(cwd: string, args: readonly string[]) {
+async function runGit(cwd: string, args: readonly string[], options?: GitReadOptions) {
   return execa("git", [...args], {
     cwd, reject: false, env: { GIT_OPTIONAL_LOCKS: "0" },
+    ...(options?.signal === undefined ? {} : {
+      cancelSignal: options.signal,
+      forceKillAfterDelay: 250,
+    }),
   });
 }
 
@@ -175,14 +179,9 @@ async function inspectWorktree(tree: Worktree, repository: RepositoryContext): P
   return tree;
 }
 
-/** Git's inventory is authoritative; per-worktree failures remain visible as unknown rows. */
-export async function listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]> {
-  const result = await runGit(repository.currentWorktreeRoot, ["worktree", "list", "--porcelain", "-z"]);
-  if (result.exitCode !== 0) {
-    throw new Error("Cannot list Git worktrees; check repository access and that Git is installed.");
-  }
-  const trees: Worktree[] = [];
-  for (const record of result.stdout.split("\0\0")) {
+function parseWorktreeInventory(output: string, repository: RepositoryContext): WorktreeInventory[] {
+  const trees: WorktreeInventory[] = [];
+  for (const record of output.split("\0\0")) {
     if (!record) continue;
     const fields = record.split("\0");
     const pathField = fields[0];
@@ -190,10 +189,13 @@ export async function listWorktrees(repository: RepositoryContext): Promise<read
     const listedPath = pathField.slice("worktree ".length);
     // A separate Git directory is listed first instead of the primary working files.
     const isPrimary = trees.length === 0;
-    const tree: Worktree = {
-      path: isPrimary ? repository.primaryWorktreeRoot : listedPath,
-      branch: null, head: null, isPrimary, pathExists: false,
-      locked: null, prunable: null, status: { kind: "unknown", reason: "Not inspected" },
+    const tree: WorktreeInventory = {
+      path: isPrimary ? repository.primaryWorktreeRoot : resolve(repository.currentWorktreeRoot, listedPath),
+      branch: null,
+      head: null,
+      isPrimary,
+      locked: null,
+      prunable: null,
     };
     for (const field of fields.slice(1)) {
       if (field.startsWith("HEAD ")) {
@@ -209,5 +211,27 @@ export async function listWorktrees(repository: RepositoryContext): Promise<read
     }
     trees.push(tree);
   }
+  return trees;
+}
+
+/** Read Git's registration metadata without inspecting paths or their file status. */
+export async function listWorktreeInventory(
+  repository: RepositoryContext, options?: GitReadOptions,
+): Promise<readonly WorktreeInventory[]> {
+  const result = await runGit(repository.currentWorktreeRoot, ["worktree", "list", "--porcelain", "-z"], options);
+  if (result.exitCode !== 0) {
+    throw new Error("Cannot list Git worktrees; check repository access and that Git is installed.");
+  }
+  return parseWorktreeInventory(result.stdout, repository);
+}
+
+/** Git's inventory is authoritative; per-worktree failures remain visible as unknown rows. */
+export async function listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]> {
+  const inventory = await listWorktreeInventory(repository);
+  const trees: Worktree[] = inventory.map(tree => ({
+    ...tree,
+    pathExists: false,
+    status: { kind: "unknown", reason: "Not inspected" },
+  }));
   return Promise.all(trees.map(tree => inspectWorktree(tree, repository)));
 }

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { discoverRepository } from "../src/git/repository";
-import { assertOpenableWorktree, assertWorktreeIdentity, listWorktrees } from "../src/git/worktrees";
+import { assertOpenableWorktree, assertWorktreeIdentity, listWorktreeInventory, listWorktrees } from "../src/git/worktrees";
 import { git, withRepository } from "./helpers/git";
 
 test("reads all Git worktrees, counts filenames once, and preserves stale entries and repository state", async () => {
@@ -49,6 +49,35 @@ test("reads all Git worktrees, counts filenames once, and preserves stale entrie
     expect(await readFile(join(linked, "tracked.txt"), "utf8")).toBe("unstaged\n");
     expect(await readFile(join(linked, "untracked\tfile.txt"), "utf8")).toBe("keep\n");
     expect(await readFile(join(linked, ".env"), "utf8")).toBe("fixture only\n");
+  });
+});
+
+test("worktree inventory exposes registration metadata without status or filesystem inspection fields", async () => {
+  await withRepository(async (primary, directory) => {
+    const linked = join(directory, "inventory linked");
+    const detached = join(directory, "inventory detached");
+    const stale = join(directory, "inventory stale");
+    await git(primary, "worktree", "add", "-b", "inventory-feature", linked);
+    await git(primary, "worktree", "add", "--detach", detached);
+    await git(primary, "worktree", "add", "-b", "inventory-stale", stale);
+    await git(primary, "worktree", "lock", linked, "--reason", "inventory lock");
+    await rm(stale, { recursive: true });
+
+    const inventory = await listWorktreeInventory(await discoverRepository(linked));
+    expect(inventory).toHaveLength(4);
+    expect(inventory.find(tree => tree.isPrimary)).toEqual({
+      path: primary, branch: "trunk", head: expect.any(String), isPrimary: true, locked: null, prunable: null,
+    });
+    expect(inventory.find(tree => tree.path === linked)).toEqual({
+      path: linked, branch: "inventory-feature", head: expect.any(String), isPrimary: false,
+      locked: { reason: "inventory lock" }, prunable: null,
+    });
+    expect(inventory.find(tree => tree.path === detached)).toMatchObject({ branch: null, isPrimary: false });
+    expect(inventory.find(tree => tree.path === stale)?.prunable).not.toBeNull();
+    for (const tree of inventory) {
+      expect(tree).not.toHaveProperty("status");
+      expect(tree).not.toHaveProperty("pathExists");
+    }
   });
 });
 

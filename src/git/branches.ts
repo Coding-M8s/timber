@@ -1,12 +1,24 @@
 import { execa } from "execa";
-import type { Branch, RemoteBranch, RepositoryConfig, RepositoryContext, Resolution, ValidatedBase } from "../types";
+import type {
+  Branch, GitReadOptions, RemoteBranch, RepositoryConfig, RepositoryContext, Resolution, ValidatedBase,
+} from "../types";
 
 type RefRow = { ref: string; symbolic: string; upstream: string };
 
-async function git(repository: RepositoryContext, args: readonly string[], action: string): Promise<string> {
+async function git(
+  repository: RepositoryContext, args: readonly string[], action: string, options?: GitReadOptions,
+): Promise<string> {
   let result;
   try {
-    result = await execa("git", [...args], { cwd: repository.primaryWorktreeRoot, reject: false });
+    result = await execa("git", [...args], {
+      cwd: repository.primaryWorktreeRoot,
+      reject: false,
+      ...(options === undefined ? {} : { env: { GIT_OPTIONAL_LOCKS: "0" } }),
+      ...(options?.signal === undefined ? {} : {
+        cancelSignal: options.signal,
+        forceKillAfterDelay: 250,
+      }),
+    });
   } catch {
     throw new Error(`Could not ${action}: Git is unavailable.`);
   }
@@ -14,10 +26,10 @@ async function git(repository: RepositoryContext, args: readonly string[], actio
   return result.stdout;
 }
 
-async function refs(repository: RepositoryContext): Promise<readonly RefRow[]> {
+async function refs(repository: RepositoryContext, options?: GitReadOptions): Promise<readonly RefRow[]> {
   const output = await git(repository, [
     "for-each-ref", "--format=%(refname)%00%(symref)%00%(upstream)", "refs/heads", "refs/remotes",
-  ], "read branches");
+  ], "read branches", options);
   if (!output) return [];
   return output.split("\n").filter(Boolean).map(line => {
     const [ref, symbolic, upstream] = line.split("\0");
@@ -53,8 +65,10 @@ function branchRows(repository: RepositoryContext, rows: readonly RefRow[]): Bra
 }
 
 /** Read local and remote-tracking branches without fetching or selecting one. */
-export async function listBranches(repository: RepositoryContext): Promise<readonly Branch[]> {
-  return branchRows(repository, await refs(repository));
+export async function listBranches(
+  repository: RepositoryContext, options?: GitReadOptions,
+): Promise<readonly Branch[]> {
+  return branchRows(repository, await refs(repository, options));
 }
 
 /** Read advertised remote heads without fetching objects or changing any refs. */

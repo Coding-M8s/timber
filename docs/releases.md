@@ -35,6 +35,20 @@ creates these additional files:
 | `build-info.json` | Version, optional tag, source commit, dirty-source marker, Bun version, compile target |
 | `SHA256SUMS` | SHA-256 digests for executable and build metadata |
 
+The Bash completion generator and its query route are bundled in the executable;
+there is no separate script asset or runtime-only template. After building, run
+the Readline insertion suite against the artifact as well as the source entry:
+
+```bash
+TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v0.1.0-dev.0-linux-x64" \
+  bun test tests/completion-bash.test.ts
+```
+
+`TIMBER_COMPLETION_EXECUTABLE` is a test-harness selector, not a Timber CLI
+option. The test exercises actual completion-script generation and target
+queries through the executable in interactive Bash with real temporary Git
+repositories.
+
 `bun run build:release --outdir /absolute/temporary/output` builds into an
 alternate directory. Untagged development builds may contain uncommitted changes;
 `sourceDirty: true` explicitly marks that limitation. They do not establish a
@@ -187,6 +201,52 @@ Record each actual release's evidence here or in its reviewed release notes:
 | Integration evidence | Distinguish mocked HTTP, compiled stubs, and any actual live checks |
 | Team exercise | Participant/date, downloaded checksum, commands, results, unresolved bugs |
 | Publication | Owner publication and actual supported-platform statement |
+
+## Local Bash completion verification — 2026-10-14
+
+This was a development candidate, not a tagged release. The local release
+metadata recorded version `0.1.0-dev.0`, source commit
+`2444cf025b8be4f5a8a963d8f5ba28ba93a6c601`, `sourceDirty: true`, Bun `1.4.2`,
+and target `bun-linux-x64`. The build was run from a working tree containing
+the uncommitted Task 5 changes, including the Bash word-break query fix. The
+source and release Bash regression tests were then run against the resulting
+artifact. The dirty marker means this local artifact verified the working-tree
+snapshot rather than the final documentation commit.
+
+The verification environment was Pop!_OS 24.04 LTS, Linux x86_64 with glibc
+2.39, GNU Bash `5.2.21(1)-release`, Git `2.43.0`, and locale `C.UTF-8` for the
+interactive insertion tests. The release smoke also reported the same OS,
+architecture, libc, Git version, and executable version.
+
+- `bun run typecheck` exited 0.
+- `bun test` passed 623 tests across 47 files (3,752 assertions, 0 failures;
+  97.02 seconds).
+- `bun test tests/completion-bash.test.ts` passed 27 tests and 199 assertions
+  against the source entry point.
+- `TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v0.1.0-dev.0-linux-x64" bun test tests/completion-bash.test.ts`
+  passed the same 27 tests and 199 assertions against the compiled executable.
+  Both runs exercised actual Readline insertion, process substitution, the
+  saved completion file, real Git candidates, and literal metacharacter paths.
+  They also verified `feature=<Tab>` insertion when Bash splits `=` into
+  separate `COMP_WORDS` entries, and option completion after an earlier
+  equals-containing selector.
+- `bun run build:release` exited 0 and produced
+  `dist/release/timber-v0.1.0-dev.0-linux-x64`.
+- `python3 scripts/smoke-release.py --binary dist/release/timber-v0.1.0-dev.0-linux-x64 --expected-version 0.1.0-dev.0`
+  exited 0 with `"result": "passed"`. The executable SHA-256 was
+  `a374a78b4c8a8df660a765e32de939fd56b5910085f0806b4cff1a44c13704c3`.
+- `(cd dist/release && sha256sum -c SHA256SUMS)` exited 0; both the executable
+  and `build-info.json` reported `OK`. The build-info SHA-256 was
+  `ac81c1e9d05964067a62478f9f612a87802da2d2b2bd7c08da38450a62fdb32f`.
+- `git diff --check` exited 0.
+
+The smoke ran on a host with Bun installed, so it does not prove runtime-free
+execution. The isolated Docker gate was not run as part of this verification.
+Completion was exercised from primary, nested, linked, and detached repository
+directories; source and standalone insertion preserved spaces, quotes, dollar
+expressions, backticks, separators, backslashes, glob characters, equals signs,
+and Unicode literally. No startup state was created, and missing Git returned a
+quiet empty response without filesystem fallback.
 
 ## Local implementation verification — 2026-10-12
 

@@ -1,5 +1,7 @@
 import { Command, CommanderError } from "commander";
 import { version } from "../package.json";
+import { complete, completionCatalog, type CompletionServices } from "./completion/candidates";
+import { decodeBashInput, renderBashCompletion } from "./completion/bash";
 import { FormattedError, safeDiagnostic } from "./display";
 import type { CommandContext, CommandHandlers, NewOptions, OpenOptions } from "./services";
 import type { CleanupOptions } from "./types";
@@ -19,12 +21,18 @@ export const placeholderHandlers: CommandHandlers = {
 export interface CliDependencies {
   context: CommandContext;
   handlers?: CommandHandlers;
+  completion?: CompletionServices;
 }
 
-/** argv contains user arguments only. No process exit, terminal reads, or Git calls. */
-export async function runCli(argv: readonly string[], dependencies: CliDependencies): Promise<number> {
+interface ProgramState {
+  exitCode: number;
+}
+
+const programStates = new WeakMap<Command, ProgramState>();
+
+export function createProgram(dependencies: CliDependencies): Command {
   const { context, handlers = placeholderHandlers } = dependencies;
-  let exitCode = 0;
+  const state: ProgramState = { exitCode: 0 };
   const program = new Command()
     .name("timber")
     .version(version)
@@ -54,7 +62,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
         ...(options.editor === false ? { editor: false as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      exitCode = (await handlers.new(branch.join(" "), normalized, context)) ?? 0;
+      state.exitCode = (await handlers.new(branch.join(" "), normalized, context)) ?? 0;
     });
 
   agentOptions(program.command("open <input>"))
@@ -67,7 +75,7 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
         ...(options.setup === true ? { setup: true as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      exitCode = (await handlers.open(input, normalized, context)) ?? 0;
+      state.exitCode = (await handlers.open(input, normalized, context)) ?? 0;
     });
 
   program.command("setup")
@@ -99,9 +107,54 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
       return handlers.done(input, normalized, context);
     });
 
+  const completion = program.command("completion").description("Generate shell completion scripts");
+  completion.command("bash")
+    .description("Print the Bash completion script")
+    .action(() => context.io.stdout(renderBashCompletion()));
+
+  const query = completion.command("__query [args...]", { hidden: true })
+    .description("Internal Bash completion lookup")
+    .helpOption(false)
+    .allowUnknownOption()
+    .allowExcessArguments();
+  query.action(async (args: string[]) => {
+    try {
+      const [cwordText, pointText, line, wordbreaks, ...words] = args;
+      if (cwordText === undefined || pointText === undefined || line === undefined || wordbreaks === undefined
+        || !/^(0|[1-9][0-9]*)$/.test(cwordText) || !/^(0|[1-9][0-9]*)$/.test(pointText)) return;
+      const cword = Number(cwordText);
+      const point = Number(pointText);
+      if (!Number.isSafeInteger(cword) || !Number.isSafeInteger(point) || cword < 1) return;
+      const decoded = decodeBashInput({ cword, point, line, wordbreaks, words });
+      // COMP_CWORD indexes Bash's word-break-aware COMP_WORDS; decoding COMP_LINE can yield fewer words.
+      if (!decoded) return;
+
+      const candidates = await complete({
+        cwd: context.cwd,
+        words: decoded.words.slice(1),
+        current: decoded.current,
+      }, completionCatalog(program), dependencies.completion ?? { listTargets: async () => [] });
+      const safeCandidates = [...new Set(candidates.filter(value => value.length > 0
+        && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)))];
+      for (const candidate of safeCandidates) context.io.stdout(`${candidate}\0`);
+    } catch {
+      // Completion is an interactive wire protocol; failures must not print CLI diagnostics.
+    }
+  });
+
+  programStates.set(program, state);
+  return program;
+}
+
+/** argv contains user arguments only. No process exit, terminal reads, or Git calls. */
+export async function runCli(argv: readonly string[], dependencies: CliDependencies): Promise<number> {
+  const { context } = dependencies;
+  const program = createProgram(dependencies);
+  const state = programStates.get(program)!;
+
   try {
     await program.parseAsync(argv.length === 0 ? ["--help"] : [...argv], { from: "user" });
-    return exitCode;
+    return state.exitCode;
   } catch (error) {
     // Commander already wrote help or its diagnostic to the configured stream.
     if (error instanceof CommanderError) return error.exitCode;
