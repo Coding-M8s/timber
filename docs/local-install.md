@@ -51,6 +51,15 @@ contain an older implementation.
    Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` once if that directory
    is not already on PATH in fresh terminals.
 
+   To activate Bash completion in this terminal:
+
+   ```bash
+   source <(timber completion bash)
+   ```
+
+   See the [Bash completion guide](completion.md) for saving the script and
+   manually enabling it in future terminals. No startup files are modified.
+
 4. **Configure machine defaults.** In a normal interactive terminal:
 
    ```bash

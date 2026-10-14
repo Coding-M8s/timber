@@ -343,6 +343,20 @@ characters in paths are escaped so each worktree occupies one row.
 Listing works offline and requires no `.timber.toml`. It does not fetch, prune,
 refresh the index, open an editor, launch an agent, or change files or refs.
 
+## Bash tab completion
+
+Activate command, flag, and worktree completion in the current Bash session:
+
+```bash
+source <(timber completion bash)
+```
+
+`open` suggests worktrees and local/cached remote branches; `done` suggests
+linked worktrees, including detached paths. Completion stays offline and reads
+fresh Git metadata on every Tab. Dirty targets remain visible, and normal
+cleanup checks still apply when you execute `done`. Timber does not edit shell
+startup files. See [activation, installation, and verified environment](docs/completion.md).
+
 ## Repository configuration
 
 Timber reads `.timber.toml` from the primary worktree root and machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml` on Linux. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent configuration from 0.1 also supports opt-in foreground launching in 0.2; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.

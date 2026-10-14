@@ -22,7 +22,8 @@ import { listWorktrees } from "./git/worktrees";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
 import { createTerminalChooser, shouldEnableInteractiveSelection } from "./selection";
 
-const choose = shouldEnableInteractiveSelection({
+const completing = process.argv[2] === "completion" || process.argv[2] === "__complete";
+const choose = !completing && shouldEnableInteractiveSelection({
   stdinIsTTY: process.stdin.isTTY === true,
   stdoutIsTTY: process.stdout.isTTY === true,
   ...(process.env.CI === undefined ? {} : { ci: process.env.CI }),
@@ -30,7 +31,9 @@ const choose = shouldEnableInteractiveSelection({
 
 const ci = process.env.CI?.toLowerCase();
 
-await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
+if (!completing) {
+  await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
+}
 
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
