@@ -598,8 +598,10 @@ jira = false
 
 `[agent]` with a command and `enabled = false` disables automatic launch but
 keeps `--agent` available. `agent = false` removes the inherited command. Both
-files must be valid, including values overridden by the other scope. Empty valid
-settings suppress the recurring missing-settings reminder.
+files must be valid, including values overridden by the other scope. Missing
+settings use built-in defaults. The first-use setup hint appears once; normal
+commands do not repeat it. Explicit `--agent` without an agent configured explains
+how to run setup before creating or opening a workspace.
 
 Local setup writes the primary checkout's `.timber.toml`, including from linked
 worktrees, and excludes it through Git-local `info/exclude`. It preserves shared
@@ -618,3 +620,6 @@ changes when safe; after publication setup reports saved state. A hard crash can
 leave an extra ignore entry. External ignore-rule edits can change visibility
 after setup's check. First-use markers live under
 `${XDG_STATE_HOME:-$HOME/.local/state}/timber/`, outside repositories.
+
+To replace a development `bun link` with this branch's standalone executable,
+follow the [local installation and smoke-test guide](docs/local-install.md).

@@ -10,7 +10,7 @@ export function resolveAgentCommand(
 ): ExecutableCommand | null {
   if (!(enabled ?? config.agent?.enabled ?? false)) return null;
   if (config.agent === null) {
-    throw new Error("Configure [agent] command and args in the primary repository's .timber.toml before using --agent.");
+    throw new Error("Configure an agent before using --agent. Run timber setup in this repository or timber setup --global for machine defaults.");
   }
   if (!interactive) {
     if (enabled === true) throw new Error("--agent requires an interactive stdin/stdout terminal with CI disabled. Use --no-agent for unattended commands.");

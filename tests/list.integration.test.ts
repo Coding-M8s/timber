@@ -25,7 +25,7 @@ test("timber ls works offline from nested and linked paths and preserves real Gi
     await writeFile(join(linked, "tracked.txt"), "unstaged fixture\n");
     await writeFile(join(linked, "untracked.txt"), "preserve\n");
     await writeFile(join(linked, ".env"), "ignored fixture\n");
-    // A minimal valid config suppresses setup reminders without enabling tools.
+    // A minimal valid config enables no optional tools.
     await writeFile(join(primary, ".timber.toml"), "# Optional features off\n");
     const nested = join(primary, "nested");
     const linkedNested = join(linked, "nested");

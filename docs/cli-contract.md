@@ -253,10 +253,12 @@ with an incomplete-rollback diagnostic. Publication is the commit point; later
 interrupts finish cleanup and report saved state. An uncatchable crash can leave
 an extra exclusion entry; the two paths are not one atomic transaction.
 
-The first CLI invocation prints installation guidance, using a best-effort marker
-under `${XDG_STATE_HOME:-$HOME/.local/state}/timber/` outside repositories. Ordinary
-repository commands append a stderr setup reminder when both validated config
-files are absent; even an empty valid config suppresses it. `ls` now validates
-configuration while remaining offline and read-only. Help/setup and discovery or
-configuration errors do not emit a missing-settings reminder. Reminders never
-start setup, block CI, or change command exit status.
+The first CLI invocation prints installation guidance once, recording a marker
+under `${XDG_STATE_HOME:-$HOME/.local/state}/timber/` outside repositories. If that
+marker already exists or cannot be written, skip the hint; state errors never
+change command results or produce repeated noise. Ordinary commands do not
+repeat the setup hint when settings are absent. Explicit `--agent` without a
+configured agent fails before mutation and points to local/global setup.
+Malformed configuration still reports its actionable error. `ls` validates both
+scopes while remaining offline and read-only. Guidance never starts setup or
+blocks CI implicitly.

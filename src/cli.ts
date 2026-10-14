@@ -1,4 +1,3 @@
-import { missingSettingsReminder } from "./guidance";
 import { Command, CommanderError } from "commander";
 import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
@@ -24,9 +23,7 @@ export interface CliDependencies {
 
 /** argv contains user arguments only. No process exit, terminal reads, or Git calls. */
 export async function runCli(argv: readonly string[], dependencies: CliDependencies): Promise<number> {
-  const { handlers = placeholderHandlers } = dependencies;
-  const context: CommandContext = { ...dependencies.context };
-  delete context.settingsMissing;
+  const { context, handlers = placeholderHandlers } = dependencies;
   let exitCode = 0;
   const program = new Command()
     .name("timber")
@@ -115,7 +112,5 @@ export async function runCli(argv: readonly string[], dependencies: CliDependenc
       : safeDiagnostic(message);
     context.io.stderr(`error: ${rendered}\n`);
     return 1;
-  } finally {
-    if (context.settingsMissing) context.io.stderr(`${missingSettingsReminder}\n`);
   }
 }

@@ -42,7 +42,7 @@ test("new from nested directory creates branch and sibling worktree at base comm
     const target = join(directory, "primary repo-worktrees", "feature-one");
 
     const result = await cli(nested, "feature/one");
-    expect(result.stderr).toContain("No Timber settings found.");
+    expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(`Created feature/one at ${target}`);
     expect(await git(primary, "rev-parse", "refs/heads/feature/one")).toBe(base);
@@ -78,7 +78,7 @@ test("new creates a normalized sentence branch at its safe path from the selecte
     );
 
     expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain("No Timber settings found.");
+    expect(result.stderr).toBe("");
     expect(result.stdout).toBe(`Created investigate-slow-api-usage-page at ${target}`);
     expect(await git(primary, "rev-parse", "refs/heads/investigate-slow-api-usage-page")).toBe(base);
     expect(await git(target, "rev-parse", "HEAD")).toBe(base);

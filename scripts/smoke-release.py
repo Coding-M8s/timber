@@ -42,8 +42,6 @@ def smoke(binary, expected, lab):
                XDG_STATE_HOME=str(home / ".local/state"))
     install_hint = ("Before using Timber, run `timber setup` inside your repository, "
                     "or `timber setup --global` to configure defaults for this machine.\n")
-    setup_reminder = ("No Timber settings found. Run `timber setup` in this repository "
-                      "or `timber setup --global` to configure editor, agent, hooks, and Jira options.\n")
     templates = lab / "empty-template"
     templates.mkdir()
     env["GIT_TEMPLATE_DIR"] = str(templates)
@@ -78,9 +76,7 @@ def smoke(binary, expected, lab):
     def cli(*args, cwd=primary, code=0, extra=None):
         result = run([binary, *args], cwd, {**env, **(extra or {})}, code)
         if code == 0:
-            has_settings = (primary / ".timber.toml").exists() or (home / ".config/timber/config.toml").exists()
-            expected_stderr = "" if has_settings else setup_reminder
-            check(result.stderr == expected_stderr, f"Unexpected stderr: {result.stderr}")
+            check(not result.stderr, f"Unexpected stderr: {result.stderr}")
         else:
             check(result.stderr, "Failure did not explain the problem")
         return result

@@ -20,41 +20,35 @@ test("installation fallback appears once with a marker outside repositories", as
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("unwritable installation marker does not reject CLI guidance", async () => {
+test("unwritable installation marker never turns a one-time hint into repeated noise", async () => {
   const root = await mkdtemp(join(tmpdir(), "timber-hint-failure-"));
   try {
     await writeFile(join(root, "blocked"), "file");
     let stderr = "";
     await showInstallationHint({ stdout: () => {}, stderr: text => { stderr += text; } }, { HOME: root, XDG_STATE_HOME: join(root, "blocked") });
-    expect(stderr).toContain("Before using Timber");
+    await showInstallationHint({ stdout: () => {}, stderr: text => { stderr += text; } }, { HOME: root, XDG_STATE_HOME: join(root, "blocked") });
+    expect(stderr).toBe("");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-for (const presence of [[false, false], [true, false], [false, true]] as const) {
-  test(`normal command reminder follows human output and respects scoped presence ${presence}`, async () => {
-    let stdout = ""; let stderr = ""; const order: string[] = [];
-    const config = { baseBranch: null, remote: null, worktreeDir: null, editor: null, agent: null };
-    const services = createServiceDouble({ discoverRepository: async () => repositoryFixture(),
-      loadCommandConfig: async () => ({ config, localExists: presence[0], globalExists: presence[1] }),
-      listWorktrees: async () => [worktreeFixture()] });
-    const handlers = { ...placeholderHandlers, list: createListHandler(services) };
-    const context = { cwd: "/repo", io: { stdout: (text: string) => { stdout += text; order.push("out"); },
-      stderr: (text: string) => { stderr += text; order.push("err"); } } };
-    expect(await runCli(["ls"], { handlers, context })).toBe(0);
-    if (!presence[0] && !presence[1]) {
-      expect(stderr).toContain("No Timber settings found");
-      expect(order.at(-1)).toBe("err");
-      expect(await runCli(["ls"], { handlers, context })).toBe(0);
-      expect(stderr.match(/No Timber settings found/g)).toHaveLength(2);
-    } else expect(stderr).toBe("");
-    expect(stdout).toContain("WORKTREE");
-  });
-}
+test("ordinary commands remain quiet across invocations when settings are absent", async () => {
+  let stdout = ""; let stderr = "";
+  const config = { baseBranch: null, remote: null, worktreeDir: null, editor: null, agent: null };
+  const services = createServiceDouble({ discoverRepository: async () => repositoryFixture(),
+    loadConfig: async () => config, listWorktrees: async () => [worktreeFixture()] });
+  const handlers = { ...placeholderHandlers, list: createListHandler(services) };
+  const context = { cwd: "/repo", io: { stdout: (text: string) => { stdout += text; },
+    stderr: (text: string) => { stderr += text; } } };
+  expect(await runCli(["ls"], { handlers, context })).toBe(0);
+  expect(await runCli(["ls"], { handlers, context })).toBe(0);
+  expect(stderr).toBe("");
+  expect(stdout).toContain("WORKTREE");
+});
 
 test("invalid settings produce only the actionable config error", async () => {
   let stderr = "";
   const services = createServiceDouble({ discoverRepository: async () => repositoryFixture(),
-    loadCommandConfig: async () => { throw new Error("Invalid TOML in /repo/.timber.toml"); } });
+    loadConfig: async () => { throw new Error("Invalid TOML in /repo/.timber.toml"); } });
   expect(await runCli(["ls"], { handlers: { ...placeholderHandlers, list: createListHandler(services) },
     context: { cwd: "/repo", io: { stdout: () => { throw new Error("unexpected listing"); }, stderr: text => { stderr += text; } } } })).toBe(1);
   expect(stderr).toContain("Invalid TOML");

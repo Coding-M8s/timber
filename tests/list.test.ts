@@ -14,7 +14,7 @@ async function list(trees: readonly Worktree[], overrides: Partial<CommandServic
       expect(cwd).toBe("/repo-worktrees/feature/nested");
       return repository;
     },
-    loadCommandConfig: async () => ({ config: { baseBranch: null, remote: null, worktreeDir: null, editor: null, agent: null }, localExists: true, globalExists: false }),
+    loadConfig: async () => ({ baseBranch: null, remote: null, worktreeDir: null, editor: null, agent: null }),
     listWorktrees: async context => {
       expect(context).toBe(repository);
       return trees;

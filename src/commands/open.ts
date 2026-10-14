@@ -1,4 +1,3 @@
-import { commandConfig } from "../guidance";
 import { resolveAgentCommand, reportAgentResult } from "../agent";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
@@ -107,14 +106,14 @@ function branchRequest(branch: Branch) {
 /** Resolve an existing target, create only a selected branch, then optionally start its editor. */
 export function createOpenHandler(
   services: Pick<CommandServices,
-    "discoverRepository" | "loadCommandConfig" | "resolveOpenTarget" | "createWorktree" |
+    "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" |
     "runSetup" | "launchEditor" | "launchAgent">,
 ): CommandHandlers["open"] {
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
 
     const repository = await services.discoverRepository(context.cwd);
-    const config = commandConfig(await services.loadCommandConfig(repository), context);
+    const config = await services.loadConfig(repository);
     const agentCommand = resolveAgentCommand(config, options.agent, context.interactive === true);
     const resolution = await services.resolveOpenTarget(repository, input, config, { discoverRemote: true });
 

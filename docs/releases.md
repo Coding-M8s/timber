@@ -84,8 +84,8 @@ group exercises real shell hooks and retry, literal launch arguments, foreground
 agent exits/interrupts, CI behavior, and retained-state startup failures.
 Ignored-file defaults and runtime autoload isolation are checked explicitly.
 The verifier uses disposable HOME/XDG configuration and state folders, checks
-first-invocation setup guidance and its external marker, then expects the recurring
-missing-settings reminder only while both config scopes are absent. It checks
+first-invocation setup guidance and its external marker, then requires ordinary
+commands to stay quiet even while both config scopes are absent. It checks
 setup help and noninteractive refusal without partial settings writes. Before
 using an installed executable, run `timber setup` in your repository or
 `timber setup --global` for machine defaults.

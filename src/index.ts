@@ -10,7 +10,7 @@ import { createDoneHandler } from "./commands/done";
 import { createListHandler } from "./commands/list";
 import { createNewHandler } from "./commands/new";
 import { createOpenHandler } from "./commands/open";
-import { loadCommandConfig } from "./config";
+import { loadRepositoryConfig } from "./config";
 import { launchEditor } from "./editor";
 import { runSetup } from "./hooks";
 import { resolveBase } from "./git/branches";
@@ -38,21 +38,21 @@ process.exitCode = await runCli(process.argv.slice(2), {
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
-      discoverRepository, loadCommandConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
       createWorktree, runSetup, launchEditor, launchAgent,
     }),
     open: createOpenHandler({
       discoverRepository,
-      loadCommandConfig,
+      loadConfig: loadRepositoryConfig,
       resolveOpenTarget,
       createWorktree,
       runSetup,
       launchEditor,
       launchAgent,
     }),
-    list: createListHandler({ discoverRepository, listWorktrees, loadCommandConfig }),
+    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig }),
     done: createDoneHandler({
-      discoverRepository, loadCommandConfig, resolveOpenTarget, cleanupWorktree,
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,
     }),
   },
   context: {

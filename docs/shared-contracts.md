@@ -14,7 +14,7 @@ a reviewed contract change first.
 | `src/types.ts` | Shared domain values for all lanes |
 | `src/services.ts` | Plain asynchronous command service functions |
 | `discoverRepository`, `listWorktrees` | TIM-1; TIM-4 extends worktree targeting |
-| `loadConfig`, `loadCommandConfig` | TIM-6; TIM-18 adds validated scopes and presence |
+| `loadConfig` | TIM-6; TIM-18 adds validated repository/global scopes |
 | `resolveJiraTicket`, `findJiraSuggestions` | TIM-10 |
 | `resolveBranch`, `resolveBase` | TIM-2 |
 | `resolveOpenTarget` | TIM-4 |
@@ -290,13 +290,13 @@ with open; agent recovery uses the same control-character escaping.
 
 ## TIM-18 configuration and setup contract
 
-`LoadedCommandConfig` contains `config: RepositoryConfig`, `localExists`, and
-`globalExists`. `loadCommandConfig(repository)` derives all three from one
-validated repository/global read. Each of new/open/list/done consumes that seam,
-passes the normalized config to existing Git/launch services, and records absence
-for an end-of-response reminder. `loadRepositoryConfig` remains a compatibility
-wrapper returning `RepositoryConfig`. Config bytes and sparse scope data remain
-private to setup; no raw source enters diagnostics or runtime domain models.
+`loadConfig(repository)` uses `loadRepositoryConfig` to validate and resolve
+repository/global settings into `RepositoryConfig`. All four worktree commands
+use this existing seam; Git and launch services receive the normalized model.
+Config bytes and sparse scope data remain private to setup. Normal commands have
+no config-presence wrapper, reminder state, or end-of-response setup message.
+The entry point owns a one-time hint using machine state outside repositories;
+an explicit request for an unconfigured agent produces actionable setup guidance.
 
 The [CLI contract](cli-contract.md#repository-configuration) defines global
 precedence, whole-table replacement, and root-level false integration disables.

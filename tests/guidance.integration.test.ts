@@ -7,7 +7,7 @@ import { git, withRepository } from "./helpers/git";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
-test("first-use fallback, all four command reminders, and empty scoped configs work through the real CLI", async () => {
+test("first-use hint appears once and ordinary commands remain quiet without any configuration", async () => {
   await withRepository(async (primary, directory) => {
     await git(primary, "branch", "-m", "main");
     const env = { CI: "true", HOME: directory, XDG_CONFIG_HOME: join(directory, "machine/config"),
@@ -23,10 +23,14 @@ test("first-use fallback, all four command reminders, and empty scoped configs w
     for (const args of [["ls"], ["new", "feature", "--no-editor"], ["open", "feature", "--no-editor"], ["done", "feature", "--keep-branch"]]) {
       const result = await cli(...args);
       expect(result.exitCode).toBe(0);
-      expect(result.stderr).toStartWith("No Timber settings found.");
-      expect(result.stderr).not.toContain("Before using Timber");
+      expect(result.stderr).toBe("");
       expect(result.stdout.length).toBeGreaterThan(0);
     }
+    expect((await cli("ls")).stderr).toBe("");
+    const required = await cli("open", "main", "--agent", "--no-editor");
+    expect(required.exitCode).toBe(1);
+    expect(required.stderr).toContain("timber setup");
+    expect(required.stderr).not.toContain("Before using Timber");
     await mkdir(join(directory, "machine/config/timber"), { recursive: true });
     const globalPath = join(directory, "machine/config/timber/config.toml");
     await writeFile(globalPath, "# deliberately minimal defaults\n");
