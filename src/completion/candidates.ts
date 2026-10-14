@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { listBranches } from "../git/branches";
 import { discoverRepository } from "../git/repository";
 import { listWorktreeInventory } from "../git/worktrees";
+import type { GitReadOptions } from "../types";
 
 export interface CompletionRequest {
   cwd: string;
@@ -17,16 +18,23 @@ function filtered(values: readonly string[], prefix: string): string[] {
 /** Raw selectors, independent of any shell's quoting or transport protocol. */
 async function repositoryCandidates(cwd: string, mode: "open" | "done" | "base"): Promise<string[]> {
   try {
-    const repository = await discoverRepository(cwd);
-    const trees = mode === "base" ? [] : await listWorktreeInventory(repository);
+    // One deadline for the whole lookup keeps a stalled Git from hanging the Tab press.
+    const options: GitReadOptions = { signal: AbortSignal.timeout(1000) };
+    const repository = await discoverRepository(cwd, options);
+    const trees = mode === "base" ? [] : await listWorktreeInventory(repository, options);
     const isRemoteSelector = (name: string) => repository.remotes.some(remote => name.startsWith(remote.name + "/"));
-    const primaryBranches = new Set(trees.filter(tree => tree.isPrimary).map(tree => tree.branch));
+    const registrations = new Map<string, number>();
+    for (const tree of trees) {
+      if (tree.branch !== null) registrations.set(tree.branch, (registrations.get(tree.branch) ?? 0) + 1);
+    }
+    // A branch registered in several worktrees is ambiguous; only its paths identify one.
     const values = trees.filter(tree => mode !== "done" || !tree.isPrimary)
       .flatMap(tree => tree.branch === null || isRemoteSelector(tree.branch)
-        || (mode === "done" && primaryBranches.has(tree.branch)) ? [tree.path] : [tree.path, tree.branch]);
+        || registrations.get(tree.branch) !== 1 ? [tree.path] : [tree.path, tree.branch]);
     if (mode !== "done") {
-      values.push(...(await listBranches(repository)).flatMap(branch => {
+      values.push(...(await listBranches(repository, options)).flatMap(branch => {
         if (branch.kind === "remote") return [branch.remote + "/" + branch.name];
+        if ((registrations.get(branch.name) ?? 0) > 1) return [];
         // Normal resolution reserves remote/name for explicit remote selectors.
         // Base resolution also accepts full refs; open uses absolute tree paths.
         if (isRemoteSelector(branch.name) || (mode === "base" && branch.name.startsWith("refs/"))) {
@@ -62,9 +70,9 @@ export async function completionCandidates(program: Command, request: Completion
     if (!endOptions && word === "--") { endOptions = true; continue; }
     if (!endOptions && word.startsWith("-")) {
       const flag = word.split("=")[0];
+      // An unknown flag is a parse error at execution, not a reason to stop suggesting.
       const option = options.find(option => option.long === flag || option.short === flag);
-      if (!option) return [];
-      expectingValue = (option.required || option.optional) && !word.includes("=");
+      expectingValue = option !== undefined && (option.required || option.optional) && !word.includes("=");
     } else {
       operands++;
     }

@@ -53,9 +53,11 @@ export function parseBashCompletion(
       replacementPrefix = "";
       hasExpansion = false;
     } else {
+      // Tilde expands only at the start of a word or of an assignment-like value.
+      const tildePrefix = character === "~" && (word === "" || word.endsWith("=") || word.endsWith(":"));
+      if (tildePrefix || "$!*?[{".includes(character) || character === String.fromCharCode(96)) hasExpansion = true;
       word += character;
       started = true;
-      if ("$!*?[{~".includes(character) || character === String.fromCharCode(96)) hasExpansion = true;
       if (wordBreaks.includes(character)) replacementPrefix = word;
     }
   }

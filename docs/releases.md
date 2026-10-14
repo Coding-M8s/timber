@@ -35,6 +35,15 @@ creates these additional files:
 | `build-info.json` | Version, optional tag, source commit, dirty-source marker, Bun version, compile target |
 | `SHA256SUMS` | SHA-256 digests for executable and build metadata |
 
+The Bash completion generator and its query route are bundled in the executable;
+there is no separate script asset. After building, run the Bash suite against the
+artifact as well as the source entry:
+
+```bash
+TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v0.1.0-dev.0-linux-x64" \
+  bun test tests/completion-bash.test.ts
+```
+
 `bun run build:release --outdir /absolute/temporary/output` builds into an
 alternate directory. Untagged development builds may contain uncommitted changes;
 `sourceDirty: true` explicitly marks that limitation. They do not establish a

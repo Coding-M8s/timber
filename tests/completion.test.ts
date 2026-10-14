@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { createCli, runCli } from "../src/cli";
+import { parseBashCompletion } from "../src/completion/bash";
 import { completionCandidates } from "../src/completion/candidates";
 import { candidates } from "./helpers/completion";
 
@@ -25,6 +26,7 @@ test("unknown commands, extra operands and nonrepository target requests are qui
     expect(await candidates(line)).toEqual([]);
   }
   expect(await candidates("timber open first --no-")).toEqual(["--no-agent", "--no-editor"]);
+  expect(await candidates("timber open --typo --no-")).toEqual(["--no-agent", "--no-editor"]);
   expect(await candidates("timber open -- --")).toEqual([]);
 });
 
@@ -51,6 +53,17 @@ test("candidate discovery follows additions to Commander definitions", async () 
   program.command("inspect").option("--details", "Test metadata discovery");
   expect(await completionCandidates(program, { cwd: tmpdir(), words: [], prefix: "in" })).toEqual(["inspect"]);
   expect(await completionCandidates(program, { cwd: tmpdir(), words: ["inspect"], prefix: "--" })).toEqual(["--details", "--help"]);
+});
+
+test("Bash parser keeps mid-word literals and declines only expanding positions", () => {
+  for (const line of ["timber open issue#12", "timber open a~b", "timber open 'x'~", "timber open a}b"]) {
+    const parsed = parseBashCompletion(line);
+    expect(parsed.hasExpansion, line).toBe(false);
+    expect(parsed.prefix, line).toBe(line.replace("timber open ", "").replaceAll("'", ""));
+  }
+  for (const line of ["timber open ~", "timber open ~user/x", "timber open x=~", "timber open x:~", "timber open a{b"]) {
+    expect(parseBashCompletion(line).hasExpansion, line).toBe(true);
+  }
 });
 
 test("shell line continuations do not introduce empty arguments", async () => {

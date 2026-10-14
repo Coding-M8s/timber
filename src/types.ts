@@ -8,6 +8,11 @@ export interface RepositoryContext {
   remotes: readonly Remote[];
 }
 
+/** Optional cancellation for bounded, read-only Git discovery. */
+export interface GitReadOptions {
+  signal?: AbortSignal;
+}
+
 export interface Remote {
   name: string;
   /** Full remote-tracking ref, e.g. refs/remotes/upstream/main; null if unknown. */
@@ -48,6 +53,9 @@ export interface Worktree {
   prunable: { reason: string | null } | null;
   status: WorktreeStatus;
 }
+
+/** Git registration metadata only; does not claim filesystem existence or file status. */
+export type WorktreeInventory = Omit<Worktree, "status" | "pathExists">;
 
 /** Validated existing commit, not an unchecked user-provided base string. */
 export interface ValidatedBase {
