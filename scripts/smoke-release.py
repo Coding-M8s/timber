@@ -34,6 +34,16 @@ def smoke(binary, expected, lab):
                GIT_AUTHOR_NAME="Timber Smoke", GIT_COMMITTER_NAME="Timber Smoke",
                GIT_AUTHOR_EMAIL="smoke@example.invalid",
                GIT_COMMITTER_EMAIL="smoke@example.invalid")
+    # Release verification must not consume machine defaults or write the user's
+    # actual first-use marker. Fresh state also verifies first-invocation guidance.
+    home = lab / "home"
+    home.mkdir()
+    env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"),
+               XDG_STATE_HOME=str(home / ".local/state"))
+    install_hint = ("Before using Timber, run `timber setup` inside your repository, "
+                    "or `timber setup --global` to configure defaults for this machine.\n")
+    setup_reminder = ("No Timber settings found. Run `timber setup` in this repository "
+                      "or `timber setup --global` to configure editor, agent, hooks, and Jira options.\n")
     templates = lab / "empty-template"
     templates.mkdir()
     env["GIT_TEMPLATE_DIR"] = str(templates)
@@ -45,10 +55,16 @@ def smoke(binary, expected, lab):
     version = subprocess.run([str(binary), "--version"], cwd=lab, env=env,
                              capture_output=True, text=True, timeout=5)
     check(version.returncode == 0, "Version command failed")
-    check(version.stdout == expected + "\n" and not version.stderr, "Version mismatch")
-    for args in ([], ["--help"], *([name, "--help"] for name in ("new", "open", "ls", "done"))):
+    check(version.stdout == expected + "\n", "Version mismatch")
+    check(version.stderr == install_hint, "First-invocation setup guidance failed")
+    check((home / ".local/state/timber/setup-hint-shown").is_file(),
+          "First-use marker was not stored outside the repository")
+    for args in ([], ["--help"], *([name, "--help"] for name in ("new", "open", "ls", "done", "setup"))):
         result = run([binary, *args], lab, env)
         check("Usage: timber" in result.stdout and not result.stderr, "Help output failed")
+    setup = run([binary, "setup", "--global"], lab, env, 1)
+    check("interactive terminal" in setup.stderr, "Noninteractive setup did not explain how to proceed")
+    check(not (home / ".config/timber/config.toml").exists(), "Noninteractive setup wrote settings")
     run([binary, "unknown"], lab, env, 1)
     run([binary, "ls"], lab, env, 1)
 
@@ -62,7 +78,9 @@ def smoke(binary, expected, lab):
     def cli(*args, cwd=primary, code=0, extra=None):
         result = run([binary, *args], cwd, {**env, **(extra or {})}, code)
         if code == 0:
-            check(not result.stderr, f"Unexpected stderr: {result.stderr}")
+            has_settings = (primary / ".timber.toml").exists() or (home / ".config/timber/config.toml").exists()
+            expected_stderr = "" if has_settings else setup_reminder
+            check(result.stderr == expected_stderr, f"Unexpected stderr: {result.stderr}")
         else:
             check(result.stderr, "Failure did not explain the problem")
         return result

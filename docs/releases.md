@@ -44,7 +44,8 @@ in the recorded local verification; check hashes again for each release.
 
 The executable bundles its runtime and dependencies. Its build disables automatic
 `.env` and `bunfig.toml` loading. Export credentials into the invoking process;
-Timber itself reads only primary-root `.timber.toml`. Bun's source runner has
+Timber itself reads primary-root `.timber.toml` and machine defaults from
+`${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml`. Bun's source runner has
 different autoload defaults; use `bun --no-env-file` for source invocations.
 See the [behavioral contract](cli-contract.md) for configuration and safety.
 
@@ -76,12 +77,18 @@ Without Docker, `python3 scripts/smoke-release.py --binary <absolute-path>
 --expected-version <version>` runs the same workflows on the host. This is useful
 diagnostic evidence but does not prove a runtime-free environment.
 
-The core acceptance group exercises help/version, all four commands, nested and
+The core acceptance group exercises help/version, all four worktree commands, nested and
 linked discovery, local/remote materialization, offline reopen, published and
 integrated cleanup, and file/ref preservation after refusals. The integration
 group exercises real shell hooks and retry, literal launch arguments, foreground
 agent exits/interrupts, CI behavior, and retained-state startup failures.
 Ignored-file defaults and runtime autoload isolation are checked explicitly.
+The verifier uses disposable HOME/XDG configuration and state folders, checks
+first-invocation setup guidance and its external marker, then expects the recurring
+missing-settings reminder only while both config scopes are absent. It checks
+setup help and noninteractive refusal without partial settings writes. Before
+using an installed executable, run `timber setup` in your repository or
+`timber setup --global` for machine defaults.
 
 Jira exact lookup, active/completed status, suggestions, pagination, and HTTP
 failure behavior remain covered by the source suite with mocked HTTP transport.
