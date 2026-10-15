@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
-import type { EditorResult, RepositoryConfig } from "../src/types";
+import type { EditorResult, ExecutableCommand, RepositoryConfig } from "../src/types";
 import { worktreeFixture } from "./helpers/services";
 import { launchEditor } from "../src/editor";
 
@@ -12,8 +12,10 @@ const editorStubPath = fileURLToPath(new URL("./fixtures/editor-stub.ts", import
 const editorParentPath = fileURLToPath(new URL("./fixtures/editor-launch-parent.ts", import.meta.url));
 const secretMarker = "TIMBER_EDITOR_SECRET_MARKER_MUST_NOT_BE_PRINTED";
 
-function config(editor: RepositoryConfig["editor"], agent: RepositoryConfig["agent"] = null): RepositoryConfig {
-  return { baseBranch: null, remote: null, worktreeDir: null, editor, agent };
+function config(editor: ExecutableCommand | null, agent: RepositoryConfig["agent"] = null,
+  enabled = true): RepositoryConfig {
+  return { baseBranch: null, remote: null, worktreeDir: null,
+    editor: editor === null ? null : { ...editor, enabled }, agent };
 }
 
 function quotePosix(value: string): string {
@@ -56,7 +58,7 @@ async function waitForFileContent(path: string, expected: string, timeoutMs = 30
 
 function expectFailedResult(result: EditorResult, worktreePath: string): Extract<EditorResult, { kind: "failed" }> {
   if (result.kind !== "failed") throw new Error(`Expected editor failure, received ${result.kind}`);
-  const retryCommand = `timber open -- ${quotePosix(worktreePath)}`;
+  const retryCommand = `timber open --editor -- ${quotePosix(worktreePath)}`;
   expect(result.message).toContain(worktreePath);
   expect(result.message.toLowerCase()).toContain("fix");
   expect(result.message).toContain("PATH");
@@ -208,7 +210,7 @@ test("returns a safe retry result and preserves a dirty real worktree when the e
 
     expect(result.message).toContain("not found");
     expect(result.message).not.toContain(missingExecutable);
-    expect(result.retryCommand).toBe(String.raw`timber open -- '${directory}/linked worktree '\'' snapshot'`);
+    expect(result.retryCommand).toBe(String.raw`timber open --editor -- '${directory}/linked worktree '\'' snapshot'`);
     expect(await snapshotRepository(primaryPath, worktreePath)).toEqual(before);
   } finally {
     stdoutSpy.mockRestore();

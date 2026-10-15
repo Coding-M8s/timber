@@ -4,7 +4,7 @@ import type { RepositoryConfig } from "../src/types";
 
 const config: RepositoryConfig = {
   baseBranch: null, remote: null, worktreeDir: null,
-  editor: { command: "ordinary-editor", args: [] },
+  editor: { command: "ordinary-editor", args: [], enabled: false },
   agent: { command: "ordinary-agent", args: ["ordinary"], enabled: true },
   workflows: {
     review: { postCreate: ["review-step"], editor: { command: "review-editor", args: [] },
@@ -30,6 +30,17 @@ test("workflow false suppresses inherited agent; explicit agent uses ordinary co
   expect(resolveWorkflowAgent(config, quiet, true, true, false)?.command).toBe("ordinary-agent");
   expect(workflowEditor(config, quiet)?.command).toBe("ordinary-editor");
   expect(resolveWorkflowAgent(config, null, undefined, true, false)?.command).toBe("ordinary-agent");
+});
+
+test("workflow editor selection respects ordinary opt-in and explicit flags", () => {
+  expect(workflowEditor(config, null)?.enabled).toBe(false);
+  expect(workflowEditor(config, null, true)?.enabled).toBe(true);
+  expect(workflowEditor(config, selectWorkflow(config, "review"))?.enabled).toBe(true);
+  expect(workflowEditor(config, selectWorkflow(config, "review"), false)?.enabled).toBe(false);
+  const quiet = { postCreate: [], editor: false as const };
+  expect(workflowEditor(config, quiet)).toBeNull();
+  expect(workflowEditor(config, quiet, true)?.command).toBe("ordinary-editor");
+  expect(() => workflowEditor({ ...config, editor: null }, quiet, true)).toThrow(/Configure an editor/);
 });
 
 test("invalid or unknown names fail before a launch is selected", () => {

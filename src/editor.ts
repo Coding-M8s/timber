@@ -27,9 +27,9 @@ export async function launchEditor(
   disabled: boolean,
 ): Promise<EditorResult> {
   const editor = config.editor;
-  if (disabled || editor === null) return { kind: "skipped" };
+  if (disabled || editor === null || !editor.enabled) return { kind: "skipped" };
 
-  const retryCommand = `timber open -- ${quotePosix(worktree.path)}`;
+  const retryCommand = `timber open --editor -- ${quotePosix(worktree.path)}`;
 
   try {
     const child = spawn(editor.command, [...editor.args, worktree.path], {

@@ -21,18 +21,18 @@ test("global defaults apply and relative worktree paths resolve from the primary
     expect(config.baseBranch).toBe("trunk");
     expect(config.remote).toBe("upstream");
     expect(config.worktreeDir).toBe(join(root, "../shared trees"));
-    expect(config.editor).toEqual({ command: "code", args: ["--new-window"] });
+    expect(config.editor).toEqual({ command: "code", args: ["--new-window"], enabled: false });
   });
 });
 
 test("repository tables replace global tables without mixing command arguments or hook lists", async () => {
   await scopes(async (root, env) => {
     await writeFile(join(env.XDG_CONFIG_HOME!, "timber/config.toml"),
-      '[editor]\ncommand = "code"\nargs = ["--new-window"]\n[agent]\ncommand = "codex"\nenabled = true\nargs = ["old"]\n[hooks]\npost_create = ["global"]\n[jira]\nsite_url = "https://global.atlassian.net"\ncloud_id = "00000000-0000-4000-8000-000000000000"\n');
+      '[editor]\ncommand = "code"\nargs = ["--new-window"]\nenabled = true\n[agent]\ncommand = "codex"\nenabled = true\nargs = ["old"]\n[hooks]\npost_create = ["global"]\n[jira]\nsite_url = "https://global.atlassian.net"\ncloud_id = "00000000-0000-4000-8000-000000000000"\n');
     await writeFile(join(root, ".timber.toml"),
       '[editor]\ncommand = "zed"\n[agent]\ncommand = "claude"\n[hooks]\npost_create = ["local"]\n[jira]\nsite_url = "https://local.atlassian.net/"\n');
     const config = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }), env);
-    expect(config.editor).toEqual({ command: "zed", args: [] });
+    expect(config.editor).toEqual({ command: "zed", args: [], enabled: false });
     expect(config.agent).toEqual({ command: "claude", args: [], enabled: false });
     expect(config.hooks).toEqual({ postCreate: ["local"] });
     expect(config.jira).toEqual({ siteUrl: "https://local.atlassian.net" });

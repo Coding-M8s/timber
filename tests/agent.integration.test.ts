@@ -166,7 +166,7 @@ test("explicit agent without config fails before Git mutation even with a termin
 test("failed Git or editor setup suppresses configured agent", async () => {
   await withRepository(async (primary, directory) => {
     const capture = join(directory, "capture");
-    const editor = `[editor]\ncommand = ${JSON.stringify(join(directory, "missing editor"))}\nargs = []`;
+    const editor = `[editor]\ncommand = ${JSON.stringify(join(directory, "missing editor"))}\nargs = []\nenabled = true`;
     await configure(primary, capture, { editor });
     const gitFailure = await pty(primary, directory, ["new", "feature/git-fail", "--base", "missing-base"]);
     expect(gitFailure.exitCode).toBe(1);

@@ -170,6 +170,8 @@ export function createOpenHandler(
       }
     }
     const workflow = selectWorkflow(config, workflowName);
+    const selectedEditor = workflowEditor(config, workflow, options.editor);
+    const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
     const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, context.interactive === true, created);
     let worktree: Worktree;
     if (selected.kind === "branch") {
@@ -187,10 +189,9 @@ export function createOpenHandler(
         workflowName ?? undefined, workflow?.postCreate);
     }
 
-    const editor = await services.launchEditor(worktree,
-      workflow === null ? config : { ...config, editor: workflowEditor(config, workflow) }, options.editor === false);
+    const editor = await services.launchEditor(worktree, editorConfig, options.editor === false);
     if (editor.kind === "failed") {
-      context.io.stderr(`error: ${failureWithRetry(editor.message, editor.retryCommand, worktree.path)}\n`);
+      context.io.stderr(`error: ${failureWithRetry(editor.message, editor.retryCommand, worktree.path, "--editor")}\n`);
     }
 
     context.io.stdout(`${created ? "Created" : "Opened existing"} worktree at ${safeDisplay(worktree.path)}\n`);

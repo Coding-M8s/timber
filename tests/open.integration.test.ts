@@ -445,6 +445,7 @@ test("editor receives literal args and --no-editor suppresses startup", async ()
     await config(primary, [
       "[editor]",
       `command = ${toml(process.execPath)}`,
+      "enabled = true",
       `args = [${[editorStub, "capture", capture, heartbeat, ...extra].map(toml).join(", ")}]`,
     ]);
     const editorPath = join(directory, "primary repo-worktrees", "feature-editor");
@@ -460,6 +461,7 @@ test("editor receives literal args and --no-editor suppresses startup", async ()
     await config(primary, [
       "[editor]",
       `command = ${toml(process.execPath)}`,
+      "enabled = true",
       `args = [${[editorStub, "capture", noEditorCapture, heartbeat].map(toml).join(", ")}]`,
     ]);
     const noEditorPath = join(directory, "primary repo-worktrees", "feature-no-editor");
@@ -472,24 +474,56 @@ test("editor receives literal args and --no-editor suppresses startup", async ()
   });
 });
 
+test("open honors disabled editor config and explicit --editor for an existing worktree", async () => {
+  await withRepository(async (primary, directory) => {
+    const capture = join(directory, "editor opt-in capture.json");
+    const heartbeat = join(directory, "editor opt-in heartbeat");
+    await git(primary, "branch", "feature/editor-opt-in");
+    await config(primary, [
+      "[editor]", `command = ${toml(process.execPath)}`,
+      `args = [${[editorStub, "capture", capture, heartbeat].map(toml).join(", ")}]`,
+    ]);
+    const first = await cli(primary, "open", "feature/editor-opt-in");
+    expect(first.exitCode).toBe(0);
+    await Bun.sleep(100);
+    expect(await exists(capture)).toBe(false);
+
+    const second = await cli(primary, "open", "feature/editor-opt-in", "--editor");
+    expect(second.exitCode).toBe(0);
+    const target = join(directory, "primary repo-worktrees", "feature-editor-opt-in");
+    expect(await waitForJson(capture)).toEqual({ args: [target], cwd: target });
+  });
+});
+
+test("open --editor without a configured command preserves refs and worktrees", async () => {
+  await withRepository(async (primary) => {
+    await git(primary, "branch", "feature/missing-editor");
+    const before = await snapshot(primary);
+    const result = await cli(primary, "open", "feature/missing-editor", "--editor");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Configure an editor");
+    expect(await snapshot(primary)).toEqual(before);
+  });
+});
+
 test("editor startup failure returns success, retains the worktree, and absolute-path retry reuses it", async () => {
   await withRepository(async (primary, directory) => {
     const missingExecutable = join(directory, "missing editor command");
     await git(primary, "branch", "feature/editor-failure");
-    await config(primary, ["[editor]", `command = ${toml(missingExecutable)}`]);
+    await config(primary, ["[editor]", `command = ${toml(missingExecutable)}`, "enabled = true"]);
     const path = join(directory, "primary repo-worktrees", "feature-editor-failure");
 
     const created = await cli(primary, "open", "feature/editor-failure");
     expect(created.exitCode).toBe(0);
     expect(created.stdout).toBe(`Created worktree at ${path}`);
     expect(created.stderr).toContain("Could not start the configured editor");
-    expect(created.stderr).toContain(`timber open -- '${path}'`);
+    expect(created.stderr).toContain(`timber open --editor -- '${path}'`);
     const inventory = await snapshot(primary);
 
     const retried = await cli(primary, "open", path);
     expect(retried.exitCode).toBe(0);
     expect(retried.stdout).toBe(`Opened existing worktree at ${path}`);
-    expect(retried.stderr).toContain(`timber open -- '${path}'`);
+    expect(retried.stderr).toContain(`timber open --editor -- '${path}'`);
     expect(await snapshot(primary)).toEqual(inventory);
   });
 });
@@ -503,7 +537,7 @@ test("open safely displays a real control-character worktree path on success, ed
     await git(primary, "worktree", "add", "-b", "feature/control", controlPath);
     await git(primary, "worktree", "add", "-b", "TIM-92_one", ambiguityPath);
     await git(primary, "branch", "TIM-92_two");
-    await config(primary, ["[editor]", `command = ${toml(missingEditor)}`]);
+    await config(primary, ["[editor]", `command = ${toml(missingEditor)}`, "enabled = true"]);
 
     const opened = await cli(primary, "open", "feature/control", "--no-editor");
     expect(opened.stderr).toBe("");
@@ -518,10 +552,10 @@ test("open safely displays a real control-character worktree path on success, ed
     expect(failedEditor.stdout).toContain("\\u001b[2JFAKE\\nROW\\u007f\\u0085\\u009b\\u2028\\u2029");
     expect(failedEditor.stderr).toContain("Could not start the configured editor");
     expect(failedEditor.stderr).toContain("\\u001b[2JFAKE\\nROW\\u007f\\u0085\\u009b\\u2028\\u2029");
-    expect(failedEditor.stderr).toContain("retry with: timber open -- $");
+    expect(failedEditor.stderr).toContain("retry with: timber open --editor -- $");
     expect(failedEditor.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u);
 
-    const retryPrefix = "retry with: timber open -- ";
+    const retryPrefix = "retry with: timber open --editor -- ";
     const retryStart = failedEditor.stderr.indexOf(retryPrefix);
     expect(retryStart).toBeGreaterThanOrEqual(0);
     const bashWord = failedEditor.stderr.slice(retryStart + retryPrefix.length).trim();
@@ -538,7 +572,7 @@ test("open safely displays a real control-character worktree path on success, ed
     const retried = await cli(primary, "open", retryPath);
     expect(retried.exitCode).toBe(0);
     expect(retried.stdout).toContain("Opened existing worktree at ");
-    expect(retried.stderr).toContain("retry with: timber open -- $");
+    expect(retried.stderr).toContain("retry with: timber open --editor -- $");
     expect(await exists(marker)).toBe(false);
 
     const ambiguous = await cli(primary, "open", "TIM-92");

@@ -75,7 +75,7 @@ test("parses editor and agent commands and resolves worktree_dir", async () => {
       baseBranch: "main",
       remote: "upstream",
       worktreeDir: resolve(root, "worktrees with spaces"),
-      editor: { command: "zed", args: ["--wait"] },
+      editor: { command: "zed", args: ["--wait"], enabled: false },
       agent: { command: "claude", args: [], enabled: false },
     });
   } finally {
@@ -88,8 +88,22 @@ test("defaults args and retains an explicitly enabled agent", async () => {
   try {
     await writeFile(join(root, ".timber.toml"), '[editor]\ncommand = "zed"\n[agent]\ncommand = "claude"\nenabled = true\n');
     const config = await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }));
-    expect(config.editor).toEqual({ command: "zed", args: [] });
+    expect(config.editor).toEqual({ command: "zed", args: [], enabled: false });
     expect(config.agent).toEqual({ command: "claude", args: [], enabled: true });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("editor enabled is strict and preserves a configured command for explicit launch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "timber editor config "));
+  try {
+    await writeFile(join(root, ".timber.toml"), '[editor]\ncommand = "zed"\nenabled = true\n');
+    expect((await loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root }))).editor)
+      .toEqual({ command: "zed", args: [], enabled: true });
+    await writeFile(join(root, ".timber.toml"), '[editor]\ncommand = "zed"\nenabled = "false"\n');
+    await expect(loadRepositoryConfig(repositoryFixture({ primaryWorktreeRoot: root })))
+      .rejects.toThrow(/editor\.enabled/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

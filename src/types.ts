@@ -74,6 +74,10 @@ export interface AgentConfig extends ExecutableCommand {
   enabled: boolean;
 }
 
+export interface EditorConfig extends ExecutableCommand {
+  enabled: boolean;
+}
+
 /** One named workflow; absent launcher fields inherit ordinary settings. */
 export interface WorkflowConfig {
   description?: string;
@@ -100,7 +104,7 @@ export interface RepositoryConfig {
   remote: string | null;
   worktreeDir: string | null;
   /** Null means off; no default executable. */
-  editor: ExecutableCommand | null;
+  editor: EditorConfig | null;
   /** Parsed in 0.1; opt-in foreground launching is available in 0.2. */
   agent: AgentConfig | null;
   /** Missing when neither config scope mentions workflows. */

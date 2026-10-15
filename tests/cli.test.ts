@@ -58,6 +58,7 @@ test("new help describes implemented command and supported options", async () =>
   expect(result.stdout).toContain("Create a worktree");
   expect(result.stdout).toContain("--base <ref>");
   expect(result.stdout).toContain("--no-editor");
+  expect(result.stdout).toContain("--editor");
   expect(result.stdout).toContain("configured Jira ticket IDs");
   expect(result.stdout).toContain("<branch...>");
   expect(result.stdout).toContain("sentence");
@@ -78,6 +79,7 @@ test("open help describes the implemented existing-target behavior", async () =>
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("Open an existing branch or worktree");
   expect(result.stdout).toContain("--no-editor");
+  expect(result.stdout).toContain("--editor");
   expect(result.stdout).not.toContain("placeholder");
 });
 

@@ -111,6 +111,7 @@ test("new starts configured editor in created worktree; --no-editor skips it", a
     await writeFile(join(primary, ".timber.toml"), [
       "[editor]",
       `command = ${JSON.stringify(process.execPath)}`,
+      "enabled = true",
       `args = [${[editorStub, "linger", capture, heartbeat, "--literal=$HOME"].map(value => JSON.stringify(value)).join(", ")}]`,
       "",
     ].join("\n"));
@@ -126,6 +127,39 @@ test("new starts configured editor in created worktree; --no-editor skips it", a
     expect(JSON.parse(await waitForFile(capture))).toEqual({
       args: ["--literal=$HOME", target], cwd: target,
     });
+  });
+});
+
+test("new keeps a configured editor off by default and --editor starts it on demand", async () => {
+  await withRepository(async (primary, directory) => {
+    const capture = join(directory, "editor opt-in capture.json");
+    const heartbeat = join(directory, "editor opt-in heartbeat");
+    await writeFile(join(primary, ".timber.toml"), [
+      "[editor]", `command = ${JSON.stringify(process.execPath)}`,
+      `args = [${[editorStub, "capture", capture, heartbeat].map(value => JSON.stringify(value)).join(", ")}]`,
+    ].join("\n"));
+
+    const skipped = await cli(primary, "feature/default-off", "--base", "trunk");
+    expect(skipped.exitCode).toBe(0);
+    await Bun.sleep(100);
+    expect(await absent(capture)).toBe(true);
+
+    const launched = await cli(primary, "feature/explicit-on", "--base", "trunk", "--editor");
+    expect(launched.exitCode).toBe(0);
+    const target = join(directory, "primary repo-worktrees", "feature-explicit-on");
+    expect(JSON.parse(await waitForFile(capture))).toEqual({ args: [target], cwd: target });
+  });
+});
+
+test("new --editor without a configured command preserves refs and worktrees", async () => {
+  await withRepository(async (primary) => {
+    const refs = await git(primary, "show-ref");
+    const worktrees = await git(primary, "worktree", "list", "--porcelain", "-z");
+    const result = await cli(primary, "feature/missing-editor", "--base", "trunk", "--editor");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Configure an editor");
+    expect(await git(primary, "show-ref")).toBe(refs);
+    expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(worktrees);
   });
 });
 
@@ -176,14 +210,14 @@ test("existing destination, invalid branch, and ambiguous base leave refs and fi
 
 test("editor startup failure retains created worktree and gives retry command", async () => {
   await withRepository(async (primary, directory) => {
-    await writeFile(join(primary, ".timber.toml"), '[editor]\ncommand = "missing-timber-editor"\n');
+    await writeFile(join(primary, ".timber.toml"), '[editor]\ncommand = "missing-timber-editor"\nenabled = false\n');
     const target = join(directory, "primary repo-worktrees", "feature-retry");
 
-    const result = await cli(primary, "feature/retry", "--base", "trunk");
+    const result = await cli(primary, "feature/retry", "--base", "trunk", "--editor");
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe(`Created feature/retry at ${target}`);
     expect(result.stderr).toContain(target);
-    expect(result.stderr).toContain("timber open -- '");
+    expect(result.stderr).toContain("timber open --editor -- '");
     expect(await git(primary, "rev-parse", "refs/heads/feature/retry")).toBe(await git(target, "rev-parse", "HEAD"));
     expect(await readFile(join(target, "tracked.txt"), "utf8")).toBe("original\n");
   });
@@ -217,18 +251,19 @@ test("new editor failure safely renders and executes retry for a control-charact
       "",
       "[editor]",
       'command = "missing-timber-editor"',
+      "enabled = false",
       "",
     ].join("\n"));
     const target = join(worktreeRoot, "feature-retry-control");
 
-    const created = await cli(primary, "feature/retry-control", "--base", "trunk");
+    const created = await cli(primary, "feature/retry-control", "--base", "trunk", "--editor");
     expect(created.exitCode).toBe(1);
     expect(created.stdout).toContain("\\u001b");
     expect(created.stdout).toContain("\\n");
     expect(created.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u);
     expect(created.stderr.split("\n")).toHaveLength(1);
 
-    const retryCommand = created.stderr.match(/retry with: (timber open -- .+)$/u)?.[1];
+    const retryCommand = created.stderr.match(/retry with: (timber open --editor -- .+)$/u)?.[1];
     expect(retryCommand).toBeDefined();
     if (retryCommand === undefined) throw new Error("Expected a Bash retry command");
 

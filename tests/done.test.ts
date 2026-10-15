@@ -9,7 +9,7 @@ import { createServiceDouble, repositoryFixture, worktreeFixture } from "./helpe
 const repository = repositoryFixture({ currentWorktreeRoot: "/repo-worktrees/current" });
 const config: RepositoryConfig = {
   baseBranch: "main", remote: null, worktreeDir: null,
-  editor: { command: "editor", args: [] }, agent: { enabled: true, command: "agent", args: [] },
+  editor: { command: "editor", args: [], enabled: true }, agent: { enabled: true, command: "agent", args: [] },
 };
 const tree = worktreeFixture({ path: "/manual feature", branch: "feature/one", isPrimary: false });
 const selected: Resolution<OpenTarget> = { kind: "found", value: { kind: "worktree", worktree: tree } };

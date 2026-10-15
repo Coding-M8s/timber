@@ -101,10 +101,13 @@ unknown status must not appear clean. Missing/stale rows must remain visible.
 `RepositoryConfig` is the normalized 0.1 shape, extended by optional features in
 their owning tickets. Null base/remote/worktree directory
 means absent and requires the documented resolution/default policy. Null editor
-means off. TOML keys such as `base_branch` map to `baseBranch`; loading and strict
-validation belong to TIM-6. Only `--no-editor` produces `editor: false` in command
-options; omission leaves that property absent, deferring to configuration. Editor
-commands are executable names plus argument arrays.
+means no configured command. TOML keys such as `base_branch` map to `baseBranch`; loading and strict
+validation belong to TIM-6. `RepositoryConfig.editor` is `EditorConfig | null`:
+`command` is required, `args` defaults to `[]`, and `enabled` defaults to
+`false`. `--editor` and `--no-editor` produce explicit true/false command options;
+omission defers to the selected editor's `enabled` value. An explicit enable
+without a selected command fails before worktree creation. Editor commands remain
+executable names plus argument arrays.
 
 `RepositoryConfig.agent` is `AgentConfig | null`. When `[agent]` is present, its
 non-empty executable `command` is required, `args` defaults to a string array `[]`,
@@ -300,7 +303,7 @@ an explicit request for an unconfigured agent produces actionable setup guidance
 
 The [CLI contract](cli-contract.md#repository-configuration) defines global
 precedence, whole-table replacement, and root-level false integration disables.
-Normalized editor/agent remain null when off; hooks/Jira remain omitted when off.
+Normalized editor/agent remain null when no command is configured or an integration is explicitly removed; a configured editor with `enabled = false` remains available for `--editor`. Hooks/Jira remain omitted when off.
 Existing valid TOML and Git/editor/agent/hook/Jira service models remain valid.
 A partial executable table still requires command. The new setup handler owns
 questionnaire, draft review/edit loop, and persistence through injected prompts
@@ -313,7 +316,7 @@ foreground agent launch and post-create setup remain separate operations.
 
 ## TIM-25 named workflow contract
 
-`RepositoryConfig.workflows` is present when either config scope mentions workflows. It maps validated lowercase names to complete normalized definitions. Global and repository definitions merge by name; a local same-name table replaces the entire global table, a local `false` removes one inherited name, and root `workflows = false` removes all. `WorkflowConfig` reuses the existing `ExecutableCommand` shape for editor and agent; this keeps TIM-20 able to use the same executable/argument pair without a provider model. Absent workflow launcher fields inherit ordinary settings, while `false` disables inheritance.
+`RepositoryConfig.workflows` is present when either config scope mentions workflows. It maps validated lowercase names to complete normalized definitions. Global and repository definitions merge by name; a local same-name table replaces the entire global table, a local `false` removes one inherited name, and root `workflows = false` removes all. `WorkflowConfig` reuses the existing `ExecutableCommand` shape for editor and agent; this keeps TIM-20 able to use the same executable/argument pair without a provider model. Absent workflow launcher fields inherit ordinary settings, including `[editor].enabled`. A workflow editor table requests launch; `false` disables inheritance. Explicit `--editor` with a workflow editor set to `false` selects the ordinary configured editor, if any.
 
 `readWorkflowAssociation(repository, worktree)` returns assigned, unassigned, or invalid metadata. `writeWorkflowAssociation(repository, worktree, name)` writes a versioned, atomic, private Git-admin record after reciprocal Git identity validation. The record contains the name and canonical paths only. `open` rejects invalid saved records and missing saved definitions instead of selecting another workflow; a valid explicit assignment can replace a stale identity record. `ls` keeps all Git rows and renders invalid records as `?`.
 

@@ -152,10 +152,12 @@ resolve from the primary checkout. No CLI path override exists. An existing
 branch suggests `timber open`; an occupied destination fails without replacing
 files or refs.
 
-`--no-editor` skips the configured editor. Otherwise Timber starts it after Git
-creates the worktree and setup completes. Success prints the branch and absolute worktree path. If
+`--editor` starts a configured editor for this command; `--no-editor` skips it.
+Without either flag, `[editor].enabled` controls launch and defaults to `false`.
+Timber starts the editor after Git creates the worktree and setup completes.
+Success prints the branch and absolute worktree path. If
 editor startup fails, Timber reports the retained workspace and a
-`timber open -- '<absolute-worktree-path>'` retry command, and exits nonzero.
+`timber open --editor -- '<absolute-worktree-path>'` retry command, and exits nonzero.
 
 ### Create a worktree from Jira
 
@@ -365,7 +367,7 @@ startup files. See [activation, installation, and verified environment](docs/com
 
 Timber reads `.timber.toml` from the primary worktree root and machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml` on Linux. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent configuration from 0.1 also supports opt-in foreground launching in 0.2; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
 
-Editor opening stays off when neither scope enables `[editor]`, or the repository sets `editor = false`. When `open` selects or creates a worktree, Timber starts the configured editor after the required Git and setup work; `--no-editor` skips it for that invocation. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
+Editor opening stays off by default, even with a configured `[editor]` command. Set `enabled = true` in that table to open it automatically, or use `--editor` on `new` or `open` for one command. `--no-editor` suppresses launch. Both flags together are an error. An explicit `--editor` requires a configured command; a repository-level `editor = false` removes an inherited command. Timber starts the editor after required Git and setup work. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
 
 ### Named worktree workflows
 
@@ -390,7 +392,10 @@ args = ["--initial-review"]
 ```
 
 The workflow editor and agent may be omitted to inherit ordinary defaults, or
-set to `false` to disable them. `post_create` defaults to an empty list. A
+set to `false` to disable them. A workflow editor table requests launch when
+that workflow is selected; an inherited editor still follows `[editor].enabled`.
+Explicit `--editor` can use the ordinary editor even when the workflow sets
+`editor = false`. `post_create` defaults to an empty list. A
 repository workflow replaces the same global workflow as a whole; lists and
 command arguments do not merge. Set `review = false` inside a repository
 `[workflows]` table to remove an inherited name, or root `workflows = false`
@@ -412,7 +417,8 @@ agent defaults are enabled. Repeating `open -w review` on the same worktree also
 skips those creation actions. Assigning another workflow to an existing
 worktree changes its editor without replaying creation actions. `open --setup`
 deliberately reruns ordinary and workflow scripts once; `open --agent` deliberately
-starts the selected agent again. `--no-editor` and `--no-agent` suppress their
+starts the selected agent again. `--editor` explicitly starts the selected editor;
+`--no-editor` and `--no-agent` suppress their
 respective launches. Explicit `--agent` requires an interactive terminal with CI
 off. A normal reopen never retries a failed setup or initial prompt.
 
@@ -422,7 +428,7 @@ worktree removal removes the association. If a saved definition is deleted,
 restore it or run `open --workflow <valid-name>` to reassign the worktree.
 Creation-stage failures retain the worktree and refs. After fixing a failed
 script, run `timber open --setup -- '<absolute-worktree-path>'`; for editor
-startup, run plain `timber open -- '<absolute-worktree-path>'`; for an initial
+startup, run `timber open --editor -- '<absolute-worktree-path>'`; for an initial
 agent retry, run `timber open --agent --no-editor -- '<absolute-worktree-path>'`.
 Explicit script retries start from the first step; make scripts safe to rerun.
 No exactly-once guarantee is made across crashes. Keep secrets out of TOML,
@@ -437,6 +443,7 @@ worktree_dir = "../timber-worktrees"
 [editor]
 command = "zed"
 args = ["--new"]
+enabled = false
 
 [agent]
 enabled = false
@@ -452,9 +459,10 @@ Use this `[editor]` table instead when you want Visual Studio Code:
 [editor]
 command = "code"
 args = ["--new-window"]
+enabled = false
 ```
 
-Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree and prints a safe retry command such as `timber open -- '<worktree path>'`. `new` reports the failure and exits nonzero. `open` reports it on stderr but exits successfully after the required Git and setup work is complete. Both commands suppress agent startup after editor failure. Fix the editor command or `PATH`, then run the retry to reopen the existing worktree; it does not create another one.
+Set `enabled = true` to launch automatically after `new` or `open`, or leave it false and pass `--editor` when needed. Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree and prints a safe retry command such as `timber open --editor -- '<worktree path>'`. `new` reports the failure and exits nonzero. `open` reports it on stderr but exits successfully after the required Git and setup work is complete. Both commands suppress agent startup after editor failure. Fix the editor command or `PATH`, then run the retry to reopen the existing worktree; it does not create another one.
 
 ### Setup hooks (0.2)
 
@@ -657,8 +665,9 @@ folders. Use Up/Down arrows and Enter, or press a numbered shortcut to choose
 immediately. Shortcuts cover the first nine options; use arrows for additional
 entries in long branch lists; the menu scrolls to keep your selection visible.
 Blank Enter skips new settings or keeps existing ones; advanced settings are skipped
-by default. Each question starts after a blank line. Agent launch
-defaults to off and is independent of editor opening. Configure Jira with its
+by default. Each question starts after a blank line. Editor and agent launch
+default to off; setup asks whether each configured tool should launch automatically.
+Configure Jira with its
 site origin and optional cloud UUID; supply `JIRA_EMAIL` and `JIRA_API_TOKEN`
 through the environment, never TOML. Setup requires an interactive terminal with
 CI off. The final review shows the absolute destination and summary, with choices
@@ -679,8 +688,8 @@ hooks = false
 jira = false
 ```
 
-`[agent]` with a command and `enabled = false` disables automatic launch but
-keeps `--agent` available. `agent = false` removes the inherited command. Both
+`[editor]` or `[agent]` with a command and `enabled = false` disables automatic launch but
+keeps `--editor` or `--agent` available. Root-level `editor = false` or `agent = false` removes the inherited command. Both
 files must be valid, including values overridden by the other scope. Missing
 settings use built-in defaults. The first-use setup hint appears once; normal
 commands do not repeat it. Explicit `--agent` without an agent configured explains
