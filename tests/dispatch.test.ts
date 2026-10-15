@@ -69,6 +69,25 @@ test("open forwards explicit editor disabling", async () => {
   expect(handler).toHaveBeenCalledWith("ABU-834", { editor: false }, h.context);
 });
 
+test("new and open forward explicit editor enabling", async () => {
+  const handler = mock(async () => {});
+  const h = harness({ new: handler, open: handler });
+  expect(await runCli(["new", "feature", "--editor"], h)).toBe(0);
+  expect(await runCli(["open", "feature", "--editor"], h)).toBe(0);
+  expect(handler).toHaveBeenNthCalledWith(1, "feature", { editor: true }, h.context);
+  expect(handler).toHaveBeenNthCalledWith(2, "feature", { editor: true }, h.context);
+});
+
+test("conflicting editor flags fail before either handler runs", async () => {
+  const handler = mock(async () => {});
+  const h = harness({ new: handler, open: handler });
+  for (const command of ["new", "open"]) {
+    expect(await runCli([command, "feature", "--editor", "--no-editor"], h)).toBe(1);
+  }
+  expect(handler).not.toHaveBeenCalled();
+  expect(h.output().stderr).toContain("Conflicting options: --editor and --no-editor");
+});
+
 test("done defaults to discarding ignored content and requiring safe branch deletion", async () => {
   const handler = mock(async () => {});
   const h = harness({ done: handler });

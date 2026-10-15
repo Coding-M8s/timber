@@ -9,7 +9,7 @@ const repository = repositoryFixture();
 const tree = worktreeFixture({ path: "/repo-worktrees/review", branch: "review", isPrimary: false });
 const config: RepositoryConfig = {
   baseBranch: "main", remote: null, worktreeDir: null,
-  editor: { command: "ordinary-editor", args: [] },
+  editor: { command: "ordinary-editor", args: [], enabled: false },
   agent: { command: "ordinary-agent", args: [], enabled: true },
   hooks: { postCreate: ["ordinary-step"] },
   workflows: { review: { postCreate: ["review-step"], editor: { command: "review-editor", args: [] },

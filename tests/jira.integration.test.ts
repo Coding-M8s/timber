@@ -710,7 +710,7 @@ test("setup failure after Jira creation retains its worktree and hook files", as
 test("editor startup failure after Jira creation retains its worktree", async () => {
   await withRepository(async (primary, directory) => {
     const missingEditor = join(directory, "missing timber editor");
-    await configureJira(primary, ["", "[editor]", `command = ${JSON.stringify(missingEditor)}`]);
+    await configureJira(primary, ["", "[editor]", `command = ${JSON.stringify(missingEditor)}`, "enabled = true"]);
     const harness = jiraHarness(() => successfulIssue("Fails in editor"));
     const result = await command(primary, handlersFor(harness.runtime), "new", "ABU-834");
     const target = join(directory, "primary repo-worktrees", "ABU-834-fails-in-editor");

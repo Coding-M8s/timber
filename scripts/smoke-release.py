@@ -217,7 +217,7 @@ def smoke(binary, expected, lab):
     cli("open", str(failed), "--setup", "--no-editor")
     check((failed / "recovered").exists(), "Setup retry did not recover")
 
-    config('[editor]\ncommand = "timber-smoke-missing-editor"\n')
+    config('[editor]\ncommand = "timber-smoke-missing-editor"\nenabled = true\n')
     cli("new", "failed-editor", code=1)
     editor_tree = trees / "failed-editor"
     check(editor_tree.exists() and ref_exists("failed-editor"), "Editor failure lost workspace")

@@ -1,5 +1,5 @@
 import { resolveAgentCommand } from "./agent";
-import type { AgentConfig, ExecutableCommand, RepositoryConfig, WorkflowConfig } from "./types";
+import type { AgentConfig, EditorConfig, ExecutableCommand, RepositoryConfig, WorkflowConfig } from "./types";
 
 /** Selecting a name never guesses another workflow. */
 export function selectWorkflow(config: RepositoryConfig, name: string | null): WorkflowConfig | null {
@@ -11,9 +11,16 @@ export function selectWorkflow(config: RepositoryConfig, name: string | null): W
   return config.workflows[name]!;
 }
 
-export function workflowEditor(config: RepositoryConfig, workflow: WorkflowConfig | null): ExecutableCommand | null {
-  const editor = workflow?.editor;
-  return editor === false ? null : editor ?? config.editor;
+export function workflowEditor(
+  config: RepositoryConfig, workflow: WorkflowConfig | null, explicit?: boolean,
+): EditorConfig | null {
+  const selected = workflow?.editor;
+  const editor = selected === false ? explicit === true ? config.editor : null
+    : selected === undefined ? config.editor : { ...selected, enabled: true };
+  if (explicit === true && editor === null) {
+    throw new Error("Configure an editor before using --editor. Run timber setup in this repository or timber setup --global for machine defaults.");
+  }
+  return editor === null || explicit === undefined ? editor : { ...editor, enabled: explicit };
 }
 
 /** A saved workflow has no implicit agent on reopen, including global defaults. */

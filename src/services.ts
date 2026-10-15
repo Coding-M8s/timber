@@ -75,15 +75,15 @@ export interface CommandContext {
 export interface NewOptions {
   base?: string;
   workflow?: string;
-  /** False from --no-editor; undefined defers to config (off when unconfigured). */
-  editor?: false;
+  /** Explicit enable/disable; omission defers to editor.enabled. */
+  editor?: boolean;
   /** Explicit enable/disable; omission defers to agent.enabled. */
   agent?: boolean;
 }
 
 export interface OpenOptions {
   workflow?: string;
-  editor?: false;
+  editor?: boolean;
   /** Explicitly rerun all setup steps for an existing worktree. */
   setup?: true;
   /** Explicit enable/disable; omission defers to agent.enabled. */

@@ -45,6 +45,18 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       });
   }
 
+  function editorOptions(command: Command): Command {
+    const choices = new Set<string>();
+    return command
+      .option("--editor", "Open the configured editor for this command")
+      .option("--no-editor", "Skip opening the configured editor")
+      .on("option:editor", () => { choices.add("enable"); })
+      .on("option:no-editor", () => { choices.add("disable"); })
+      .hook("preAction", () => {
+        if (choices.size > 1) command.error("Conflicting options: --editor and --no-editor.");
+      });
+  }
+
   function workflowOptions(command: Command): Command {
     let count = 0;
     return command
@@ -57,28 +69,26 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       });
   }
 
-  workflowOptions(agentOptions(program.command("new <branch...>")))
+  workflowOptions(agentOptions(editorOptions(program.command("new <branch...>"))))
     .description("Create a worktree from a branch name or sentence; configured Jira ticket IDs and named workflows are supported")
     .option("--base <ref>", "Override the configured base branch")
-    .option("--no-editor", "Skip opening the configured editor")
-    .action(async (branch: string[], options: { base?: string; workflow?: string; w?: string; editor: boolean; agent?: boolean }) => {
+    .action(async (branch: string[], options: { base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean }) => {
       const normalized: NewOptions = {
         ...(options.base === undefined ? {} : { base: options.base }),
         ...(options.workflow === undefined && options.w === undefined ? {} : { workflow: options.workflow ?? options.w }),
-        ...(options.editor === false ? { editor: false as const } : {}),
+        ...(options.editor === undefined ? {} : { editor: options.editor }),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
       onExitCode((await handlers.new(branch.join(" "), normalized, context)) ?? 0);
     });
 
-  workflowOptions(agentOptions(program.command("open <input>")))
+  workflowOptions(agentOptions(editorOptions(program.command("open <input>"))))
     .description("Open an existing branch or worktree, remembering its named workflow")
-    .option("--no-editor", "Skip opening the configured editor")
     .option("--setup", "Rerun ordinary and workflow post_create hooks in the selected worktree")
-    .action(async (input: string, options: { workflow?: string; w?: string; editor: boolean; setup?: boolean; agent?: boolean }) => {
+    .action(async (input: string, options: { workflow?: string; w?: string; editor?: boolean; setup?: boolean; agent?: boolean }) => {
       const normalized: OpenOptions = {
         ...(options.workflow === undefined && options.w === undefined ? {} : { workflow: options.workflow ?? options.w }),
-        ...(options.editor === false ? { editor: false as const } : {}),
+        ...(options.editor === undefined ? {} : { editor: options.editor }),
         ...(options.setup === true ? { setup: true as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };

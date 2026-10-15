@@ -29,7 +29,7 @@ async function invoke(services: CommandServices, args = ["open", "feature/one"],
 test("opening a registered worktree reuses it and passes repository/config identity in service order", async () => {
   const order: string[] = [];
   const repository = repositoryFixture({ currentWorktreeRoot: "/repo-worktrees/current" });
-  const loaded = config({ editor: { command: "editor", args: ["--wait"] } });
+  const loaded = config({ editor: { command: "editor", args: ["--wait"], enabled: true } });
   const tree = worktreeFixture({ path: "/repo-worktrees/feature", branch: "feature/one", isPrimary: false });
   const services = createServiceDouble({
     discoverRepository: async cwd => {
@@ -407,7 +407,7 @@ test("editor failure message and retry text are escaped for display", async () =
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain('"/repo/linked-\\u001b[2J\\nROW\\u007f\\u009b\\u2028\\u2029"');
   expect(result.stderr).toContain("Could not start editor for /repo/linked-\\u001b[2J\\nROW\\u007f\\u009b\\u2028\\u2029");
-  expect(result.stderr).toContain("Retry with: timber open -- $'/repo/linked-\\033[2J\\nROW\\177\\302\\233\\342\\200\\250\\342\\200\\251'");
+  expect(result.stderr).toContain("Retry with: timber open --editor -- $'/repo/linked-\\033[2J\\nROW\\177\\302\\233\\342\\200\\250\\342\\200\\251'");
   expect(result.stdout.slice(0, -1)).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
   expect(result.stderr.slice(0, -1)).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
 });
@@ -433,7 +433,7 @@ test.each([
   ["explicit --no-editor", { editor: false }, true],
 ] as const)("editor disabled state follows %s and agent config is retained", async (_name, options, disabled) => {
   const repository: RepositoryContext = repositoryFixture();
-  const loaded = config({ editor: { command: "editor", args: ["--wait"] } });
+  const loaded = config({ editor: { command: "editor", args: ["--wait"], enabled: true } });
   const tree = worktreeFixture({ path: "/reused", isPrimary: false });
   let receivedDisabled: boolean | undefined;
   let receivedConfig: RepositoryConfig | undefined;

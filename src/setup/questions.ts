@@ -86,7 +86,8 @@ async function launcher(
       if (recovery === "none") { file[key] = false; return; }
       continue;
     }
-    if (key === "editor") file.editor = command;
+    if (key === "editor") file.editor = { ...command,
+      enabled: await confirm(prompt, "Open this editor automatically when opening a workspace?", false) };
     else file.agent = { ...command, enabled: await confirm(prompt, "Start this assistant automatically when opening a workspace?", false) };
     return;
   }

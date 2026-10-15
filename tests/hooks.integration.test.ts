@@ -28,7 +28,7 @@ test("new runs sequential hooks before editor with cwd and ticket context", asyn
       'test -f context && sleep 0.05 && printf "first\\n" > order',
       'test "$(cat order)" = first && printf "second\\n" >> order && touch completed',
       'printf "hook stdout\\n"; printf "hook stderr\\n" >&2',
-    ], `[editor]\ncommand = "/bin/sh"\nargs = [${JSON.stringify(editorScript)}]`);
+    ], `[editor]\ncommand = "/bin/sh"\nargs = [${JSON.stringify(editorScript)}]\nenabled = true`);
     const result = await cli(primary, "new", "TIM-7-setup");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("hook stdout");

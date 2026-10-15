@@ -47,7 +47,7 @@ for (const section of ["editor", "agent"] as const) {
     ]), io().io, async () => true);
     expect(file).toEqual({ [section]: {
       command: "/opt/my tools/launcher", args: ["--flag", "literal argument"],
-      ...(section === "agent" ? { enabled: false } : {}),
+      enabled: false,
     } });
   });
 }
@@ -75,12 +75,36 @@ for (const section of ["base_branch", "remote", "worktree_dir"] as const) {
 test("guided choices keep editor and agent separate with agent disabled by default", async () => {
   const capture = io();
   const file = await questionnaire(target(), scripted([
-    "code", "codex", false, "none", true, "none", "keep", "keep", "keep",
+    "code", false, "codex", false, "none", true, "none", "keep", "keep", "keep",
   ]), capture.io, async () => true);
-  expect(file?.editor).toEqual({ command: "code", args: ["--new-window"] });
+  expect(file?.editor).toEqual({ command: "code", args: ["--new-window"], enabled: false });
   expect(file?.agent).toEqual({ command: "codex", args: [], enabled: false });
   expect(file?.hooks).toBe(false);
   expect(file?.jira).toBe(false);
+});
+
+test("setup stores the editor command while defaulting automatic launch off", async () => {
+  const file = {};
+  const questions: string[] = [];
+  const prompt = scripted(["code", false]);
+  const confirm = prompt.confirm;
+  prompt.confirm = async (message, current) => {
+    questions.push(message);
+    expect(current).toBe(false);
+    return confirm(message, current);
+  };
+  await editSetupSection("editor", file, target(), prompt, io().io, async () => true);
+  expect(file).toEqual({ editor: { command: "code", args: ["--new-window"], enabled: false } });
+  expect(questions).toEqual(["Open this editor automatically when opening a workspace?"]);
+  expect(parseConfigSource(renderConfig(file), "saved.toml").editor)
+    .toEqual({ command: "code", args: ["--new-window"], enabled: false });
+});
+
+test("setup can opt in to automatic editor launch", async () => {
+  const file = {};
+  await editSetupSection("editor", file, target(), scripted(["zed", true]), io().io, async () => true);
+  expect(parseConfigSource(renderConfig(file), "saved.toml").editor)
+    .toEqual({ command: "zed", args: ["--new"], enabled: true });
 });
 
 test("keeping existing values retains custom arguments hooks and explicit off without flattening inheritance", async () => {
@@ -108,6 +132,7 @@ test("custom commands, hooks, and Jira values round trip with literal quotes and
   const capture = io();
   const file = await questionnaire(target(), scripted([
     "custom", "my editor", '["a\\\"b", "$(touch nope)", ""]',
+    false,
     "claude", true, "configure", "https://example.atlassian.net/", true, "00000000-0000-4000-8000-000000000000",
     true, "custom", "printf 'one'", "add", "echo two", "finish",
     "custom", "trunk", "custom", "upstream", "custom", " ../work trees ",
@@ -117,7 +142,7 @@ test("custom commands, hooks, and Jira values round trip with literal quotes and
   const parsed = parseConfigSource(source, "test.toml");
   const result = resolveConfig({ local: { path: "test.toml", source, values: parsed },
     global: { path: "global.toml", source: null, values: {} } }, "/repo");
-  expect(result.editor).toEqual({ command: "my editor", args: ['a"b', "$(touch nope)", ""] });
+  expect(result.editor).toEqual({ command: "my editor", args: ['a"b', "$(touch nope)", ""], enabled: false });
   expect(result.jira).toEqual({ siteUrl: "https://example.atlassian.net", cloudId: "00000000-0000-4000-8000-000000000000" });
   expect(capture.output()).not.toContain("alias");
 });
@@ -148,7 +173,7 @@ test("skipped sections produce editable examples without enabling tools", () => 
 
 test("repeated repository setup can remove optional overrides and inherit global settings again", async () => {
   const destination = target({ editor: false, agent: false, hooks: false, jira: false });
-  destination.scopes.global.values = { editor: { command: "code", args: ["--new-window"] },
+  destination.scopes.global.values = { editor: { command: "code", args: ["--new-window"], enabled: false },
     agent: { command: "codex", args: [], enabled: true }, hooks: { post_create: ["global hook"] },
     jira: { site_url: "https://global.atlassian.net" } };
   const file = await questionnaire(destination, scripted([
@@ -160,8 +185,8 @@ test("repeated repository setup can remove optional overrides and inherit global
 });
 
 test("selecting inheritance checks the newly effective global editor executable", async () => {
-  const destination = target({ editor: { command: "local", args: [] } });
-  destination.scopes.global.values = { editor: { command: "missing-global", args: [] } };
+  const destination = target({ editor: { command: "local", args: [], enabled: false } });
+  destination.scopes.global.values = { editor: { command: "missing-global", args: [], enabled: false } };
   const capture = io();
   const file = await questionnaire(destination, scripted([
     "inherit", "keep", "keep", false,

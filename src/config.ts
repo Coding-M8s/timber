@@ -17,6 +17,7 @@ const executableSchema = z.strictObject({
   command: z.string().refine(value => value.trim().length > 0),
   args: z.array(z.string()).default([]),
 });
+const editorSchema = executableSchema.extend({ enabled: z.boolean().default(false) });
 
 const postCreateSchema = z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")));
 const workflowSchema = z.strictObject({
@@ -50,7 +51,7 @@ export const configFileSchema = z.strictObject({
   })]).optional(),
   workflows: z.union([z.literal(false), z.record(workflowNameSchema,
     z.union([z.literal(false), workflowSchema]))]).optional(),
-  editor: z.union([z.literal(false), executableSchema]).optional(),
+  editor: z.union([z.literal(false), editorSchema]).optional(),
   agent: z.union([z.literal(false), z.strictObject({
     command: z.string().refine(value => value.trim().length > 0),
     args: z.array(z.string()).default([]),

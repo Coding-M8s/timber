@@ -31,6 +31,8 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const repository = await services.discoverRepository(context.cwd);
     const config = await services.loadConfig(repository);
     const workflow = selectWorkflow(config, options.workflow ?? null);
+    const selectedEditor = workflowEditor(config, workflow, options.editor);
+    const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
     const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, context.interactive === true, true);
     const base = await services.resolveBase(repository, config, options.base);
     const jiraConfig = config.jira;
@@ -79,10 +81,9 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         options.workflow, workflow?.postCreate);
     }
 
-    const editor = await services.launchEditor(worktree,
-      workflow === null ? config : { ...config, editor: workflowEditor(config, workflow) }, options.editor === false);
+    const editor = await services.launchEditor(worktree, editorConfig, options.editor === false);
     if (editor.kind === "failed") {
-      throw new Error(failureWithRetry(editor.message, editor.retryCommand, worktree.path));
+      throw new Error(failureWithRetry(editor.message, editor.retryCommand, worktree.path, "--editor"));
     }
     if (agentCommand === null) return;
     return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io);

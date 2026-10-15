@@ -103,7 +103,7 @@ test("review can edit every section without restarting or losing other draft ans
   const handler = createSetupHandler({ inspectTarget: async () => structuredClone(target), prompt: () => prompt,
     checkExecutable: async () => true, save: async (_target, source) => { saved = parseConfigSource(source, "test.toml"); } });
   await handler({ global: false }, { cwd: "/repo", interactive: true, io: { stdout() {}, stderr() {} } });
-  expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"] },
+  expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"], enabled: false },
     agent: { command: "codex", args: [], enabled: false }, jira: { site_url: "https://example.atlassian.net" },
     hooks: { post_create: ["bun install"] }, base_branch: "trunk", remote: "upstream", worktree_dir: "../review-workspaces" });
   expect(questions.filter(question => question.includes("Which editor"))).toHaveLength(2);
@@ -149,7 +149,7 @@ test("an invalid folder edit retries that input without discarding the setup dra
   const handler = createSetupHandler({ inspectTarget: async () => structuredClone(target), prompt: () => prompt,
     checkExecutable: async () => true, save: async (_target, source) => { saved = parseConfigSource(source, "test.toml"); } });
   await handler({ global: false }, { cwd: "/repo", interactive: true, io: { stdout() {}, stderr: text => { stderr += text; } } });
-  expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"] }, worktree_dir: "../corrected-folder" });
+  expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"], enabled: false }, worktree_dir: "../corrected-folder" });
   expect(texts).toEqual([]);
   expect(stderr).toContain("nonempty");
 });
