@@ -115,5 +115,21 @@ contain an older implementation.
    ```
 
    Add `--agent` instead when deliberately testing a configured coding assistant.
-   Live Jira access needs `JIRA_EMAIL` and `JIRA_API_TOKEN` exported separately;
-   the automated smoke does not perform a live Jira request.
+   For Jira, run `timber setup` or `timber setup --global` and enter your email
+   and hidden API token. Credentials live in the private plaintext user store
+   `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/jira.json` outside Git,
+   with directory 0700/file 0600. Ordinary config contains only the site/cloud ID.
+   Saved pairs match that site and token mode; setup can keep, replace or remove
+   them. A complete nonblank `JIRA_EMAIL`/`JIRA_API_TOKEN` pair overrides the store;
+   partial/blank overrides fail, so unset both to use stored credentials.
+   Standalone builds do not load `.env`; Bun source execution may do so before
+   startup unless you pass `--no-env-file`. The optional setup connection check
+   tests current-user access only, not every project/issue permission. See the
+   [setup guidance](../README.md#guided-setup-and-machine-defaults) for token and
+   cloud-ID instructions, permissions and recovery.
+
+   `bun test tests/release.integration.test.ts` additionally installs the compiled
+   Linux executable into an isolated temporary bin directory and resolves a
+   synthetic Jira ticket using saved credentials, no `.env`/Jira env, and a local
+   HTTPS double. This is mocked HTTP coverage, not a live Jira verification.
+   The runtime-free container smoke does not perform a live Jira request.

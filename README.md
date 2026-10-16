@@ -170,13 +170,30 @@ site_url = "https://example.atlassian.net"
 # cloud_id = "00000000-0000-0000-0000-000000000000"
 ```
 
-Set `JIRA_EMAIL` and `JIRA_API_TOKEN` in the environment when creating a ticket
-branch. Timber reads `process.env` only when `new` resolves a configured ticket
-ID; it never opens `.env` files itself. Standalone releases disable automatic
-loading of `.env` and `bunfig.toml`; export credentials into the invoking process.
-Bun's source runner may populate the process environment from `.env` before
-Timber starts. Use `bun --no-env-file src/index.ts new ABU-834`
-to disable that Bun behavior. Site URL configuration contains no credentials.
+Run `timber setup` or `timber setup --global` to enter your Atlassian email and
+API token. Token entry is hidden, including pasted input. Both scopes share a
+personal credential store at
+`${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/jira.json` (XDG must be
+absolute), outside Git repositories. The file is plaintext, **not encrypted**:
+a user-owned 0700 directory and 0600 regular file protect access. Credentials are
+matched to the normalized site and optional cloud UUID; a different site or
+scoped/unscoped token mode needs its own pair. No credentials go in ordinary TOML.
+Paste one token on one line and wait for each prompt; buffered extra lines from
+an unbracketed paste are discarded so they cannot appear at a later visible prompt.
+
+A complete nonblank `JIRA_EMAIL` and `JIRA_API_TOKEN` environment pair overrides
+the matching saved pair. If either variable is supplied alone or blank, Timber
+fails with guidance; it never mixes an environment value with a saved value.
+Unset both variables to use saved credentials. Credentials are loaded only when
+Jira is actually used, so `open`, `ls`, `done`, literal branch creation, and
+`jira = false` work without them.
+
+Standalone releases disable automatic loading of `.env` and `bunfig.toml`.
+Saved credentials work directly in the installed executable. Bun's source runner
+may populate the process environment from `.env` before Timber starts, making a
+source checkout behave differently. Use
+`bun --no-env-file src/index.ts new ABU-834` to disable that Bun behavior;
+Timber adds no `.env` loader.
 Without `cloud_id`, Timber calls the configured site for an unscoped token. With
 `cloud_id`, it uses Atlassian's fixed Jira Cloud gateway for a scoped token.
 Requests do not follow redirects or retry. Each exact lookup has a 10-second
@@ -619,7 +636,7 @@ capture or log command arguments.
 | Wrong executable format, missing loader, or incompatible libc | Use the verified Linux x86_64/glibc environment; other platforms are not supported by this asset. |
 | Git/editor/agent executable missing | Install the required tool or correct its executable/PATH. Configure literal argument arrays; skip optional launches with `--no-editor`/`--no-agent`. |
 | Setup or launch failed after creation | Workspace remains. Fix the prerequisite, then use the printed `open` retry; `--setup` reruns every hook. |
-| Jira authorization/network failure | Check exported credentials, token type/site/cloud ID, permissions, and connectivity. Never paste tokens into config or bug reports. |
+| Jira authorization/network failure | Run setup to check/replace the saved pair; check complete environment overrides, token type/site/cloud ID, permissions, and connectivity. Never paste tokens into config or bug reports. |
 | Remote unavailable | Existing local worktrees can open offline; remote materialization needs a successful refresh. |
 | Cleanup refused | Read the named files/commits and preservation evidence. Commit or move your work deliberately; `--keep-branch` does not bypass safety. `--keep-ignored` preserves ignored content in place. |
 
@@ -667,13 +684,36 @@ entries in long branch lists; the menu scrolls to keep your selection visible.
 Blank Enter skips new settings or keeps existing ones; advanced settings are skipped
 by default. Each question starts after a blank line. Editor and agent launch
 default to off; setup asks whether each configured tool should launch automatically.
-Configure Jira with its
-site origin and optional cloud UUID; supply `JIRA_EMAIL` and `JIRA_API_TOKEN`
-through the environment, never TOML. Setup requires an interactive terminal with
-CI off. The final review shows the absolute destination and summary, with choices
+Configure Jira with its site origin, token mode, Atlassian email, and hidden API
+token. [Create a token](https://id.atlassian.com/manage-profile/security/api-tokens)
+using Atlassian's [token instructions](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
+Scoped tokens require the cloud UUID and use the Atlassian gateway; unscoped
+tokens use the tenant origin. Find the cloud UUID at
+`https://<your-site>.atlassian.net/_edge/tenant_info`, as described in
+[Atlassian's cloud-ID guidance](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/).
+
+You can keep, replace, remove, or skip personal credentials for the selected site
+and token mode. Disabling Jira in one repository retains shared credentials;
+explicit removal deletes that identity's pair for all repositories using it.
+Setup shows the private plaintext credential destination and pending actions
+before Save, with no token in review. An optional read-only connection check uses
+the draft pair, even if environment overrides are present. It calls Jira's
+[current-user endpoint](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/):
+success does not guarantee access to every project or issue. Scoped tokens may
+need current-user read scopes for this optional check. A failed check reports a
+safe authentication/permission/network diagnostic and lets you edit or cancel.
+Setup requires an interactive terminal with CI off. The final review shows the absolute destination and summary, with choices
 to save, edit any individual section, or cancel. Editing retains the other answers
 and returns to review; nothing is written until you choose Save. Replacing
-existing settings requires that explicit save choice.
+existing settings requires that explicit save choice. Cancelling publishes
+neither configuration nor credentials. Failed configuration saves restore owned
+credential updates; concurrent edits survive with recovery guidance. Publication
+is atomic per file, not across files: an uncatchable crash can leave credentials
+updated before config, plus a stale `.jira.lock`. Inspect private storage and
+configuration, restore a private backup if needed, remove only a confirmed stale
+lock, then rerun setup. Never paste store contents into a report. Unsafe file
+ownership, permissions, links, malformed data, and store locations inside Git
+repositories are refused; choose a private user configuration directory.
 
 Precedence is CLI options > repository TOML > global TOML > built-in defaults.
 Absent keys inherit; a local optional table replaces the whole global table,

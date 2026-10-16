@@ -120,8 +120,14 @@ config shape; when present it contains a normalized HTTPS `siteUrl` and optional
 UUID `cloudId`. Config loading accepts only `site_url` and `cloud_id` in that strict
 table. Site URLs must be tenant origins on `*.atlassian.net`, with no credentials,
 nondefault port, query, fragment, or path other than `/`. Credentials are never
-configuration values: `resolveJiraTicket(config, key)` reads `JIRA_EMAIL` and
-`JIRA_API_TOKEN` lazily when called. Timber adds no `.env` loader and reads its
+ordinary configuration values. `resolveJiraTicket(config, key)` and suggestions
+resolve credentials lazily: either defined Jira environment variable selects a
+complete nonblank `JIRA_EMAIL`/`JIRA_API_TOKEN` override pair; never mix sources.
+Otherwise use only the matching normalized site/cloud-ID personal record from
+Timber's private user configuration directory. Setup's separate credential draft
+supports keep/replace/remove, masked token entry and explicit Save. See the
+[credential storage, permissions, connection-check and recovery contract](cli-contract.md#guided-configuration-tim-18).
+Offline commands and disabled Jira never read the store. Timber adds no `.env` loader and reads its
 process environment. Standalone release builds disable `.env` and `bunfig.toml`
 autoload. Bun's source runner may populate that environment before startup unless run
 with `bun --no-env-file`. The client uses the configured site URL for unscoped
