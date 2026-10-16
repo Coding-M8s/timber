@@ -167,7 +167,7 @@ test("validates the requested key before reading credentials or calling fetch", 
 
 test("missing and blank credentials name the missing variables and skip fetch", async () => {
   for (const example of [
-    { env: {}, missing: ["JIRA_EMAIL", "JIRA_API_TOKEN"] },
+    { env: {}, loadCredentials: async () => null, missing: ["JIRA_EMAIL", "JIRA_API_TOKEN"] },
     { env: { JIRA_EMAIL: "person@example.invalid" }, missing: ["JIRA_API_TOKEN"] },
     { env: { JIRA_EMAIL: "   ", JIRA_API_TOKEN: "" }, missing: ["JIRA_EMAIL", "JIRA_API_TOKEN"] },
   ]) {
@@ -175,7 +175,10 @@ test("missing and blank credentials name the missing variables and skip fetch", 
     const message = await errorMessage(resolveJiraTicket(siteConfig, "ABU-834", runtime(async () => {
       calls += 1;
       return response(issue());
-    }, { env: example.env })));
+    }, {
+      env: example.env,
+      ...("loadCredentials" in example ? { loadCredentials: example.loadCredentials } : {}),
+    })));
 
     expect(message).toContain("JIRA credentials are missing");
     for (const name of example.missing) expect(message).toContain(name);
