@@ -110,9 +110,14 @@ cloud_id = "00000000-0000-0000-0000-000000000000"
 `site_url` must be an HTTPS Atlassian Cloud tenant origin on `*.atlassian.net`,
 with no user information, nondefault port, query, fragment, or path other than `/`;
 the trailing slash is normalized away. `cloud_id`, when present, must be a UUID.
-Credentials are read lazily from `JIRA_EMAIL` and `JIRA_API_TOKEN` only when a
-recognized ticket is resolved. Never put credentials in repository config, logs,
-tickets, or commits. Timber does not load `.env` files; it reads these values only
+Credentials are resolved lazily only when a recognized ticket is resolved.
+If either `JIRA_EMAIL` or `JIRA_API_TOKEN` is supplied, both must form a complete,
+nonblank pair overriding saved credentials. Partial/blank overrides fail without
+mixing sources. Otherwise use only the saved personal pair matching the normalized
+site origin and optional cloud UUID (case-insensitive UUID); scoped and unscoped
+modes are distinct. Missing credentials point to `timber setup` or
+`timber setup --global`. Never put credentials in ordinary config, logs, tickets,
+or commits. Timber does not load `.env` files; explicit overrides come only
 from its process environment. Standalone release builds disable automatic `.env`
 and `bunfig.toml` loading. Bun's source runner automatically loads `.env` files
 before Timber starts unless disabled. To run a source checkout without Bun loading
@@ -271,7 +276,38 @@ terminal input mode is restored. Editors and agents default to disabled; setup a
 checks do not launch anything; new custom executable selections must be program
 names on PATH or absolute paths, never relative paths that change meaning across
 workspaces. Setup never changes refs, creates worktrees, runs
-hooks, or edits shell startup files. Jira credentials remain environment variables.
+hooks, or edits shell startup files. Jira credentials are edited separately from configuration: repository and global
+setup share `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/jira.json`
+(absolute XDG paths only). The store is versioned JSON, plaintext with a private,
+user-owned 0700 credentials directory and user-owned 0600 regular file. Symlinks,
+unsafe permissions, malformed records, and storage within Git worktrees or Git
+administrative directories are refused. Neither ordinary config file contains
+credentials. Setup explains token creation, scoped/unscoped API roots and cloud-ID
+discovery. Tokens are hidden, including pasted input, and never redisplayed.
+Extra buffered lines from unbracketed secret pastes are discarded and the input
+is rejected; paste one single-line token and wait for each prompt.
+Keep, replace, remove, or skip the selected site's pair; disabling Jira does not
+delete credentials shared by other repositories. Review shows the destination and
+pending actions without credential values. Only explicit Save publishes changes.
+
+An explicit default-off connection check calls `GET /rest/api/3/myself` using the
+draft pair (not environment overrides), with redirects/retries disabled and the
+existing 10-second full-body deadline. A nonblank account ID confirms current-user
+access only, never all project/issue permissions. Scoped tokens may need additional
+current-user read scopes for this optional check. Errors omit bodies and raw errors.
+Cancellation aborts the check and restores the terminal.
+
+Credential publication holds a private lock through config publication and
+rechecks original bytes to reject concurrent changes. Failed config publication
+restores owned credential changes; concurrent external changes survive with an
+incomplete-rollback diagnostic and manual recovery guidance. Individual files are
+published atomically, with no-clobber creation for a new store. Cross-file crash
+atomicity is not guaranteed: an uncatchable crash can leave a credential update
+before config publication and a stale lock. Inspect private storage and rerun setup;
+never copy its contents into reports.
+Locks coordinate Timber writers. As with ordinary config, an unrelated editor
+can race the final check-to-rename; byte comparisons detect changes at the check,
+not transactions spanning arbitrary external writers.
 
 Show the destination, scope, and summary with an explicit save/replacement choice,
 individual editor/agent/Jira/hooks/base-branch/remote/workspace-folder edit choices,
