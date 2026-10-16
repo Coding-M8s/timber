@@ -119,3 +119,36 @@ test("lost setup observation never suggests replay while its hook may still be r
   expect(error.message).toContain("term_setup");
   expect(error.message).not.toContain("timber open");
 });
+
+test("readiness failure reports the retained path and one retry for everything not started", async () => {
+  const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
+    ready: async () => { throw new Error("not ready"); },
+    request: async () => { throw new Error("must not allocate"); } });
+  for (const [request, flags] of [
+    [input(), "--editor --setup --agent"],
+    [{ ...input(), agent: null }, "--editor --setup --no-agent"],
+    [{ ...input(), setup: false }, "--editor --agent"],
+    [{ ...input(), setup: false, agent: null }, "--editor"],
+  ] as const) {
+    const error = await launch(request, io).catch(e => e);
+    expect(error.message).toContain("not ready");
+    expect(error.message).toContain("Workspace retained at /repo");
+    expect(error.message).toContain(`Retry with: timber open ${flags} -- '/repo'`);
+  }
+});
+
+test("a refused terminal creation fences the request and reports a definitive retry", async () => {
+  const events: string[] = [];
+  const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
+    ready: async () => ({ create: async () => { throw new Error("Orca refused permission."); }, select: async () => {} }),
+    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed",
+      fence: async () => { events.push(`${task.kind}-fenced`); return true; },
+      waitStarted: async () => { throw new Error("must not wait"); }, waitSetup: async () => { throw new Error("must not run"); },
+      cleanup: async () => { events.push(`${task.kind}-cleaned`); } }) });
+  const error = await launch(input(), io).catch(e => e);
+  expect(error.message).toContain("Orca refused permission.");
+  expect(error.message).toContain("Retry with: timber open --editor --setup --agent -- '/repo'");
+  expect(events).toEqual(["setup-fenced", "setup-cleaned"]);
+  const agentOnly = await launch({ ...input(), setup: false }, io).catch(e => e);
+  expect(agentOnly.message).toContain("Retry with: timber open --editor --agent -- '/repo'");
+});

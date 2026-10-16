@@ -254,6 +254,8 @@ otherwise report uncertain launch and inspection guidance instead of immediate r
 
 Definitive setup retry: `timber open --editor --setup --no-agent -- '<absolute-path>'`.
 Definitive agent retry: `timber open --editor --agent -- '<absolute-path>'`.
+Definitive failures before a step's runner claims its request print one retry for
+everything not yet started, e.g. `timber open --editor --setup --agent -- '<absolute-path>'`.
 Safely render these display commands. See [Orca integration](editor-terminals.md).
 
 ## Interactive agent launching (0.2)
