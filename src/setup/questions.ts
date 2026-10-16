@@ -6,6 +6,7 @@ import type { CommandIO } from "../services";
 import type { ChoiceOption } from "../selection";
 import { SetupCancelled } from "./types";
 import type { SetupPrompt, SetupTarget } from "./types";
+import type { JiraSetupSession } from "./jira";
 
 async function choose(prompt: SetupPrompt, message: string, choices: readonly ChoiceOption[]): Promise<string> {
   const result = await prompt.select(message, choices, choices[0]!.value);
@@ -118,26 +119,35 @@ async function scalar(key: "base_branch" | "remote" | "worktree_dir", values: re
   }
 }
 
-async function jiraSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
+async function jiraSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO, session?: JiraSetupSession): Promise<void> {
   const jira = await choose(prompt,
     "Use Jira tickets to name branches?\nJira is a work ticket tracker. This lets timber new TEAM-123 use the ticket title. Skip if you don't use Jira.",
     [option("keep", keepLabel(target, "jira")), option("configure", "Yes, connect my team's Jira"),
       ...("jira" in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
       option("none", "Do not use Jira")]);
   if (jira === "inherit") delete file.jira;
-  if (jira === "none") file.jira = false;
+  if (jira === "none") {
+    file.jira = false;
+    io.stdout("Jira disabled here. Shared personal credentials are retained for other repositories.\n");
+  }
   if (jira === "configure") {
-    io.stdout("\nUse JIRA_EMAIL and JIRA_API_TOKEN environment variables for login. Setup never asks for your password or token.\n");
+    io.stdout("\nUnscoped tokens use your tenant address. Scoped tokens require the cloud UUID and use api.atlassian.com/ex/jira/<cloud-id>.\n");
+    io.stdout("Find your cloud ID by opening https://<your-site>.atlassian.net/_edge/tenant_info in your browser. Help: https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/\n");
     while (true) {
-      const site_url = await text(prompt, "Your team's Jira address, e.g. https://my-team.atlassian.net");
-      const scoped = await confirm(prompt, "Does your Jira API token use scopes? Most users can press Enter to skip.");
-      const cloud_id = scoped ? await text(prompt, "Jira cloud ID (UUID for your scoped token)") : "";
+      const current = file.jira || (target.scope === "repository" ? target.scopes.global.values.jira : undefined);
+      const site_url = await text(prompt, "Your team's Jira address, e.g. https://my-team.atlassian.net", current ? current.site_url : "");
+      const scoped = await confirm(prompt, "Does your Jira API token use scopes? Choose yes only for a scoped token.", !!current && current.cloud_id !== undefined);
+      const cloud_id = scoped ? await text(prompt, "Jira cloud ID (UUID for your scoped token)", current ? current.cloud_id ?? "" : "") : "";
+      if (scoped && !cloud_id) { io.stderr("A scoped token requires a cloud UUID. Enter it or choose unscoped token mode.\n"); continue; }
       const input = { jira: { site_url, ...(cloud_id ? { cloud_id } : {}) } };
       const result = configFileSchema.safeParse(input);
       if (result.success) { file.jira = result.data.jira; break; }
       io.stderr("Enter an HTTPS Jira address ending in .atlassian.net and, if needed, a valid cloud UUID.\n");
     }
   }
+  const effective = file.jira ?? (target.scope === "repository" ? target.scopes.global.values.jira : undefined);
+  if (effective && session) await session.edit({ siteUrl: effective.site_url,
+    ...(effective.cloud_id ? { cloudId: effective.cloud_id } : {}) }, prompt, io);
 }
 
 async function hookSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
@@ -162,11 +172,11 @@ async function hookSettings(file: ConfigFile, target: SetupTarget, prompt: Setup
 
 /** Edit only one section, using current draft values for keep/reset choices. */
 export async function editSetupSection(section: keyof ConfigFile, file: ConfigFile, target: SetupTarget,
-  prompt: SetupPrompt, io: CommandIO, available: (command: string) => Promise<boolean>): Promise<void> {
+  prompt: SetupPrompt, io: CommandIO, available: (command: string) => Promise<boolean>, jira?: JiraSetupSession): Promise<void> {
   const current = { ...target, file: { ...target.file, values: file } };
   switch (section) {
     case "editor": case "agent": await launcher(section, file, current, prompt, io, available); break;
-    case "jira": await jiraSettings(file, current, prompt, io); break;
+    case "jira": await jiraSettings(file, current, prompt, io, jira); break;
     case "hooks": await hookSettings(file, current, prompt, io); break;
     case "base_branch": await scalar(section, target.branches, file, current, prompt, io); break;
     case "remote": await scalar(section, target.repository?.remotes.map(remote => remote.name) ?? [], file, current, prompt, io); break;
@@ -175,11 +185,11 @@ export async function editSetupSection(section: keyof ConfigFile, file: ConfigFi
 }
 
 export async function questionnaire(target: SetupTarget, prompt: SetupPrompt, io: CommandIO,
-  available: (command: string) => Promise<boolean>): Promise<ConfigFile | null> {
+  available: (command: string) => Promise<boolean>, jira?: JiraSetupSession): Promise<ConfigFile | null> {
   const file: ConfigFile = structuredClone(target.file.values);
   try {
     for (const section of ["editor", "agent", "jira"] as const) {
-      await editSetupSection(section, file, target, prompt, io, available);
+      await editSetupSection(section, file, target, prompt, io, available, jira);
     }
     if (await confirm(prompt, "Advanced settings: add workspace setup scripts or change Git/folder defaults? Skip if you're unsure.")) {
       for (const section of ["hooks", "base_branch", "remote", "worktree_dir"] as const) {

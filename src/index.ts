@@ -4,6 +4,7 @@ import { createSetupHandler } from "./commands/setup";
 import { createSetupPrompt } from "./setup/terminal";
 import { checkExecutable } from "./setup/executable";
 import { inspectSetupTarget, saveSetupConfig } from "./setup/storage";
+import { createJiraSetupSession } from "./setup/jira";
 import { launchAgent } from "./agent";
 import { placeholderHandlers, runCli } from "./cli";
 import { createDoneHandler } from "./commands/done";
@@ -40,6 +41,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
     ...placeholderHandlers,
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
+      jira: createJiraSetupSession,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,

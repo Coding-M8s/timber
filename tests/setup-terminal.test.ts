@@ -3,6 +3,108 @@ import { PassThrough } from "node:stream";
 import { createSetupPrompt } from "../src/setup/terminal";
 import { createKeyboardPrompt } from "../src/setup/keyboard";
 
+test("secret entry hides pasted text and editing, preserves later answers, and restores raw mode", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const output = new PassThrough(); let displayed = "";
+  output.on("data", bytes => { displayed += bytes.toString(); });
+  const prompt = createKeyboardPrompt(input, output);
+  try {
+    const secret = prompt.secret!("API token (hidden)");
+    input.write("SYNTHETIC_TOKENx\u007f\r\n");
+    expect(await secret).toBe("SYNTHETIC_TOKEN");
+    input.end("next\r");
+    expect(await prompt.text("Next")).toBe("next");
+    expect(displayed).not.toContain("SYNTHETIC_TOKEN");
+    expect(displayed).not.toContain("TOKENx");
+  } finally { prompt.close(); }
+  expect(input.isRaw).toBe(false);
+});
+
+test("cancelling secret input restores terminal and non-TTY secret input fails closed", async () => {
+  for (const cancel of ["\u001b", "\u0003", "\u0004"]) {
+    const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+    const output = new PassThrough(); let displayed = "";
+    output.on("data", bytes => { displayed += bytes.toString(); });
+    const prompt = createKeyboardPrompt(input, output);
+    try {
+      const answer = prompt.secret!("Token");
+      input.end("SYNTHETIC_TOKEN" + cancel);
+      expect(await answer).toBeNull();
+      expect(displayed).not.toContain("SYNTHETIC_TOKEN");
+    } finally { prompt.close(); }
+    expect(input.isRaw).toBe(false);
+  }
+  const prompt = createSetupPrompt(new PassThrough(), new PassThrough());
+  try { await expect(prompt.secret!("Token")).rejects.toThrow(/terminal/); }
+  finally { prompt.close(); }
+});
+
+test("bracketed multiline paste stays hidden until the paste ends and a rendering failure allows terminal restoration", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: true, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const output = new PassThrough(); let displayed = "";
+  output.on("data", bytes => { displayed += bytes.toString(); });
+  const prompt = createKeyboardPrompt(input, output);
+  try {
+    const answer = prompt.secret!("Hidden token");
+    input.end("\u001b[200~SYNTHETIC\nMULTILINE\u001b[201~\r");
+    expect(await answer).toBe("SYNTHETIC\nMULTILINE");
+    expect(displayed).not.toContain("SYNTHETIC"); expect(displayed).not.toContain("MULTILINE");
+  } finally { prompt.close(); }
+  expect(input.isRaw).toBe(true);
+  const broken = new PassThrough(); broken.write = () => { throw new Error("Synthetic output failure"); };
+  const failingPrompt = createKeyboardPrompt(input, broken);
+  try { await expect(failingPrompt.secret!("Token")).rejects.toThrow("Synthetic output failure"); }
+  finally { failingPrompt.close(); }
+  expect(input.isRaw).toBe(true);
+});
+
+test("unbracketed multiline secret paste cannot echo leftover fragments in later prompts", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const output = new PassThrough(); let displayed = "";
+  output.on("data", bytes => { displayed += bytes.toString(); });
+  const prompt = createKeyboardPrompt(input, output);
+  try {
+    const secret = prompt.secret!("Token");
+    input.end("SYNTHETIC_FIRST\nSYNTHETIC_SECOND\n");
+    await secret;
+    await prompt.confirm("Check?", false);
+    expect(displayed).not.toContain("SYNTHETIC_FIRST");
+    expect(displayed).not.toContain("SYNTHETIC_SECOND");
+  } finally { prompt.close(); }
+});
+
+test("delayed unbracketed paste after secret Enter is rejected before the next visible prompt", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const output = new PassThrough(); let displayed = "";
+  output.on("data", bytes => { displayed += bytes.toString(); });
+  const prompt = createKeyboardPrompt(input, output);
+  try {
+    const secret = prompt.secret!("Token");
+    input.write("SYNTHETIC_TOKEN\r");
+    // Arrives after one setImmediate but inside the quiet drain window.
+    await new Promise(resolve => setTimeout(resolve, 15));
+    input.write("y");
+    expect(await secret).toBe("");
+    expect(displayed).toMatch(/Extra pasted input discarded/i);
+    const confirm = prompt.confirm("Check this draft login?", false);
+    input.end("\r");
+    expect(await confirm).toBe(false);
+    expect(displayed).not.toContain("SYNTHETIC_TOKEN");
+  } finally { prompt.close(); }
+});
+
+test("Escape aborts an in-flight connection check while arrows do not cancel setup", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const prompt = createKeyboardPrompt(input, new PassThrough());
+  try {
+    input.write("\u001b[B");
+    expect(prompt.signal?.aborted).toBe(false);
+    input.write("\u001b");
+    await new Promise(resolve => setTimeout(resolve, 550));
+    expect(prompt.signal?.aborted).toBe(true);
+  } finally { prompt.close(); }
+});
+
 test("setup prompts keep pasted answers across questions and use selectable defaults", async () => {
   const input = new PassThrough();
   const output = new PassThrough();

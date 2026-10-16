@@ -10,7 +10,7 @@ const examples = {
 };
 
 export function renderConfig(file: ConfigFile): string {
-  const header = "# Timber settings. Keep credentials in environment variables, never this file.\n"
+  const header = "# Timber settings. Keep credentials in the private user store or environment, never this file.\n"
     + "# CLI options > repository settings > machine defaults > built-in defaults.\n"
     + "# Relative worktree_dir paths resolve from the primary repository checkout.\n"
     + '# Automatic/inherited examples: base_branch = "main", remote = "origin"\n'

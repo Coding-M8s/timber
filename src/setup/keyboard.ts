@@ -34,6 +34,7 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
   const cancel = () => { cancelled = true; ended = true; controller.abort(); wake?.(); };
   const keypress = (text: string | undefined, key: Key) => {
     if (key.ctrl && (key.name === "c" || key.name === "d")) { cancel(); return; }
+    if (key.name === "escape" && key.sequence === "\u001b") { cancel(); return; }
     // Pasted CRLF is one Enter, just like readline's cooked input adapter.
     if (lastWasReturn && key.sequence === "\n") { lastWasReturn = false; return; }
     lastWasReturn = key.sequence === "\r";
@@ -51,18 +52,46 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
     return cancelled ? null : queue.shift() ?? null;
   };
   const title = (message: string) => output.write(`\n\n${message.split("\n").map(safeDiagnostic).join("\n")}\n`);
-  const readLine = async (message: string): Promise<string | null> => {
+  const readLine = async (message: string, hidden = false): Promise<string | null> => {
     output.write(message);
     let value = "";
+    let pasting = false;
     while (true) {
       const key = await next();
+      if (hidden && key?.sequence === "\u001b[200~") { pasting = true; continue; }
+      if (hidden && key?.sequence === "\u001b[201~") { pasting = false; continue; }
       if (key === null || key.name === "escape") return null;
-      if (key.name === "return" || key.name === "enter") { output.write("\n"); return value === "/cancel" ? null : value; }
+      if (hidden && pasting && (key.name === "return" || key.name === "enter")) { value += "\n"; continue; }
+      if (key.name === "return" || key.name === "enter") {
+        if (hidden) {
+          // Unbracketed paste may arrive in later PTY chunks after Enter. Drain
+          // until the queue stays idle; never hand a burst tail to a visible prompt.
+          const quietMs = 75;
+          const sliceMs = 10;
+          let contaminated = false;
+          let idleUntil = Date.now() + quietMs;
+          while (Date.now() < idleUntil) {
+            if (queue.length) {
+              contaminated = true;
+              queue.length = 0;
+              idleUntil = Date.now() + quietMs;
+            }
+            const wait = Math.min(sliceMs, Math.max(0, idleUntil - Date.now()));
+            if (wait > 0) await new Promise<void>(resolve => setTimeout(resolve, wait));
+          }
+          if (queue.length) { contaminated = true; queue.length = 0; }
+          if (contaminated) {
+            output.write("\nExtra pasted input discarded. Paste a single-line token and wait for each prompt.\n");
+            return "";
+          }
+        }
+        output.write("\n"); return value === "/cancel" ? null : value;
+      }
       if (key.name === "backspace") {
-        if (value) { value = Array.from(value).slice(0, -1).join(""); output.write("\b \b"); }
+        if (value) { value = Array.from(value).slice(0, -1).join(""); if (!hidden) output.write("\b \b"); }
       } else if (!key.ctrl && !key.meta && key.sequence && !/[\u0000-\u001f\u007f-\u009f]/u.test(key.sequence)) {
         value += key.sequence;
-        output.write(key.sequence);
+        if (!hidden) output.write(key.sequence);
       }
     }
   };
@@ -112,6 +141,12 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
       title(message);
       const answer = await readLine(`${defaultValue ? `Enter to keep ${safeDiagnostic(defaultValue)}. ` : ""}(/cancel to cancel): `);
       return answer === "" ? defaultValue : answer;
+    },
+    async secret(message) {
+      title(message);
+      output.write("\u001b[?2004h");
+      try { return await readLine("Input hidden (/cancel to cancel): ", true); }
+      finally { output.write("\u001b[?2004l"); }
     },
     async confirm(message, defaultValue) {
       title(message);

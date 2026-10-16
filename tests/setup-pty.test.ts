@@ -4,11 +4,44 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseConfigSource } from "../src/config";
 import { git, withRepository } from "./helpers/git";
+import { loadSavedCredentials } from "../src/jira/credentials";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
-async function terminal(cwd: string, directory: string, args: string[], input: string, sendAt = "Enter select") {
+test("real setup saves a pasted token outside Git without echoing it", async () => {
+  await withRepository(async (primary, directory) => {
+    const result = await terminal(primary, directory, [], "\r\r2https://example.atlassian.net\r\r2person@example.invalid\r", "Enter select", "SYNTHETIC_PASTED_TOKEN");
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("Saved repository settings");
+    expect(result.output).not.toContain("SYNTHETIC_PASTED_TOKEN");
+    expect(await loadSavedCredentials({ siteUrl: "https://example.atlassian.net" }, {
+      HOME: directory, XDG_CONFIG_HOME: join(directory, "machine/config"),
+    })).toEqual({ email: "person@example.invalid", token: "SYNTHETIC_PASTED_TOKEN" });
+    expect(await git(primary, "status", "--porcelain=v1")).toBe("");
+  });
+});
+
+for (const [input, length] of [["SYNTHETIC_TOKEN\r", 15], ["SYNTHETIC_TOKEN\u001b", null], ["SYNTHETIC_TOKEN\u0003", null]] as const) {
+  test(`real secret prompt hides paste and restores terminal (result length ${length}, input ${input.at(-1)?.charCodeAt(0)})`, async () => {
+    const fixture = fileURLToPath(new URL("./fixtures/setup-secret-parent.ts", import.meta.url));
+    let output = ""; let sent = false;
+    const child = Bun.spawn([process.execPath, "--no-env-file", fixture], { timeout: 3000,
+      terminal: { data(terminal, bytes) {
+        output += Buffer.from(bytes).toString("utf8");
+        if (!sent && output.includes("Input hidden")) { sent = true; terminal.write(input); }
+      } },
+    });
+    try {
+      expect(await child.exited).toBe(0);
+      expect(output).not.toContain("SYNTHETIC_TOKEN");
+      expect(JSON.parse(output.match(/RESULT:(.*)/u)![1]!)).toEqual({ length, rawRestored: true });
+    } finally { child.kill(); child.terminal?.close(); }
+  });
+}
+
+async function terminal(cwd: string, directory: string, args: string[], input: string, sendAt = "Enter select", secret?: string) {
   let output = ""; let sent = false;
+  let secretSent = false; let reviewSent = false;
   const child = Bun.spawn([process.execPath, "--no-env-file", entry, "setup", ...args], {
     cwd, env: { ...process.env, CI: "false", HOME: directory,
       XDG_CONFIG_HOME: join(directory, "machine/config"), XDG_STATE_HOME: join(directory, "machine/state") },
@@ -16,6 +49,12 @@ async function terminal(cwd: string, directory: string, args: string[], input: s
     terminal: { data(terminal, bytes) {
       output += Buffer.from(bytes).toString("utf8");
       if (!sent && output.includes(sendAt)) { sent = true; terminal.write(input); }
+      if (secret && !secretSent && output.includes("Input hidden")) {
+        secretSent = true; terminal.write(`${secret}\r`);
+      }
+      if (secret && !reviewSent && output.includes("Check this draft login")) {
+        reviewSent = true; terminal.write("\r\r1");
+      }
     } },
   });
   try { return { code: await child.exited, output, sent }; }
@@ -93,7 +132,7 @@ test("global setup saves outside Git in a real terminal", async () => {
 
 test("review edits only the selected section and saves the revised draft in a real terminal", async () => {
   await withRepository(async (primary, directory) => {
-    const result = await terminal(primary, directory, [], "\r".repeat(4) + "42" + "https://example.atlassian.net\r\r1");
+    const result = await terminal(primary, directory, [], "\r".repeat(4) + "42" + "https://example.atlassian.net\r\r\r1");
     expect(result.code).toBe(0);
     expect(result.output).toContain("Saved repository settings");
     expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test"))
