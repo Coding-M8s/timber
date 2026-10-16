@@ -91,7 +91,7 @@ test("arrow keys navigate setup choices and Enter confirms the highlighted item"
 
 test("number shortcuts advance immediately alongside arrows", async () => {
   await withRepository(async (primary, directory) => {
-    const result = await terminal(primary, directory, [], "5\r\r\r1");
+    const result = await terminal(primary, directory, [], "6\r\r\r1"); // 6: "Do not open an editor" after the Orca preset
     expect(result.code).toBe(0);
     expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test"))
       .toEqual({ editor: false });
@@ -149,7 +149,7 @@ test("cancelling from review after an edit preserves existing files, exclusions,
     const exclude = await readFile(join(primary, ".git/info/exclude"));
     const index = await readFile(join(primary, ".git/index"));
     const refs = await git(primary, "show-ref");
-    const result = await terminal(primary, directory, [], "\r".repeat(4) + "259");
+    const result = await terminal(primary, directory, [], "\r".repeat(4) + "269"); // edit editor, choose none, cancel
     expect(result.code).toBe(0);
     expect(result.output).toContain("Cancelled.");
     expect(await readFile(configPath, "utf8")).toBe('remote = "upstream"\n');

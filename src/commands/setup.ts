@@ -32,8 +32,10 @@ function summary(target: SetupTarget, file: ConfigFile, context: CommandContext)
   const config = resolveConfig(scopes, target.repository?.primaryWorktreeRoot ?? context.cwd);
   context.io.stdout(`\nSummary — ${target.scope === "global" ? "defaults for all repositories on this machine" : "this repository"}\n`);
   context.io.stdout(`Destination: ${safeDisplay(target.path)}\n`);
-  context.io.stdout(`Editor: ${config.editor ? safeDisplay(config.editor.command) : "off"}\n`);
-  context.io.stdout(`Agent: ${config.agent ? safeDisplay(config.agent.command) : "off"}; launch by default: ${config.agent?.enabled ? "yes" : "no"}\n`);
+  const orca = config.editor?.integration === "orca";
+  context.io.stdout(`Editor: ${config.editor ? `${safeDisplay(config.editor.command)}${orca ? " (Orca terminals)" : ""}` : "off"}\n`);
+  context.io.stdout(`Agent: ${config.agent ? safeDisplay(config.agent.command) : "off"}; launch by default: ${config.agent?.enabled ? "yes" : "no"}`
+    + `${orca && config.agent ? `; waits for setup: ${config.agent.waitForSetup ? "yes" : "no"}` : ""}\n`);
   context.io.stdout(`Post-create hooks: ${config.hooks?.postCreate.length ?? 0}; Jira: ${config.jira ? "enabled" : "off"}\n`);
   context.io.stdout(`Workflows: ${Object.keys(config.workflows ?? {}).length}\n`);
   context.io.stdout(`Base: ${safeDisplay(config.baseBranch ?? "automatic")}; remote: ${safeDisplay(config.remote ?? "automatic")}; worktree directory: ${safeDisplay(file.worktree_dir ?? config.worktreeDir ?? "default sibling directory")}\n`);

@@ -69,9 +69,13 @@ wait_for_setup = true
   defaults to false. Tables replace whole lower-scope tables: a workflow agent
   table that omits it defaults independently, while an omitted workflow agent
   inherits the entire ordinary table.
-- `timber setup` keeps `wait_for_setup` when you reselect an assistant and keeps
-  `integration` when you keep the current editor. Choosing another editor drops
-  the integration, because it belongs to the Orca command.
+- `timber setup` offers "Orca terminals" as an editor preset (`orca-ide`,
+  `integration = "orca"`) and, whenever the effective editor is Orca, asks whether
+  the assistant waits for setup, including for a kept assistant table and for an
+  Orca editor inherited from machine defaults. Reselecting an assistant keeps an
+  existing `wait_for_setup`; choosing another editor drops the integration,
+  because it belongs to the Orca command. The review summary shows
+  "(Orca terminals)" and "waits for setup".
 - `--editor`, `--no-editor`, `--agent`, `--no-agent`, `--setup`, `--workflow`
   and the CI/TTY restrictions apply before any Git or Orca mutation exactly as
   in foreground mode. Explicit `--agent` still requires an interactive terminal.
@@ -158,7 +162,7 @@ x86_64.
 | Command | Result |
 | --- | --- |
 | `bun run typecheck` | passed |
-| `bun test` | 757 pass, 0 fail, 5112 expect() calls, 64 files, 72.06 s |
+| `bun test` | 759 pass, 0 fail, 5122 expect() calls, 64 files, 72.98 s |
 | `bun run build` then `bun dist/index.js --help` | `dist/index.js` 0.77 MB; usage printed |
 | `bun run build:release` and `sha256sum -c SHA256SUMS` | `timber-v0.1.0-dev.0-linux-x64`, both sums OK |
 | `bun test tests/editor-terminal-compiled.test.ts` | compiled CLI drives a stub Orca with `PATH=/usr/bin:/bin`; passes within the suite |

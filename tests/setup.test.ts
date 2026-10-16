@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { editSetupSection, questionnaire } from "../src/setup/questions";
 import { renderConfig } from "../src/setup/render";
 import { parseConfigSource, resolveConfig } from "../src/config";
+import type { ConfigFile } from "../src/config";
 import type { SetupPrompt, SetupTarget } from "../src/setup/types";
 import { repositoryFixture } from "./helpers/services";
 
@@ -224,4 +225,43 @@ test("reselecting an assistant keeps the existing setup dependency preference", 
   await editSetupSection("agent", inherited, scoped, scripted(["claude", true]), io().io, async () => true);
   expect(inherited).toEqual({ agent: { command: "claude", args: [], wait_for_setup: true, enabled: true } });
   expect(parseConfigSource(renderConfig(inherited), "saved.toml").agent).toMatchObject({ wait_for_setup: true });
+});
+
+test("setup offers Orca terminals as an editor and asks whether the assistant waits for setup", async () => {
+  const checked: string[] = [];
+  const confirms: string[] = [];
+  const prompt = scripted(["orca", true, "claude", true, true, "none", false]);
+  const confirm = prompt.confirm;
+  prompt.confirm = async (message, current) => { confirms.push(message); return confirm(message, current); };
+  const file = await questionnaire(target(), prompt, io().io, async command => { checked.push(command); return true; });
+  expect(file?.editor).toEqual({ command: "orca-ide", args: [], enabled: true, integration: "orca" });
+  expect(file?.agent).toEqual({ command: "claude", args: [], enabled: true, wait_for_setup: true });
+  expect(checked).toEqual(["orca-ide", "claude"]);
+  expect(confirms[0]).toMatch(/Orca terminals/);
+  expect(confirms[2]).toMatch(/wait for setup/i);
+  expect(parseConfigSource(renderConfig(file!), "saved.toml")).toMatchObject({
+    editor: { integration: "orca" }, agent: { wait_for_setup: true } });
+});
+
+test("the wait-for-setup question follows the effective Orca editor, including machine defaults and kept assistants", async () => {
+  const inheritedOrca = target();
+  inheritedOrca.scopes.global.values = { editor: { command: "orca-ide", args: [], enabled: true, integration: "orca" } };
+  const fresh: ConfigFile = {};
+  await editSetupSection("agent", fresh, inheritedOrca, scripted(["claude", false, true]), io().io, async () => true);
+  expect(fresh).toEqual({ agent: { command: "claude", args: [], enabled: false, wait_for_setup: true } });
+
+  const kept: ConfigFile = { editor: { command: "orca-ide", args: [], enabled: true, integration: "orca" as const },
+    agent: { command: "claude", args: [], enabled: true } };
+  await editSetupSection("agent", kept, target(kept), scripted(["keep", true]), io().io, async () => true);
+  expect(kept.agent).toEqual({ command: "claude", args: [], enabled: true, wait_for_setup: true });
+
+  const inheritedAgent: ConfigFile = { editor: { command: "orca-ide", args: [], enabled: true, integration: "orca" as const } };
+  const scoped = target(inheritedAgent);
+  scoped.scopes.global.values = { agent: { command: "claude", args: [], enabled: true } };
+  await editSetupSection("agent", inheritedAgent, scoped, scripted(["keep"]), io().io, async () => true);
+  expect(inheritedAgent).not.toHaveProperty("agent");
+
+  const generic: ConfigFile = { editor: { command: "code", args: [], enabled: true } };
+  await editSetupSection("agent", generic, target(generic), scripted(["codex", true]), io().io, async () => true);
+  expect(generic).toEqual({ editor: { command: "code", args: [], enabled: true }, agent: { command: "codex", args: [], enabled: true } });
 });
