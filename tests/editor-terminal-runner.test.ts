@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { chmod, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
-import { createTerminalRequest } from "../src/editor-terminals/request";
+import { createTerminalRequest, RunnerStartupFailure } from "../src/editor-terminals/request";
+import * as protocol from "../src/editor-terminals/protocol";
 
 const self = { executable: process.execPath, entry: resolve("src/index.ts") };
 
@@ -57,6 +58,25 @@ test("agent startup failure hides raw command and arguments", async () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).not.toContain("secret-sentinel");
   } finally { await request.cleanup(); }
+});
+
+test.each(["startup-failed", "spawned"])("startup observation rechecks final status when the runner exits during inspection: %s", async final => {
+  const request = await createTerminalRequest({ kind: "agent", cwd: "/tmp", repositoryRoot: "/tmp", branch: null,
+    command: "/bin/true", args: [] }, self);
+  const identity = (await protocol.processIdentity())!;
+  await rename(join(request.directory, "request.json"), join(request.directory, "claimed.json"));
+  await protocol.publish(request.directory, "started.json", { kind: "starting", identity });
+  // Keep real atomic status files. Simulate the runner publishing its final
+  // acknowledgement/result and exiting between the status read and liveness read.
+  const inspection = spyOn(protocol, "processIdentity").mockImplementation(async () => {
+    if (final === "startup-failed") await protocol.publish(request.directory, "result.json", { kind: final });
+    else await protocol.publish(request.directory, "started.json", { kind: final, identity });
+    return null;
+  });
+  try {
+    if (final === "startup-failed") await expect(request.waitStarted(1000)).rejects.toBeInstanceOf(RunnerStartupFailure);
+    else await request.waitStarted(1000);
+  } finally { inspection.mockRestore(); await request.cleanup(); }
 });
 
 test("unconsumed timeout fences a delayed runner instead of executing it later", async () => {
