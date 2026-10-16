@@ -120,7 +120,8 @@ the invoking terminal or kills an agent.
 
 | Situation | Behavior | Next step |
 | --- | --- | --- |
-| Readiness or permission failure | No terminal created | Fix Orca state, rerun the same command or `timber open --editor -- '<path>'` |
+| Status, readiness or permission failure | No terminal created | Fix Orca state, then run the printed retry; it repeats everything requested, e.g. `timber open --editor --setup --agent -- '<path>'` after a failed `new` |
+| Terminal creation refused before the runner claimed its request | Request fenced and removed | Run the printed retry for that step; a setup retry includes `--agent` when the agent never started |
 | Setup step fails | Dependent agent suppressed; a parallel agent keeps running | `timber open --editor --setup --no-agent -- '<path>'` reruns all steps |
 | Agent executable cannot start | Setup still awaited | `timber open --editor --agent -- '<path>'` |
 | Runner never claimed the request within 10 s | Request fenced so a late terminal cannot run it | Retry with the printed command |
@@ -157,7 +158,7 @@ x86_64.
 | Command | Result |
 | --- | --- |
 | `bun run typecheck` | passed |
-| `bun test` | 754 pass, 0 fail, 5094 expect() calls, 64 files, 73.84 s |
+| `bun test` | 757 pass, 0 fail, 5112 expect() calls, 64 files, 72.06 s |
 | `bun run build` then `bun dist/index.js --help` | `dist/index.js` 0.77 MB; usage printed |
 | `bun run build:release` and `sha256sum -c SHA256SUMS` | `timber-v0.1.0-dev.0-linux-x64`, both sums OK |
 | `bun test tests/editor-terminal-compiled.test.ts` | compiled CLI drives a stub Orca with `PATH=/usr/bin:/bin`; passes within the suite |

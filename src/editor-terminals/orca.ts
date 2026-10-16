@@ -46,14 +46,16 @@ export async function createOrcaSession(editor: EditorConfig, worktree: Worktree
     catch { throw new Error("Could not read Orca's response. Check its CLI, running local app and permissions; workspace retained."); }
   }
   const deadline = Date.now() + (options.readinessMs ?? 15_000);
-  const status = await read(["status", "--json"], deadline - Date.now());
+  const status = await read(["status", "--json"], 10_000);
   if (!status.ok) throw failure(status.error?.code ?? "unknown");
   if (!localStatus.safeParse(status.result).success) {
     throw new Error("Orca's local window/runtime is not ready. Open the existing app and register this repository before retrying.");
   }
   let id: string;
+  // Each probe keeps a full per-call budget; the readiness deadline is checked only between probes so a
+  // probe cut short by a shrinking timeout can never masquerade as a CLI failure.
   for (;;) {
-    const response = await read(["worktree", "show", "--worktree", `path:${worktree.path}`, "--json"], deadline - Date.now());
+    const response = await read(["worktree", "show", "--worktree", `path:${worktree.path}`, "--json"], 10_000);
     if (response.ok) {
       const target = worktreeResult.safeParse(response.result);
       if (!target.success || target.data.worktree.path !== worktree.path
@@ -64,10 +66,10 @@ export async function createOrcaSession(editor: EditorConfig, worktree: Worktree
       break;
     }
     if (response.error?.code !== "selector_not_found") throw failure(response.error?.code ?? "unknown");
+    await Bun.sleep(Math.min(options.pollMs ?? 200, Math.max(1, deadline - Date.now())));
     if (Date.now() >= deadline) {
       throw new Error("Orca worktree indexing readiness timed out. Register the repository and show external worktrees in the existing window, then retry; workspace retained.");
     }
-    await Bun.sleep(Math.min(options.pollMs ?? 200, Math.max(1, deadline - Date.now())));
   }
   /** Orca 1.4.224 defers `create --focus` until the window shows the worktree, which never happens for a fresh
    * external checkout; a background create attaches its PTY immediately and a later switch only reveals it. */

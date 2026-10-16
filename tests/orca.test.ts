@@ -85,3 +85,17 @@ test("ambiguous terminal creation is never retried", async () => {
   expect(error.message).not.toContain("secret-sentinel");
   expect(creates).toBe(1);
 });
+
+test("readiness deadline reports indexing guidance even when each probe takes real time", async () => {
+  let probes = 0;
+  const error = await createOrcaSession(editor, tree, { env: {}, readinessMs: 150, pollMs: 20,
+    call: async (args, timeoutMs) => {
+      if (args[0] === "status") return status;
+      probes++;
+      await Bun.sleep(Math.min(60, timeoutMs)); // A real CLI honors the timeout it was given.
+      if (timeoutMs < 60) throw new Error("timed out");
+      return { ok: false, error: { code: "selector_not_found" } };
+    } }).catch(e => e);
+  expect(error.message).toMatch(/readiness timed out/);
+  expect(probes).toBeGreaterThan(1);
+});
