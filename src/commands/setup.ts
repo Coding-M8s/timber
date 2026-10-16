@@ -6,12 +6,14 @@ import { editSetupSection, questionnaire } from "../setup/questions";
 import { renderConfig } from "../setup/render";
 import { SetupCancelled, SetupVisibilityError } from "../setup/types";
 import type { SetupPrompt, SetupTarget } from "../setup/types";
+import type { JiraSetupSession } from "../setup/jira";
 
 export interface SetupServices {
   inspectTarget(global: boolean, cwd: string): Promise<SetupTarget>;
   prompt(): SetupPrompt;
   checkExecutable(command: string): Promise<boolean>;
   save(target: SetupTarget, source: string, trackedApproved: boolean, signal?: AbortSignal): Promise<void>;
+  jira?: () => JiraSetupSession;
 }
 
 const sections: readonly { value: keyof ConfigFile; label: string }[] = [
@@ -48,6 +50,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
     let global = options.global;
     let target = await services.inspectTarget(global, context.cwd);
     const prompt = services.prompt();
+    let jira = services.jira?.();
     try {
       while (true) {
         let trackedApproved = false;
@@ -59,14 +62,15 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
             { value: "edit", label: "Explicitly edit tracked config (index remains unchanged)" },
           ], "cancel");
           if (choice === null || choice === "cancel") throw new SetupCancelled();
-          if (choice === "global") { global = true; target = await services.inspectTarget(true, context.cwd); continue; }
+          if (choice === "global") { global = true; target = await services.inspectTarget(true, context.cwd); jira = services.jira?.(); continue; }
           if (choice !== "edit") throw new Error("Invalid tracked-config choice; no settings saved.");
           trackedApproved = true;
         }
-        const file = await questionnaire(target, prompt, context.io, services.checkExecutable);
+        const file = await questionnaire(target, prompt, context.io, services.checkExecutable, jira);
         if (file === null) throw new SetupCancelled();
         while (true) {
           summary(target, file, context);
+          jira?.review(context.io);
           const choice = await prompt.select("Review settings: save, edit a section, or cancel", [
             { value: "save", label: target.file.source === null ? "Save these settings" : "Save and replace existing configuration" },
             ...sections,
@@ -76,10 +80,13 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
           if (choice === "save") break;
           const section = sections.find(section => section.value === choice);
           if (!section) throw new Error("Invalid setup review choice; no settings saved.");
-          await editSetupSection(section.value, file, target, prompt, context.io, services.checkExecutable);
+          await editSetupSection(section.value, file, target, prompt, context.io, services.checkExecutable, jira);
         }
         const source = renderConfig(file);
-        try { await services.save(target, source, trackedApproved, prompt.signal); }
+        try {
+          const publish = () => services.save(target, source, trackedApproved, prompt.signal);
+          if (jira) await jira.save(publish, prompt.signal); else await publish();
+        }
         catch (error) {
           if (!(error instanceof SetupVisibilityError)) throw error;
           context.io.stderr(`${error.message}\n`);
@@ -90,6 +97,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
           if (choice !== "global") throw new Error("Invalid setup scope choice; no settings saved.");
           global = true;
           target = await services.inspectTarget(global, context.cwd);
+          jira = services.jira?.();
           continue;
         }
         context.io.stdout(`Saved ${target.scope === "global" ? "machine defaults" : "repository settings"} at ${safeDisplay(target.path)}\n`);

@@ -55,6 +55,7 @@ export function createSetupPrompt(input: Readable, output: Writable): SetupPromp
       const answer = await ask(`\n\n${safeDiagnostic(message)}${defaultValue ? ` [${safeDiagnostic(defaultValue)}]` : ""} (/cancel to cancel): `);
       return answer === "" ? defaultValue : answer;
     },
+    async secret() { throw new Error("Secret input requires an interactive terminal with raw input support; no credentials were read or saved."); },
     async confirm(message, defaultValue) {
       while (true) {
         const answer = await ask(`\n\n${safeDiagnostic(message)} ${defaultValue ? "[Y/n]" : "[y/N]"} `);

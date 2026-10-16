@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { createSetupHandler } from "../src/commands/setup";
 import { placeholderHandlers, runCli } from "../src/cli";
 import { parseConfigSource } from "../src/config";
+import type { JiraSetupSession } from "../src/setup/jira";
 import type { SetupPrompt, SetupTarget } from "../src/setup/types";
+import { SetupVisibilityError } from "../src/setup/types";
 import { repositoryFixture } from "./helpers/services";
 
 const file = { path: "/repo/.timber.toml", source: null, values: {} };
@@ -152,4 +154,53 @@ test("an invalid folder edit retries that input without discarding the setup dra
   expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"], enabled: false }, worktree_dir: "../corrected-folder" });
   expect(texts).toEqual([]);
   expect(stderr).toContain("nonempty");
+});
+
+test("visibility recovery recreates the Jira session before the global retry", async () => {
+  const local = structuredClone(target);
+  const globalTarget: SetupTarget = {
+    ...structuredClone(target),
+    scope: "global",
+    path: "/home/config.toml",
+    file: { path: "/home/config.toml", source: null, values: {} },
+  };
+  const selections = [
+    "keep", "keep", "keep", "save", "global",
+    "keep", "keep", "keep", "save",
+  ];
+  let sessions = 0;
+  let savedScope: string | undefined;
+  const prompt: SetupPrompt = {
+    select: async (message, choices) => {
+      const answer = selections.shift();
+      if (answer === undefined || !choices.some(choice => choice.value === answer)) {
+        throw new Error(`Unexpected question: ${message}`);
+      }
+      return answer;
+    },
+    confirm: async () => false,
+    text: async () => { throw new Error("Unexpected text question"); },
+    close() {},
+  };
+  const handler = createSetupHandler({
+    inspectTarget: async global => global ? structuredClone(globalTarget) : structuredClone(local),
+    prompt: () => prompt,
+    checkExecutable: async () => true,
+    jira: () => {
+      sessions += 1;
+      return {
+        async edit() {},
+        review() {},
+        async save(publishConfig) { await publishConfig(); },
+      } satisfies JiraSetupSession;
+    },
+    save: async (destination, _source, _approved, _signal) => {
+      if (destination.scope === "repository") throw new SetupVisibilityError("Repository ignore rules cannot hide .timber.toml.");
+      savedScope = destination.scope;
+    },
+  });
+  await handler({ global: false }, { cwd: "/repo", interactive: true, io: { stdout() {}, stderr() {} } });
+  expect(sessions).toBe(2);
+  expect(savedScope).toBe("global");
+  expect(selections).toEqual([]);
 });
