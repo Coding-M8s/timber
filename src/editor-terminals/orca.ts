@@ -3,6 +3,12 @@ import { z } from "zod";
 import type { EditorConfig, Worktree } from "../types";
 
 export type OrcaCall = (args: readonly string[], timeoutMs: number) => Promise<unknown>;
+/** Terminal creation succeeded; selection failure must never trigger another create. */
+export class OrcaSelectionFailure extends Error {
+  constructor(public readonly handle: string) {
+    super(`Could not select Orca terminal ${handle}. Inspect that existing terminal before retrying; it was retained and was not recreated.`);
+  }
+}
 interface Options {
   call?: OrcaCall;
   env?: NodeJS.ProcessEnv;
@@ -74,7 +80,10 @@ export async function createOrcaSession(editor: EditorConfig, worktree: Worktree
   /** Orca 1.4.224 defers `create --focus` until the window shows the worktree, which never happens for a fresh
    * external checkout; a background create attaches its PTY immediately and a later switch only reveals it. */
   async function reveal(handle: string): Promise<void> {
-    try { await call(["terminal", "switch", "--terminal", handle, "--json"], 5000); } catch { /* terminal already runs */ }
+    try {
+      const response = envelope.parse(await call(["terminal", "switch", "--terminal", handle, "--json"], 5000));
+      if (!response.ok) throw new Error("Selection refused");
+    } catch { throw new OrcaSelectionFailure(handle); }
   }
   return {
     worktreeId: id,
@@ -106,8 +115,7 @@ export async function createOrcaSession(editor: EditorConfig, worktree: Worktree
       if (!listed.success) throw new Error("Could not verify Orca terminal inventory; workspace retained.");
       const terminal = listed.data.terminals.find(t => t.worktreeId === id && t.executionHostId === "local" && t.connected);
       if (!terminal) { await this.create("Timber workspace"); return; }
-      const switched = await read(["terminal", "switch", "--terminal", terminal.handle, "--json"], 5000);
-      if (!switched.ok) throw failure(switched.error?.code ?? "unknown");
+      await reveal(terminal.handle);
     },
   };
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createOrcaSession } from "../src/editor-terminals/orca";
+import { createOrcaSession, OrcaSelectionFailure } from "../src/editor-terminals/orca";
 import { worktreeFixture } from "./helpers/services";
 
 const editor = { command: "orca-ide", args: [], enabled: true, integration: "orca" as const };
@@ -30,16 +30,27 @@ test("Orca readiness retries missing index entries and pins exact worktree for t
   expect(calls.some(a => a[0] === "open")).toBe(false);
 });
 
-test("a failed reveal after successful creation keeps the started terminal", async () => {
+test.each(["refused", "transport", "malformed"])("failed reveal reports its retained terminal without recreating it: %s", async mode => {
   let switches = 0;
+  let creates = 0;
   const session = await createOrcaSession(editor, tree, { env: {}, call: async args => {
     if (args[0] === "status") return status;
     if (args[0] === "worktree") return found;
-    if (args[1] === "switch") { switches++; return { ok: false, error: { code: "terminal_handle_stale" } }; }
+    if (args[1] === "switch") {
+      switches++;
+      if (mode === "transport") throw new Error("secret-sentinel");
+      return mode === "malformed" ? {} : { ok: false, error: { code: "terminal_handle_stale" } };
+    }
+    creates++;
     return { ok: true, result: { terminal: { handle: "term_abc", worktreeId: `repo::${tree.path}`,
       executionHostId: "local", surface: "visible" } } };
   } });
-  expect(await session.create("Timber agent", "/tmp/generated/runtime")).toBe("term_abc");
+  const error = await session.create("Timber agent", "/tmp/generated/runtime").catch(e => e);
+  expect(error).toBeInstanceOf(OrcaSelectionFailure);
+  expect(error.handle).toBe("term_abc");
+  expect(error.message).toMatch(/select.*term_abc.*[Ii]nspect/);
+  expect(error.message).not.toContain("secret-sentinel");
+  expect(creates).toBe(1);
   expect(switches).toBe(1);
 });
 

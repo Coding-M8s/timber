@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createEditorTerminalLauncher } from "../src/editor-terminals/launch";
+import { OrcaSelectionFailure } from "../src/editor-terminals/orca";
 import type { TerminalTask, TaskResult } from "../src/editor-terminals/protocol";
 import type { TerminalRequest } from "../src/editor-terminals/request";
 import { repositoryFixture, worktreeFixture } from "./helpers/services";
@@ -151,4 +152,36 @@ test("a refused terminal creation fences the request and reports a definitive re
   expect(events).toEqual(["setup-fenced", "setup-cleaned"]);
   const agentOnly = await launch({ ...input(), setup: false }, io).catch(e => e);
   expect(agentOnly.message).toContain("Retry with: timber open --editor --agent -- '/repo'");
+});
+
+test.each(["setup", "agent"])("selection failure retains the known %s terminal and awaits required setup", async failed => {
+  const setupDone = deferred<TaskResult>();
+  const attempted = deferred<void>();
+  const events: string[] = [];
+  const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
+    ready: async () => ({ create: async title => {
+      events.push(title);
+      if (title === `Timber ${failed}`) { attempted.resolve(); throw new OrcaSelectionFailure(`term_${failed}`); }
+      return "term_setup";
+    }, select: async () => {} }),
+    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed",
+      fence: async () => { events.push("fenced"); return true; },
+      waitStarted: async () => { events.push(`${task.kind}-started`); },
+      waitSetup: async () => setupDone.promise,
+      cleanup: async () => { events.push(`${task.kind}-cleaned`); } }) });
+  let settled = false;
+  const outcome = launch(input(), io).then(() => null, error => error).finally(() => { settled = true; });
+  await attempted.promise;
+  await Bun.sleep(5);
+  expect(settled).toBe(false);
+  expect(events).toContain(`${failed}-started`);
+  expect(events).not.toContain("fenced");
+  setupDone.resolve({ kind: "setup-complete" });
+  const error = await outcome;
+  expect(error.message).toContain(`term_${failed}`);
+  expect(error.message).toMatch(/inspect/i);
+  expect(error.message).toContain("Workspace retained at /repo");
+  expect(error.message).not.toContain("timber open");
+  expect(events).toContain("setup-cleaned");
+  expect(events.filter(e => e === "Timber agent")).toHaveLength(failed === "agent" ? 1 : 0);
 });

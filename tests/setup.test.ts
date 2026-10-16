@@ -258,10 +258,41 @@ test("the wait-for-setup question follows the effective Orca editor, including m
   const inheritedAgent: ConfigFile = { editor: { command: "orca-ide", args: [], enabled: true, integration: "orca" as const } };
   const scoped = target(inheritedAgent);
   scoped.scopes.global.values = { agent: { command: "claude", args: [], enabled: true } };
-  await editSetupSection("agent", inheritedAgent, scoped, scripted(["keep"]), io().io, async () => true);
+  await editSetupSection("agent", inheritedAgent, scoped, scripted(["keep", false]), io().io, async () => true);
   expect(inheritedAgent).not.toHaveProperty("agent");
 
   const generic: ConfigFile = { editor: { command: "code", args: [], enabled: true } };
   await editSetupSection("agent", generic, target(generic), scripted(["codex", true]), io().io, async () => true);
   expect(generic).toEqual({ editor: { command: "code", args: [], enabled: true }, agent: { command: "codex", args: [], enabled: true } });
+});
+
+test.each(["keep", "inherit"])("Orca dependency can override a global assistant through %s without losing its settings", async selected => {
+  const globalAgent = { command: "/opt/assistant wrapper", args: ["literal prompt", "--flag"], enabled: true, wait_for_setup: false };
+  const file: ConfigFile = { editor: { command: "orca-ide", args: [], enabled: true, integration: "orca" },
+    ...(selected === "inherit" ? { agent: { command: "old-local", args: [], enabled: false, wait_for_setup: true } } : {}) };
+  const scoped = target(file);
+  scoped.scopes.global.values = { agent: globalAgent };
+  const prompt = scripted([selected, true]);
+  const confirm = prompt.confirm;
+  let questions = 0;
+  prompt.confirm = async (message, current) => {
+    questions++;
+    expect(message).toMatch(/wait for setup/i);
+    expect(current).toBe(false);
+    return confirm(message, current);
+  };
+  await editSetupSection("agent", file, scoped, prompt, io().io, async () => true);
+  expect(questions).toBe(1);
+  expect(file.agent).toEqual({ command: "/opt/assistant wrapper", args: ["literal prompt", "--flag"], enabled: true, wait_for_setup: true });
+  expect(globalAgent.wait_for_setup).toBe(false);
+  expect(parseConfigSource(renderConfig(file), "saved.toml").agent).toEqual(file.agent);
+});
+
+test("keeping an inherited setup dependency leaves future global agent changes inheritable", async () => {
+  const file: ConfigFile = { editor: { command: "orca-ide", args: [], enabled: true, integration: "orca" },
+    agent: { command: "old-local", args: [], enabled: false } };
+  const scoped = target(file);
+  scoped.scopes.global.values = { agent: { command: "global-agent", args: ["global"], enabled: true, wait_for_setup: true } };
+  await editSetupSection("agent", file, scoped, scripted(["inherit", true]), io().io, async () => true);
+  expect(file).not.toHaveProperty("agent");
 });

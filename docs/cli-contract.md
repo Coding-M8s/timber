@@ -228,14 +228,17 @@ Ordinary and workflow editor tables accept optional `integration = "orca"`.
 Omission keeps the generic editor launcher. The command names the local Orca CLI
 (e.g. `orca-ide`), with literal args separate from agent args. Require a running
 local Orca window, registered repository and visible external worktrees. Never
-start another window/runtime. Remote routing is unsupported. Zed terminals are
-deferred; generic Zed workspace opening remains available.
+start another window/runtime. Remote routing is unsupported. Editor-owned
+terminals currently support only `orca-ide`; Zed and VS Code (`code`) terminal
+integrations are deferred. Their generic workspace opening remains available.
 
 Ordinary and workflow agent tables accept boolean `wait_for_setup`, default false.
 Whole-table replacement applies; explicit workflow agents default independently,
 while omitted workflow agents inherit the entire ordinary configuration. Guided
 setup offers an Orca editor preset and asks for `wait_for_setup` whenever the
 effective editor is Orca; it never writes the key for other editors unless kept.
+For inherited agents, an unchanged dependency preference preserves inheritance;
+a changed preference copies the complete effective agent table into this scope.
 
 In enabled Orca mode, establish bounded exact-worktree readiness, then run ordinary
 and workflow setup sequentially in one terminal and an independently enabled agent
@@ -253,6 +256,9 @@ Even agent handoff failure must await setup already started. Observed required
 failures return nonzero, preserving workspace/refs/files; never fall back or kill
 agents. Never retry terminal creation blindly. Fence unconsumed timed-out requests;
 otherwise report uncertain launch and inspection guidance instead of immediate replay.
+A failed window selection after terminal creation returns nonzero and identifies
+the retained terminal, without fencing or recreating it. Await required setup
+already started; a setup-terminal selection failure prevents the initial agent.
 
 Definitive setup retry: `timber open --editor --setup --no-agent -- '<absolute-path>'`.
 Definitive agent retry: `timber open --editor --agent -- '<absolute-path>'`.

@@ -9,8 +9,10 @@ belongs to Orca. Without the integration, or with `--no-editor`, the earlier
 foreground behavior applies: setup, then the generic editor launcher, then an
 agent in the invoking terminal.
 
-Supported and tested: Linux x86_64 with Orca 1.4.224. Zed terminals are not
-supported; see [Zed](#zed) below.
+**Support note:** Editor-owned setup and agent terminals currently support only
+`orca-ide` (Orca 1.4.224, tested on Linux x86_64). Zed and VS Code (`code`)
+terminal integrations are not supported yet. Their generic editor-opening
+behavior remains available; see [Zed](#zed) and [VS Code](#vs-code) below.
 
 ## Prerequisites
 
@@ -72,7 +74,10 @@ wait_for_setup = true
 - `timber setup` offers "Orca terminals" as an editor preset (`orca-ide`,
   `integration = "orca"`) and, whenever the effective editor is Orca, asks whether
   the assistant waits for setup, including for a kept assistant table and for an
-  Orca editor inherited from machine defaults. Reselecting an assistant keeps an
+  Orca editor or assistant inherited from machine defaults. Keeping the inherited
+  dependency preference preserves inheritance; changing it saves a complete
+  repository agent table with the inherited command, arguments and enablement.
+  Reselecting an assistant keeps an
   existing `wait_for_setup`; choosing another editor drops the integration,
   because it belongs to the Orca command. The review summary shows
   "(Orca terminals)" and "waits for setup".
@@ -130,6 +135,7 @@ the invoking terminal or kills an agent.
 | Agent executable cannot start | Setup still awaited | `timber open --editor --agent -- '<path>'` |
 | Runner never claimed the request within 10 s | Request fenced so a late terminal cannot run it | Retry with the printed command |
 | Create response lost after the runner may have started | Reported as uncertain; nothing replayed | Inspect the named terminal before retrying |
+| Terminal created but window selection fails | Reported as failure with the retained terminal handle; running setup is still awaited; no terminal recreated | Inspect/select that existing terminal; do not relaunch a running agent |
 | Runner exited without a result while its shell lives on | Reported as uncertain; request data retained | Inspect the setup terminal and its processes |
 
 Retry commands are rendered safely, including paths with control characters.
@@ -145,7 +151,10 @@ once the command starts; use the printed handle to find the terminal.
   first shown, at which point the queued command runs. Timber therefore creates
   terminals without `--focus` (PTY attached in well under a second) and reveals
   them afterwards with `terminal switch`, which also navigates to a worktree the
-  window has never shown. A failed reveal does not fail the handoff.
+  window has never shown. A failed reveal returns nonzero with the retained
+  terminal handle. Timber observes its runner and any required setup without
+  fencing or recreating the terminal; a setup-terminal selection failure blocks
+  the initial agent, and an agent already started remains running.
 - `worktree show --worktree path:<new checkout>` reports `selector_not_found`
   for a short time after `git worktree add`; Timber's bounded readiness loop
   absorbs this.
@@ -193,6 +202,8 @@ afterwards.
 
 ## Zed
 
+Tracked in [Zed terminal integration #60](https://github.com/Coding-M8s/timber/issues/60).
+
 Zed 1.18.1 (`zeditor --help`, https://zed.dev/docs/reference/cli) opens
 workspaces (`zed <path>`, `--new`, `--add`, `--wait`) but exposes no external
 way to run a given command in a workspace terminal or to observe its
@@ -212,3 +223,15 @@ A separate ticket should add Zed terminals only once these are met:
 3. Real-process tests plus a recorded manual smoke on Linux x86_64 in this
    document.
 4. `integration = "zed"` accepted by strict validation only in that change.
+
+## VS Code
+
+Tracked in [VS Code terminal integration #61](https://github.com/Coding-M8s/timber/issues/61).
+
+VS Code (`code`) currently uses only the generic editor launcher. Running setup
+and agents inside VS Code terminals requires a separate integration, with a
+demonstrated automation route for exact workspace/cwd selection, literal
+arguments and context, process startup acknowledgement, and setup completion.
+Preserve user settings and task files. Apply the same lifecycle, dependency,
+failure-preservation and Linux smoke-test requirements as the Orca integration
+before accepting a VS Code integration setting or claiming support.

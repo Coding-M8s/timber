@@ -1,6 +1,6 @@
 import { retryForDisplay, safeDisplay } from "../display";
 import type { CommandIO, EditorTerminalLaunch } from "../services";
-import { createOrcaSession } from "./orca";
+import { createOrcaSession, OrcaSelectionFailure } from "./orca";
 import { createTerminalRequest, RunnerStartupFailure } from "./request";
 import type { SelfCommand, TerminalRequest } from "./request";
 import type { TerminalTask } from "./protocol";
@@ -44,13 +44,16 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
       const request = await (dependencies.request ?? createTerminalRequest)(task, dependencies.self);
       let handle: string | undefined;
       let creationError: unknown;
+      let selectionError: OrcaSelectionFailure | undefined;
       try { handle = await session.create(`Timber ${task.kind}`, request.bootstrap); }
       catch (error) {
-        if (await request.fence()) {
+        if (error instanceof OrcaSelectionFailure) {
+          handle = error.handle;
+          selectionError = error; // Terminal exists: observe its runner, never fence or recreate it.
+        } else if (await request.fence()) {
           await request.cleanup(); // A fenced request can never run, even from a terminal Orca queued late.
           throw new Error(`${error instanceof Error ? error.message : "Orca terminal creation failed."} ${definitive(flags)}`);
-        }
-        creationError = error; // Runner already claimed it: observe, never replay.
+        } else creationError = error; // Runner already claimed it: observe, never replay.
       }
       if (handle) handles.set(request, handle);
       try { await request.waitStarted(10_000); }
@@ -61,7 +64,8 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
         throw new Error(`${diagnostic}${handle ? ` Terminal: ${handle}.` : ""} ${settled ? definitive(flags) : retained}`);
       }
       if (creationError) errors.push("Orca terminal creation acknowledgement was uncertain; inspect the selected worktree terminals before retrying.");
-      if (task.kind === "agent") io.stdout(`Agent handed off to Orca${handle ? ` terminal ${handle}` : ""}.\n`);
+      if (selectionError) errors.push(`${selectionError.message} ${retained}`);
+      if (task.kind === "agent" && !selectionError && !creationError) io.stdout(`Agent handed off to Orca${handle ? ` terminal ${handle}` : ""}.\n`);
       return request;
     }
     let setup: TerminalRequest | undefined;
@@ -98,7 +102,10 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
       } catch (error) { errors.push(error instanceof Error ? error.message : "Agent handoff failed; inspect Orca before retrying."); }
     }
     await finishSetup(); // Required even after an independent agent launch fails.
-    if (!needsSetup && !agent) await session.select();
+    if (!needsSetup && !agent) {
+      try { await session.select(); }
+      catch (error) { errors.push(`${error instanceof Error ? error.message : "Could not select the Orca worktree."} ${retained}`); }
+    }
     if (errors.length) throw new Error(errors.join(" "));
   };
 }
