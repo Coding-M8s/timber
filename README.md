@@ -676,9 +676,10 @@ Before using Timber, run `timber setup` inside your repository, or
 checkout, use `bun run dev setup` or `bun run dev setup --global`. The first CLI
 invocation also prints this hint, including for the standalone executable.
 
-Setup asks about VS Code/Zed/custom editors, Claude/Codex/custom coding assistants,
-Jira ticket naming, and optional advanced settings for scripts, Git, and workspace
-folders. Use Up/Down arrows and Enter, or press a numbered shortcut to choose
+Setup asks about VS Code/Zed/Orca terminals/custom editors, Claude/Codex/custom
+coding assistants, Jira ticket naming, and optional advanced settings for scripts,
+Git, and workspace folders. With Orca terminals selected, or inherited from machine
+defaults, it also asks whether the assistant waits for setup scripts. Use Up/Down arrows and Enter, or press a numbered shortcut to choose
 immediately. Shortcuts cover the first nine options; use arrows for additional
 entries in long branch lists; the menu scrolls to keep your selection visible.
 Blank Enter skips new settings or keeps existing ones; advanced settings are skipped
@@ -758,7 +759,10 @@ follow the [local installation and smoke-test guide](docs/local-install.md).
 
 ## Orca editor terminals
 
-Opt into separate setup and agent terminals in the existing local Orca window:
+Opt into separate setup and agent terminals in the existing local Orca window.
+Run `timber setup` (or `timber setup --global`), choose "Orca terminals" as the
+editor, enable it, and answer whether the assistant waits for setup. The saved
+tables look like this:
 
 ```toml
 [editor]

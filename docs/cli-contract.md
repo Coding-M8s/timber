@@ -233,7 +233,9 @@ deferred; generic Zed workspace opening remains available.
 
 Ordinary and workflow agent tables accept boolean `wait_for_setup`, default false.
 Whole-table replacement applies; explicit workflow agents default independently,
-while omitted workflow agents inherit the entire ordinary configuration.
+while omitted workflow agents inherit the entire ordinary configuration. Guided
+setup offers an Orca editor preset and asks for `wait_for_setup` whenever the
+effective editor is Orca; it never writes the key for other editors unless kept.
 
 In enabled Orca mode, establish bounded exact-worktree readiness, then run ordinary
 and workflow setup sequentially in one terminal and an independently enabled agent

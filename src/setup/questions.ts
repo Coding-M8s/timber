@@ -35,15 +35,28 @@ function keepLabel(target: SetupTarget, key: keyof ConfigFile): string {
     ? "Use your machine settings" : "Skip for now";
 }
 
+type LauncherPreset = { command: string; args: string[]; integration?: "orca" };
+
+/** The editor that applies after this file: a file table wins, a repository inherits machine defaults. */
+function effectiveEditor(file: ConfigFile, target: SetupTarget) {
+  const editor = file.editor ?? (target.scope === "repository" ? target.scopes.global.values.editor : undefined);
+  return editor || undefined;
+}
+
+const waitQuestion = "Wait for setup scripts to finish before starting the assistant? Choose no to start it alongside setup.";
+
 async function launcher(
   key: "editor" | "agent", file: ConfigFile, target: SetupTarget, prompt: SetupPrompt,
   io: CommandIO, available: (command: string) => Promise<boolean>,
 ): Promise<void> {
-  const presets = key === "editor"
-    ? { code: { command: "code", args: ["--new-window"] }, zed: { command: "zed", args: ["--new"] } }
+  const presets: Record<string, LauncherPreset> = key === "editor"
+    ? { code: { command: "code", args: ["--new-window"] }, zed: { command: "zed", args: ["--new"] },
+      orca: { command: "orca-ide", args: [], integration: "orca" } }
     : { claude: { command: "claude", args: [] }, codex: { command: "codex", args: [] } };
-  const choices = [option("keep", keepLabel(target, key)), ...Object.keys(presets).map(name =>
-    option(name, ({ code: "VS Code", zed: "Zed", claude: "Claude", codex: "Codex" } as Record<string, string>)[name]!)),
+  const labels: Record<string, string> = { code: "VS Code", zed: "Zed", orca: "Orca terminals (setup and assistant in the Orca window)",
+    claude: "Claude", codex: "Codex" };
+  const orca = key === "agent" && effectiveEditor(file, target)?.integration === "orca";
+  const choices = [option("keep", keepLabel(target, key)), ...Object.keys(presets).map(name => option(name, labels[name]!)),
     option("custom", key === "editor" ? "Another editor" : "Another coding assistant"),
     ...(key in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
     option("none", key === "editor" ? "Do not open an editor" : "Do not start a coding assistant")];
@@ -57,12 +70,14 @@ async function launcher(
       ? "Which editor should open your workspace?\nSkip to open it yourself later."
       : "Use an AI coding assistant?\nChoose one you already have installed, or skip. It runs in this terminal, or in Orca when its integration is enabled.", choices);
     if (selected === "keep") {
+      // The dependency is reachable only through this question, so a kept file table still answers it.
+      if (orca && file.agent) file.agent = { ...file.agent, wait_for_setup: await confirm(prompt, waitQuestion, file.agent.wait_for_setup ?? false) };
       await diagnoseEffective();
       return;
     }
     if (selected === "inherit") { delete file[key]; await diagnoseEffective(); return; }
     if (selected === "none") { file[key] = false; return; }
-    let command: { command: string; args: string[] };
+    let command: LauncherPreset;
     if (selected === "custom") {
       const executable = await text(prompt, `${key === "editor" ? "Editor" : "Assistant"} program name or full path`);
       const argsSource = await text(prompt, 'Extra arguments (Enter for none), as JSON, e.g. ["--flag"]', "[]");
@@ -78,7 +93,7 @@ async function launcher(
       }
       command = { command: executable, args };
     } else {
-      command = (presets as Record<string, { command: string; args: string[] }>)[selected]!;
+      command = presets[selected]!;
     }
     if (!await available(command.command)) {
       io.stderr(`Selected ${key} executable is unavailable. Install it or fix PATH, then reselect it, choose none, or cancel.\n`);
@@ -87,14 +102,17 @@ async function launcher(
       if (recovery === "none") { file[key] = false; return; }
       continue;
     }
-    if (key === "editor") file.editor = { ...command,
-      enabled: await confirm(prompt, "Open this editor automatically when opening a workspace?", false) };
-    else {
-      const previous = file.agent ?? (target.scope === "repository" ? target.scopes.global.values.agent : undefined);
-      file.agent = { ...command,
-        ...(previous && previous.wait_for_setup !== undefined ? { wait_for_setup: previous.wait_for_setup } : {}),
-        enabled: await confirm(prompt, "Start this assistant automatically when opening a workspace?", false) };
+    if (key === "editor") {
+      file.editor = { ...command, enabled: await confirm(prompt, command.integration === "orca"
+        ? "Run setup scripts and the assistant in Orca terminals automatically when opening a workspace?"
+        : "Open this editor automatically when opening a workspace?", false) };
+      return;
     }
+    const previous = file.agent ?? (target.scope === "repository" ? target.scopes.global.values.agent : undefined);
+    const kept = previous ? previous.wait_for_setup : undefined;
+    const enabled = await confirm(prompt, "Start this assistant automatically when opening a workspace?", false);
+    const wait_for_setup = orca ? await confirm(prompt, waitQuestion, kept ?? false) : kept;
+    file.agent = { ...command, enabled, ...(wait_for_setup === undefined ? {} : { wait_for_setup }) };
     return;
   }
 }
