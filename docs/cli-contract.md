@@ -13,7 +13,7 @@
 11. Delete a local branch only when every local commit is reachable from its verified live remote upstream, its commits are contained in the validated base, or a successful Git virtual merge produces exactly the validated base tree. The latter proves content integration after a squash/rebase merge without requiring the original commit IDs or a live feature upstream. Recheck the target and preservation evidence before removal and branch deletion. Publication-only cleanup must verify the live upstream after the final local safety reads and again after worktree removal; changed upstream identity or lost publication retains the local branch. A missing base does not block verified publication, but a validated local base branch cannot be deleted. Use only built-in merge behavior: reject custom merge-driver configuration and disable renormalization for this proof. Conflicts, unsupported Git operations, and uncertain integration evidence never authorize deletion through that proof. `--keep-branch` retains the local branch; clean published worktree cleanup does not require integration with or without this option. Do not infer safety from a closed PR. Detached worktrees still require commit ancestry into the validated base.
 12. No destructive `--force` in 0.1. No remote branch deletion, automatic stash, or implicit process killing.
 13. `done` discards ignored files and directories, including `.env`, with the worktree by default. `--keep-ignored` refuses cleanup when ignored content exists, leaving those files, the worktree, and branch in their original locations; it does not copy them elsewhere. Retain `--discard-ignored` as a compatibility option. Reject combining it with `--keep-ignored`. Neither option bypasses modified/untracked files or commit/integration safety checks. Document the default in CLI help and the README.
-14. Editors default to off, including when a command is configured without `enabled = true`. `new` and `open` accept `--editor` and `--no-editor`; explicit enable or disable overrides `[editor].enabled`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2. In 0.2 agent launching is opt-in, follows the editor, and owns the invoking terminal; see the launch contract below.
+14. Editors default to off, including when a command is configured without `enabled = true`. `new` and `open` accept `--editor` and `--no-editor`; explicit enable or disable overrides `[editor].enabled`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2. In 0.2 agent launching is opt-in and uses either the invoking terminal or explicitly selected editor terminals; see the launch contracts below.
 15. CLI success means required Git/setup work completed. If editor/agent startup fails after creation, retain the workspace and explain how to retry. Editor launch success is process startup only: Timber returns promptly and does not report a later nonzero editor exit, even when editor args include `--wait`.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
 
@@ -32,7 +32,7 @@ Git to validate. Do not slugify punctuation, truncate names, or append suffixes.
 
 Read `.timber.toml` from the primary worktree root and Linux machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml`. Empty or relative XDG paths use the HOME fallback. Do not search nested or linked-worktree configuration. Validate both existing files independently; unknown keys, unreadable files, and invalid values are errors even when overridden in the other scope. Missing files use defaults.
 
-The supported 0.1 keys are `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2.
+The supported 0.1 keys are `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Agent settings are parsed and retained in 0.1; agent launching remains 0.2. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below.
 
 Precedence is explicit CLI options > repository TOML > global TOML > built-in defaults. Absent keys inherit. Present optional tables replace the whole lower-scope table: executable/argument combinations stay together, and argument arrays and hook lists never concatenate. Relative `worktree_dir` in either scope resolves against the current repository's primary root. Root-level `editor = false`, `agent = false`, `hooks = false`, or `jira = false` explicitly disables that inherited integration; `true` is invalid. Editor and agent tables with a command and `enabled = false` still support explicit `--editor` and `--agent`, respectively; root-level `false` removes the inherited command. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional 0.2 extensions described below.
 
@@ -87,13 +87,13 @@ Each workflow table accepts only `description` (a nonblank string), `post_create
 
 Both config scopes are validated independently. Workflow definitions merge by name: a repository definition replaces the complete same-name global definition, including scripts and launcher arguments. A repository `[workflows]` table can set `review = false` to remove that inherited name; root `workflows = false` disables all inherited names. Hook lists and argument arrays never concatenate across scopes. Guided `timber setup` preserves workflow values through save and displays the effective count; edit workflow definitions directly in TOML.
 
-On local worktree creation, including `open` materializing an existing local or remote branch, Timber saves the selected name, runs ordinary `post_create` hooks, runs workflow `post_create` hooks, opens the effective editor, then starts the initial agent. The name is saved before scripts run. Setup receives `TIMBER_WORKFLOW` as environment data; an unassigned worktree has no inherited `TIMBER_WORKFLOW`. Shell source is never interpolated. A user's executable or wrapper may supply its preferred prompt or open a separate window; Timber itself keeps the agent in the invoking foreground terminal and passes arguments literally.
+Outside enabled Orca integration, on local worktree creation, including `open` materializing an existing local or remote branch, Timber saves the selected name, runs ordinary `post_create` hooks, runs workflow `post_create` hooks, opens the effective editor, then starts the initial agent. The name is saved before scripts run. Setup receives `TIMBER_WORKFLOW` as environment data; an unassigned worktree has no inherited `TIMBER_WORKFLOW`. Shell source is never interpolated. A user's executable or wrapper may supply its preferred prompt or open a separate window; Timber itself keeps the agent in the invoking foreground terminal and passes arguments literally.
 
 An existing worktree can be assigned or reassigned with `open --workflow <name>`; this saves the name and applies the selected editor launch policy without creation scripts or an implicit agent. Ordinary later `open` uses the saved name and the current workflow editor configuration, but never replays creation scripts or any implicit agent, even when global `[agent].enabled = true`. Repeating `open --workflow <same-name>` behaves the same. `open --setup` deliberately reruns ordinary then workflow scripts from the start once; it does not imply an agent launch. `open --agent` deliberately launches the current workflow agent or inherited ordinary agent, including its initial prompt arguments; `--no-agent` suppresses it. Explicit agent launch requires an interactive stdin/stdout terminal with CI off before mutation. Config-driven agent launch skips noninteractive use.
 
 The association is local JSON inside the selected worktree's private Git administrative directory, never a committed worktree file or a branch/release tag. It stores a version, name, and Git/worktree identity paths only. Reads verify Git's reciprocal identity and record identity. Missing records mean unassigned; stale or malformed records never select another workflow. A missing workflow definition leaves the saved name visible in `ls` and makes ordinary `open` fail with guidance to restore it or explicitly assign a valid one. `ls` shows `?` and a safe warning for unreadable/stale metadata while keeping every Git row. Git removal of a linked worktree removes its private administrative metadata; retaining a branch does not retain the workflow association.
 
-Failures after creation retain the worktree, refs, and script files. Script failures stop editor and agent launch; editor startup failure stops agent launch. An ordinary reopen does not retry creation actions. Repair and deliberately rerun scripts with `timber open --setup -- '<absolute-worktree-path>'`; retry the editor with `timber open --editor -- '<absolute-worktree-path>'`; retry the agent with `timber open --agent --no-editor -- '<absolute-worktree-path>'`. A failed association write reports an explicit `open --workflow <name>` repair command. Scripts must tolerate explicit reruns. Timber does not promise exactly-once side effects across crashes. Keep secrets out of config, metadata, and diagnostics.
+Failures after creation retain the worktree, refs, and script files. In foreground mode, script failures stop editor and agent launch; editor startup failure stops agent launch. An ordinary reopen does not retry creation actions. Repair and deliberately rerun scripts with `timber open --setup -- '<absolute-worktree-path>'`; retry the editor with `timber open --editor -- '<absolute-worktree-path>'`; retry the agent with `timber open --agent --no-editor -- '<absolute-worktree-path>'`. A failed association write reports an explicit `open --workflow <name>` repair command. Scripts must tolerate explicit reruns. Timber does not promise exactly-once side effects across crashes. Keep secrets out of config, metadata, and diagnostics.
 
 ## Jira ticket lookup (0.2, TIM-10)
 
@@ -222,7 +222,44 @@ changes. Report a safely quoted retry of the form
 `timber open --setup -- '<absolute-worktree-path>'`; use a printable Bash retry
 for paths containing terminal controls. Timber never executes the retry text.
 
+## Editor terminals (TIM-27)
+
+Ordinary and workflow editor tables accept optional `integration = "orca"`.
+Omission keeps the generic editor launcher. The command names the local Orca CLI
+(e.g. `orca-ide`), with literal args separate from agent args. Require a running
+local Orca window, registered repository and visible external worktrees. Never
+start another window/runtime. Remote routing is unsupported. Zed terminals are
+deferred; generic Zed workspace opening remains available.
+
+Ordinary and workflow agent tables accept boolean `wait_for_setup`, default false.
+Whole-table replacement applies; explicit workflow agents default independently,
+while omitted workflow agents inherit the entire ordinary configuration.
+
+In enabled Orca mode, establish bounded exact-worktree readiness, then run ordinary
+and workflow setup sequentially in one terminal and an independently enabled agent
+in another. Both use the selected absolute cwd. Start the agent in parallel by
+default; `wait_for_setup = true` requires setup success first. Agent-only opens do
+not force setup. Existing opens with any enabled editor never implicitly restart
+agents. Editor-disabled behavior stays unchanged, including foreground execution.
+Flags, workflows and CI/TTY restrictions continue to apply before mutation.
+
+Use private transient runner data for literal argv, unchanged hook sources and
+Timber environment context. Preserve target-terminal Orca identity. Observe actual
+agent spawn and setup completion, never agent lifetime. Setup failure stops later
+steps; dependent agents are suppressed, parallel agents already running stay open.
+Even agent handoff failure must await setup already started. Observed required
+failures return nonzero, preserving workspace/refs/files; never fall back or kill
+agents. Never retry terminal creation blindly. Fence unconsumed timed-out requests;
+otherwise report uncertain launch and inspection guidance instead of immediate replay.
+
+Definitive setup retry: `timber open --editor --setup --no-agent -- '<absolute-path>'`.
+Definitive agent retry: `timber open --editor --agent -- '<absolute-path>'`.
+Safely render these display commands. See [Orca integration](editor-terminals.md).
+
 ## Interactive agent launching (0.2)
+
+The following foreground behavior applies outside enabled Orca integration;
+TIM-27 takes precedence in editor terminal mode.
 
 `new` and `open` accept `--agent` and `--no-agent`. Omission defers to
 `agent.enabled`; explicit enable overrides false and explicit disable overrides

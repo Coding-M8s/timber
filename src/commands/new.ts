@@ -8,7 +8,7 @@ import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflo
 
 type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
-  "createWorktree" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent">;
+  "createWorktree" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
@@ -75,6 +75,14 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     if (options.workflow) await services.writeWorkflowAssociation(repository, worktree, options.workflow);
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
     if (ticket) context.io.stdout(`Jira: ${ticket.url}\n`);
+
+    if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
+      if (!services.launchEditorTerminals) throw new Error("Orca terminal integration is unavailable; workspace retained.");
+      await services.launchEditorTerminals({ repository, worktree, config: editorConfig, agent: agentCommand, setup: true,
+        ...(options.workflow === undefined ? {} : { workflowName: options.workflow }),
+        ...(workflow === null ? {} : { workflowScripts: workflow.postCreate }) }, context.io);
+      return;
+    }
 
     if (config.hooks?.postCreate.length || workflow?.postCreate.length) {
       await services.runSetup(repository, worktree, config, context.io,

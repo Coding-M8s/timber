@@ -420,13 +420,13 @@ to remove all inherited names. Both config scopes are validated even when one
 overrides the other. `timber setup` preserves existing workflow values and shows
 the effective count; edit workflow definitions directly in TOML.
 
-On creation, Timber saves the selected workflow, runs ordinary setup scripts,
+Outside enabled Orca integration, on creation Timber saves the selected workflow, runs ordinary setup scripts,
 then workflow setup scripts, opens the selected editor, then starts its optional
 initial agent in the invoking terminal. `open` creating a worktree for an
 existing branch counts as creation. The scripts receive `TIMBER_WORKFLOW` as an
 environment variable; Timber never substitutes it into shell source. A custom
 agent wrapper can supply its prompt and open a separate window if desired.
-Timber passes executable arguments literally and owns only a foreground agent.
+Timber passes executable arguments literally. With [Orca integration](docs/editor-terminals.md), setup and agents use separate editor terminals instead.
 
 Later `open` commands remember the workflow and use its current editor settings.
 They do not rerun setup or launch an implicit agent, including when ordinary
@@ -592,7 +592,7 @@ Keep credentials outside repository configuration.
 
 `new` and `open` accept `--agent` to enable the configured command for that
 invocation and `--no-agent` to suppress it. Omission defers to `enabled`, which
-defaults to false. Using both flags is an error. Explicit enable requires an
+defaults to false; existing-worktree opens with an enabled editor require explicit `--agent`. Using both flags is an error. Explicit enable requires an
 `[agent]` table; Timber does not assume a default tool. Editor and agent choices
 are independent:
 
@@ -602,7 +602,7 @@ timber open my-feature --agent --no-editor
 timber open my-feature --no-agent
 ```
 
-Timber completes required Git work and starts the editor before running the
+Outside enabled [Orca integration](docs/editor-terminals.md), Timber completes required Git work and starts the editor before running the
 agent. An editor startup failure prevents agent launch. The agent inherits the
 invoking terminal's stdin/stdout/stderr and runs in the foreground; Timber waits
 for it to finish. Agent exit status becomes Timber's exit status, including
@@ -755,3 +755,26 @@ after setup's check. First-use markers live under
 
 To replace a development `bun link` with this branch's standalone executable,
 follow the [local installation and smoke-test guide](docs/local-install.md).
+
+## Orca editor terminals
+
+Opt into separate setup and agent terminals in the existing local Orca window:
+
+```toml
+[editor]
+command = "orca-ide"
+args = []
+enabled = true
+integration = "orca"
+
+[agent]
+command = "claude"
+args = []
+enabled = true
+wait_for_setup = false
+```
+
+Agents start in parallel with setup by default. Set `wait_for_setup = true` to
+require successful setup first. `--no-editor` preserves foreground behavior.
+See [prerequisites, workflows and recovery](docs/editor-terminals.md). Zed terminal
+automation is a separate follow-up; ordinary Zed workspace opening is unchanged.

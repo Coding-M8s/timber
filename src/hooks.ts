@@ -23,6 +23,30 @@ function failureReason(error: unknown): string {
   return "the setup shell could not run";
 }
 
+export class SetupFailure extends Error {
+  constructor(public readonly step: number, public readonly phase: string, public readonly reason: string, path: string) {
+    super(`${phase === "ordinary" ? "Setup" : "Setup workflow"} post_create step ${step} failed (${reason}). ` +
+      `The branch/worktree and setup files are retained at ${displayPath(path)}. ` +
+      `Fix the hook or its prerequisites, then retry all setup steps with: ${retryCommand(path)}`);
+  }
+}
+
+export interface SetupTask {
+  cwd: string;
+  repositoryRoot: string;
+  branch: string | null;
+  workflow?: string | undefined;
+  hooks: readonly string[];
+  workflowHooks: readonly string[];
+}
+
+export function taskEnvironment(task: Pick<SetupTask, "cwd" | "repositoryRoot" | "branch" | "workflow">) {
+  return { TIMBER_REPO: task.repositoryRoot, TIMBER_WORKTREE: task.cwd,
+    TIMBER_BRANCH: task.branch ?? "",
+    TIMBER_TASK_ID: task.branch?.match(/^([A-Z][A-Z0-9]*-\d+)(?=$|[-_./])/)?.[1],
+    TIMBER_WORKFLOW: task.workflow };
+}
+
 /** Linux setup uses fixed /bin/sh and unchanged trusted source; context is environment data only. */
 export async function runSetup(
   repository: RepositoryContext,
@@ -32,24 +56,22 @@ export async function runSetup(
   workflowName?: string,
   workflowScripts: readonly string[] = [],
 ): Promise<void> {
+  return runSetupTask({ cwd: worktree.path, repositoryRoot: repository.primaryWorktreeRoot,
+    branch: worktree.branch, ...(workflowName === undefined ? {} : { workflow: workflowName }),
+    hooks: config.hooks?.postCreate ?? [], workflowHooks: workflowScripts }, io);
+}
+
+export async function runSetupTask(task: SetupTask, io: CommandIO): Promise<void> {
   const hooks = [
-    ...(config.hooks?.postCreate ?? []).map(source => ({ source, phase: "ordinary" })),
-    ...workflowScripts.map(source => ({ source, phase: "workflow" })),
+    ...task.hooks.map(source => ({ source, phase: "ordinary" })),
+    ...task.workflowHooks.map(source => ({ source, phase: "workflow" })),
   ];
-  const taskId = worktree.branch?.match(/^([A-Z][A-Z0-9]*-\d+)(?=$|[-_./])/)?.[1];
-  const env = {
-    TIMBER_REPO: repository.primaryWorktreeRoot,
-    TIMBER_WORKTREE: worktree.path,
-    TIMBER_BRANCH: worktree.branch ?? "",
-    // Undefined removes inherited values: caller context must not leak into the selected workspace.
-    TIMBER_TASK_ID: taskId,
-    TIMBER_WORKFLOW: workflowName,
-  };
+  const env = taskEnvironment(task);
 
   for (const [index, step] of hooks.entries()) {
     try {
       const child = execa("/bin/sh", ["-c", step.source], {
-        cwd: worktree.path,
+        cwd: task.cwd,
         env,
         stdin: "ignore",
         buffer: false,
@@ -59,11 +81,7 @@ export async function runSetup(
       await child;
     } catch (error) {
       // Execa's message includes shell source/output, so report only structured failure metadata.
-      throw new Error(
-        `${step.phase === "ordinary" ? "Setup" : "Setup workflow"} post_create step ${index + 1} failed (${failureReason(error)}). ` +
-        `The branch/worktree and setup files are retained at ${displayPath(worktree.path)}. ` +
-        `Fix the hook or its prerequisites, then retry all setup steps with: ${retryCommand(worktree.path)}`,
-      );
+      throw new SetupFailure(index + 1, step.phase, failureReason(error), task.cwd);
     }
   }
 }

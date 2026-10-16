@@ -108,7 +108,7 @@ function branchRequest(branch: Branch) {
 export function createOpenHandler(
   services: Pick<CommandServices,
     "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" |
-    "readWorkflowAssociation" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent">,
+    "readWorkflowAssociation" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">,
 ): CommandHandlers["open"] {
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
@@ -172,7 +172,8 @@ export function createOpenHandler(
     const workflow = selectWorkflow(config, workflowName);
     const selectedEditor = workflowEditor(config, workflow, options.editor);
     const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
-    const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, context.interactive === true, created);
+    const agentChoice = !created && selectedEditor?.enabled && options.agent !== true ? false : options.agent;
+    const agentCommand = resolveWorkflowAgent(config, workflow, agentChoice, context.interactive === true, created);
     let worktree: Worktree;
     if (selected.kind === "branch") {
       worktree = await services.createWorktree(repository, branchRequest(selected.branch), config);
@@ -182,6 +183,16 @@ export function createOpenHandler(
 
     if (options.workflow !== undefined && (created || savedName !== options.workflow)) {
       await services.writeWorkflowAssociation(repository, worktree, options.workflow);
+    }
+
+    if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
+      context.io.stdout(`${created ? "Created" : "Opened existing"} worktree at ${safeDisplay(worktree.path)}\n`);
+      if (!services.launchEditorTerminals) throw new Error("Orca terminal integration is unavailable; workspace retained.");
+      await services.launchEditorTerminals({ repository, worktree, config: editorConfig, agent: agentCommand,
+        setup: created || options.setup === true,
+        ...(workflowName === null ? {} : { workflowName }),
+        ...(workflow === null ? {} : { workflowScripts: workflow.postCreate }) }, context.io);
+      return;
     }
 
     if ((created || options.setup) && (config.hooks?.postCreate.length || workflow?.postCreate.length)) {

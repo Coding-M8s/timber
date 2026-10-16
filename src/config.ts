@@ -17,14 +17,16 @@ const executableSchema = z.strictObject({
   command: z.string().refine(value => value.trim().length > 0),
   args: z.array(z.string()).default([]),
 });
-const editorSchema = executableSchema.extend({ enabled: z.boolean().default(false) });
+const editorCommandSchema = executableSchema.extend({ integration: z.literal("orca").optional() });
+const agentCommandSchema = executableSchema.extend({ wait_for_setup: z.boolean().optional() });
+const editorSchema = editorCommandSchema.extend({ enabled: z.boolean().default(false) });
 
 const postCreateSchema = z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")));
 const workflowSchema = z.strictObject({
   description: z.string().trim().min(1).optional(),
   post_create: postCreateSchema.default([]),
-  editor: z.union([z.literal(false), executableSchema]).optional(),
-  agent: z.union([z.literal(false), executableSchema]).optional(),
+  editor: z.union([z.literal(false), editorCommandSchema]).optional(),
+  agent: z.union([z.literal(false), agentCommandSchema]).optional(),
 });
 const workflowNameSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/u);
 
@@ -52,11 +54,7 @@ export const configFileSchema = z.strictObject({
   workflows: z.union([z.literal(false), z.record(workflowNameSchema,
     z.union([z.literal(false), workflowSchema]))]).optional(),
   editor: z.union([z.literal(false), editorSchema]).optional(),
-  agent: z.union([z.literal(false), z.strictObject({
-    command: z.string().refine(value => value.trim().length > 0),
-    args: z.array(z.string()).default([]),
-    enabled: z.boolean().default(false),
-  })]).optional(),
+  agent: z.union([z.literal(false), agentCommandSchema.extend({ enabled: z.boolean().default(false) })]).optional(),
   jira: z.union([z.literal(false), z.strictObject({
     site_url: jiraSiteSchema,
     cloud_id: z.uuid().optional(),
@@ -117,6 +115,11 @@ function configIssues(issues: readonly z.core.$ZodIssue[], prefix: readonly Prop
     : [{ ...issue, path: [...prefix, ...issue.path] }]);
 }
 
+function normalizedAgent<T extends { wait_for_setup?: boolean | undefined }>(value: T) {
+  const { wait_for_setup, ...command } = value;
+  return { ...command, ...(wait_for_setup === undefined ? {} : { waitForSetup: wait_for_setup }) };
+}
+
 export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): RepositoryConfig {
   const config = { ...scopes.global.values, ...scopes.local?.values };
   const globalWorkflows = scopes.global.values.workflows;
@@ -129,7 +132,7 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
       ...(value.description === undefined ? {} : { description: value.description }),
       postCreate: value.post_create,
       ...(value.editor === undefined ? {} : { editor: value.editor }),
-      ...(value.agent === undefined ? {} : { agent: value.agent }),
+      ...(value.agent === undefined ? {} : { agent: value.agent === false ? false as const : normalizedAgent(value.agent) }),
     }]]));
   return {
     ...defaults,
@@ -137,7 +140,7 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
     remote: config.remote ?? null,
     worktreeDir: config.worktree_dir === undefined ? null : resolve(primaryRoot, config.worktree_dir),
     editor: config.editor || null,
-    agent: config.agent || null,
+    agent: config.agent ? normalizedAgent(config.agent) : null,
     ...(globalWorkflows === undefined && localWorkflows === undefined ? {} : { workflows }),
     ...(config.hooks ? { hooks: { postCreate: config.hooks.post_create } } : {}),
     ...(config.jira ? { jira: {

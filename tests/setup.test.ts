@@ -213,3 +213,15 @@ test("quick setup skips advanced questions and leaves new settings empty on Ente
   expect(questions.join(" ")).not.toContain("alias");
   expect(questions.join(" ")).not.toContain("base_branch");
 });
+
+test("reselecting an assistant keeps the existing setup dependency preference", async () => {
+  const file = { agent: { command: "claude", args: [], enabled: true, wait_for_setup: true } };
+  await editSetupSection("agent", file, target(file), scripted(["codex", false]), io().io, async () => true);
+  expect(file.agent).toEqual({ command: "codex", args: [], wait_for_setup: true, enabled: false });
+  const inherited = {};
+  const scoped = target();
+  scoped.scopes.global.values = { agent: { command: "claude", args: [], enabled: false, wait_for_setup: true } };
+  await editSetupSection("agent", inherited, scoped, scripted(["claude", true]), io().io, async () => true);
+  expect(inherited).toEqual({ agent: { command: "claude", args: [], wait_for_setup: true, enabled: true } });
+  expect(parseConfigSource(renderConfig(inherited), "saved.toml").agent).toMatchObject({ wait_for_setup: true });
+});

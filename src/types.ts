@@ -70,11 +70,20 @@ export interface ExecutableCommand {
 }
 
 /** Normalized repository configuration. Relative paths resolve from primaryWorktreeRoot. */
-export interface AgentConfig extends ExecutableCommand {
+export interface AgentCommand extends ExecutableCommand {
+  /** Only editor terminal mode uses this dependency; absence means false. */
+  waitForSetup?: boolean;
+}
+
+export interface EditorCommand extends ExecutableCommand {
+  integration?: "orca" | undefined;
+}
+
+export interface AgentConfig extends AgentCommand {
   enabled: boolean;
 }
 
-export interface EditorConfig extends ExecutableCommand {
+export interface EditorConfig extends EditorCommand {
   enabled: boolean;
 }
 
@@ -82,8 +91,8 @@ export interface EditorConfig extends ExecutableCommand {
 export interface WorkflowConfig {
   description?: string;
   postCreate: readonly string[];
-  editor?: ExecutableCommand | false;
-  agent?: ExecutableCommand | false;
+  editor?: EditorCommand | false;
+  agent?: AgentCommand | false;
 }
 
 /** Jira Cloud site used for ticket lookup; credentials are supplied at runtime. */
