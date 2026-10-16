@@ -21,6 +21,11 @@ elif args[:2] == ["terminal", "create"]:
                          start_new_session=True)
     result = {"terminal": {"handle": "term_test", "worktreeId": worktree_id,
                            "executionHostId": "local", "surface": "visible"}}
+elif args[:2] == ["terminal", "switch"]:
+    assert args[args.index("--terminal") + 1] == "term_test"
+    with open(os.path.join(cwd, "editor-selected"), "w") as selected:
+        selected.write("term_test")
+    result = {"terminal": {"handle": "term_test", "worktreeId": worktree_id}}
 else:
     raise AssertionError("unexpected adapter command")
 print(json.dumps({"ok": True, "result": result}))

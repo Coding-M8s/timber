@@ -64,18 +64,27 @@ async function launcher(
     const current = file[key] ?? (target.scope === "repository" ? target.scopes.global.values[key] : undefined);
     if (current && !await available(current.command)) io.stderr(`Configured ${key} executable is unavailable; install it or fix PATH before launching.\n`);
   };
+  const configureDependency = async () => {
+    if (!orca) return;
+    const agent = file.agent ?? (target.scope === "repository" ? target.scopes.global.values.agent : undefined);
+    if (!agent) return;
+    const inheritedWait = agent.wait_for_setup ?? false;
+    const wait = await confirm(prompt, waitQuestion, inheritedWait);
+    // An unchanged inherited preference stays inherited. A changed preference
+    // replaces the whole table, keeping its executable/arguments and enablement together.
+    if (file.agent || wait !== inheritedWait) file.agent = { ...agent, args: [...agent.args], wait_for_setup: wait };
+  };
 
   while (true) {
     const selected = await choose(prompt, key === "editor"
       ? "Which editor should open your workspace?\nSkip to open it yourself later."
       : "Use an AI coding assistant?\nChoose one you already have installed, or skip. It runs in this terminal, or in Orca when its integration is enabled.", choices);
     if (selected === "keep") {
-      // The dependency is reachable only through this question, so a kept file table still answers it.
-      if (orca && file.agent) file.agent = { ...file.agent, wait_for_setup: await confirm(prompt, waitQuestion, file.agent.wait_for_setup ?? false) };
+      await configureDependency();
       await diagnoseEffective();
       return;
     }
-    if (selected === "inherit") { delete file[key]; await diagnoseEffective(); return; }
+    if (selected === "inherit") { delete file[key]; await configureDependency(); await diagnoseEffective(); return; }
     if (selected === "none") { file[key] = false; return; }
     let command: LauncherPreset;
     if (selected === "custom") {

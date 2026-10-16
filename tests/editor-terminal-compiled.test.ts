@@ -20,6 +20,7 @@ test("standalone CLI hands setup to its own compiled runner without Bun or sourc
       expect(result.exitCode).toBe(0);
       const path = join(primary, "../primary repo-worktrees/compiled");
       expect(await readFile(join(path, "compiled-marker"), "utf8")).toBe("compiled");
+      expect(await readFile(join(path, "editor-selected"), "utf8")).toBe("term_test");
       expect(await readFile(join(path, "editor-output"), "utf8")).not.toContain("installation");
     });
   } finally { await rm(directory, { recursive: true, force: true }); }

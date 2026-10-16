@@ -759,6 +759,10 @@ follow the [local installation and smoke-test guide](docs/local-install.md).
 
 ## Orca editor terminals
 
+**Support note:** Editor-owned setup and agent terminals currently support only
+`orca-ide`. Zed and VS Code (`code`) terminal integrations are not supported yet;
+their existing generic editor-opening behavior remains available.
+
 Opt into separate setup and agent terminals in the existing local Orca window.
 Run `timber setup` (or `timber setup --global`), choose "Orca terminals" as the
 editor, enable it, and answer whether the assistant waits for setup. The saved
@@ -781,4 +785,6 @@ wait_for_setup = false
 Agents start in parallel with setup by default. Set `wait_for_setup = true` to
 require successful setup first. `--no-editor` preserves foreground behavior.
 See [prerequisites, workflows and recovery](docs/editor-terminals.md). Zed terminal
-automation is a separate follow-up; ordinary Zed workspace opening is unchanged.
+automation is tracked in [#60](https://github.com/Coding-M8s/timber/issues/60),
+and VS Code terminals in [#61](https://github.com/Coding-M8s/timber/issues/61).
+Their generic workspace opening remains available.
