@@ -2,6 +2,8 @@ import { Buffer } from "node:buffer";
 import { z } from "zod";
 import type { JiraConfig, JiraTicket } from "../types";
 import { isJiraTicketKey } from "./branch";
+import { loadSavedCredentials, validCredentials } from "./credentials";
+import type { JiraCredentials } from "./credentials";
 
 const defaultTimeoutMs = 10_000;
 const jiraHostname = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.atlassian\.net$/;
@@ -34,6 +36,8 @@ export interface JiraRuntime {
   env: Readonly<Record<string, string | undefined>>;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   timeoutMs: number;
+  loadCredentials?: (config: JiraConfig) => Promise<JiraCredentials | null>;
+  signal?: AbortSignal;
 }
 
 /** Resolve one Jira issue with a bounded native fetch and safe diagnostics. */
@@ -44,7 +48,7 @@ export async function resolveJiraTicket(
 ): Promise<JiraTicket> {
   if (!isJiraTicketKey(key)) throw new Error("Invalid Jira ticket key.");
 
-  const requestContext = prepareRequest(config, runtime);
+  const requestContext = await prepareRequest(config, runtime);
   const requestUrl = new URL(`${requestContext.apiRoot}/rest/api/3/issue/${encodeURIComponent(key)}`);
   requestUrl.searchParams.set("fields", "summary,status");
 
@@ -72,7 +76,7 @@ export async function findJiraSuggestions(
 ): Promise<readonly JiraTicket[]> {
   if (!isJiraTicketKey(key)) throw new Error("Invalid Jira ticket key.");
 
-  const requestContext = prepareRequest(config, runtime);
+  const requestContext = await prepareRequest(config, runtime);
   const projectKey = key.slice(0, key.lastIndexOf("-"));
   const jql = `project = "${projectKey}" AND statusCategory != Done ORDER BY key ASC`;
 
@@ -122,51 +126,78 @@ interface JiraRequestContext {
   authorization: string;
 }
 
-function prepareRequest(config: JiraConfig, runtime: JiraRuntime): JiraRequestContext {
+export async function checkJiraConnection(config: JiraConfig, runtime: JiraRuntime = defaultRuntime()): Promise<void> {
+  const request = await prepareRequest(config, runtime);
+  await withDeadline(runtime, async signal => {
+    const body = await fetchJson(runtime, `${request.apiRoot}/rest/api/3/myself`, request.authorization, signal);
+    if (!isRecord(body) || typeof body.accountId !== "string" || !body.accountId.trim()) {
+      throw new JiraLookupFailure("Unexpected Jira response; current-user data was not usable.");
+    }
+  });
+}
+
+async function prepareRequest(config: JiraConfig, runtime: JiraRuntime): Promise<JiraRequestContext> {
   const siteOrigin = validatedSiteOrigin(config);
-  const missing = [
-    ["JIRA_EMAIL", runtime.env.JIRA_EMAIL],
-    ["JIRA_API_TOKEN", runtime.env.JIRA_API_TOKEN],
-  ].flatMap(([name, value]) => typeof value === "string" && value.trim().length > 0 ? [] : [name]);
-  if (missing.length > 0) {
-    throw new Error(`JIRA credentials are missing: ${missing.join(", ")}. Set them and retry.`);
+  const { JIRA_EMAIL: email, JIRA_API_TOKEN: token } = runtime.env;
+  let pair: JiraCredentials | null;
+  if (email !== undefined || token !== undefined) {
+    if (email === undefined || token === undefined || !validCredentials({ email, token })) {
+      throw new Error("JIRA credentials are missing or invalid: JIRA_EMAIL and JIRA_API_TOKEN must be a complete nonblank pair. Set both, or unset both and run timber setup to use saved credentials; sources are never mixed.");
+    }
+    pair = { email, token };
+  } else {
+    pair = await runtime.loadCredentials?.(config) ?? null;
+    if (pair === null) throw new Error("JIRA credentials are missing: JIRA_EMAIL and JIRA_API_TOKEN are unset and no matching saved pair exists. Run timber setup or timber setup --global, or set both environment variables.");
+    if (!validCredentials(pair)) throw new Error("Saved Jira credentials are invalid. Replace them with timber setup; never include credential contents in reports.");
   }
 
   if (!Number.isFinite(runtime.timeoutMs) || runtime.timeoutMs <= 0) {
     throw new Error("Invalid Jira timeout setting.");
   }
 
-  const email = runtime.env.JIRA_EMAIL as string;
-  const token = runtime.env.JIRA_API_TOKEN as string;
   const apiRoot = config.cloudId === undefined
     ? siteOrigin
     : `https://api.atlassian.com/ex/jira/${config.cloudId}`;
   return {
     siteOrigin,
     apiRoot,
-    authorization: `Basic ${Buffer.from(`${email}:${token}`, "utf8").toString("base64")}`,
+    authorization: `Basic ${Buffer.from(`${pair.email}:${pair.token}`, "utf8").toString("base64")}`,
   };
 }
 
 async function withDeadline<T>(runtime: JiraRuntime, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
+  let open = true;
   let rejectDeadline!: (error: Error) => void;
   const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject; });
+  const settle = (error: Error) => {
+    if (!open) return;
+    open = false;
+    rejectDeadline(error);
+  };
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
-    rejectDeadline(new Error(timeoutMessage(runtime.timeoutMs)));
+    settle(new Error(timeoutMessage(runtime.timeoutMs)));
   }, runtime.timeoutMs);
+  const cancel = () => { controller.abort(); settle(abortError()); };
+  runtime.signal?.addEventListener("abort", cancel, { once: true });
 
   try {
-    return await Promise.race([operation(controller.signal), deadline]);
+    if (runtime.signal?.aborted) throw abortError();
+    const result = await Promise.race([operation(controller.signal), deadline]);
+    open = false;
+    return result;
   } catch (error) {
+    open = false;
+    if (runtime.signal?.aborted || isAbortError(error)) throw abortError();
     if (timedOut) throw new JiraLookupFailure(timeoutMessage(runtime.timeoutMs));
     if (error instanceof JiraLookupFailure) throw error;
     throw new JiraLookupFailure("Jira request failed because of a network or redirect error; check connectivity and the configured site/token mode.");
   } finally {
     clearTimeout(timer);
+    runtime.signal?.removeEventListener("abort", cancel);
   }
 }
 
@@ -282,6 +313,12 @@ function isAbortError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
 }
 
+function abortError(): Error {
+  const error = new Error("Jira request was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
 function statusCategoryKey(status: unknown): unknown {
   if (!isRecord(status)) return undefined;
   const category = status.statusCategory;
@@ -319,5 +356,6 @@ function defaultRuntime(): JiraRuntime {
     env: process.env,
     fetch: (url, init) => fetch(url, init),
     timeoutMs: defaultTimeoutMs,
+    loadCredentials: loadSavedCredentials,
   };
 }
