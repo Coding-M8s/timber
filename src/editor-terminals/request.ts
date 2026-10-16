@@ -47,6 +47,11 @@ export async function createTerminalRequest(task: TerminalTask, self: SelfComman
         const ack = await status();
         if (ack && (task.kind === "setup" || ack.kind === "spawned")) return;
         if (ack && (await processIdentity(ack.identity.pid))?.start !== ack.identity.start) {
+          // The runner may publish its final status and exit between our first
+          // status read and this liveness check. Prefer that definitive evidence.
+          const finalOutcome = await result();
+          if (finalOutcome?.kind === "startup-failed") throw new RunnerStartupFailure("The editor terminal command could not start.");
+          if ((await status())?.kind === "spawned") return;
           throw new Error("Editor runner exited before handoff; inspect its terminal before retrying.");
         }
         await Bun.sleep(20);
