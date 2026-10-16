@@ -2,12 +2,12 @@ import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import { failureWithRetry, safeDisplay } from "./display";
 import type { CommandIO } from "./services";
-import type { AgentResult, ExecutableCommand, RepositoryConfig, Worktree } from "./types";
+import type { AgentCommand, AgentResult, ExecutableCommand, RepositoryConfig, Worktree } from "./types";
 
 /** Resolve opt-in before Git mutation; unattended config never starts a session. */
 export function resolveAgentCommand(
   config: RepositoryConfig, enabled: boolean | undefined, interactive: boolean,
-): ExecutableCommand | null {
+): AgentCommand | null {
   if (!(enabled ?? config.agent?.enabled ?? false)) return null;
   if (config.agent === null) {
     throw new Error("Configure an agent before using --agent. Run timber setup in this repository or timber setup --global for machine defaults.");

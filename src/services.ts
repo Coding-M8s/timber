@@ -1,5 +1,5 @@
 import type {
-  AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
+  AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
@@ -56,6 +56,18 @@ export interface CommandServices {
     workflowName?: string, workflowScripts?: readonly string[]): Promise<void>;
   /** TIM-9: await the owned foreground child; null command skips launching. */
   launchAgent(worktree: Worktree, command: ExecutableCommand | null): Promise<AgentResult>;
+  /** TIM-27: exact local editor terminals, required setup and startup acknowledgements only. */
+  launchEditorTerminals?(launch: EditorTerminalLaunch, io: CommandIO): Promise<void>;
+}
+
+export interface EditorTerminalLaunch {
+  repository: RepositoryContext;
+  worktree: Worktree;
+  config: RepositoryConfig;
+  agent: AgentCommand | null;
+  setup: boolean;
+  workflowName?: string;
+  workflowScripts?: readonly string[];
 }
 
 export interface CommandIO {

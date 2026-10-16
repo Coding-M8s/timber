@@ -145,3 +145,16 @@ test("open materializes selected branch before editor and agent", async () => {
   expect(result.calls).toEqual(["discover", "config", "resolve", "create", "editor", "agent"]);
   expect(result.exitCode).toBe(0);
 });
+
+test("open of an existing worktree with an enabled editor never implicitly launches an agent", async () => {
+  const loaded = { ...config, editor: { command: "editor", args: [], enabled: true } };
+  const implicit = await invoke("open", { loaded, editor: { kind: "launched" } });
+  expect(implicit.calls).toEqual(["discover", "config", "resolve", "editor"]);
+  expect(implicit.exitCode).toBe(0);
+  const explicit = await invoke("open", { loaded, flags: ["--agent"], editor: { kind: "launched" } });
+  expect(explicit.calls).toEqual(["discover", "config", "resolve", "editor", "agent"]);
+  const editorOff = await invoke("open", { loaded, flags: ["--no-editor"] });
+  expect(editorOff.calls).toEqual(["discover", "config", "resolve", "editor", "agent"]);
+  const materialized = await invoke("open", { loaded, materialize: true, editor: { kind: "launched" } });
+  expect(materialized.calls).toEqual(["discover", "config", "resolve", "create", "editor", "agent"]);
+});

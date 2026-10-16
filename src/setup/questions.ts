@@ -55,7 +55,7 @@ async function launcher(
   while (true) {
     const selected = await choose(prompt, key === "editor"
       ? "Which editor should open your workspace?\nSkip to open it yourself later."
-      : "Use an AI coding assistant?\nChoose one you already have installed, or skip. It runs in this terminal.", choices);
+      : "Use an AI coding assistant?\nChoose one you already have installed, or skip. It runs in this terminal, or in Orca when its integration is enabled.", choices);
     if (selected === "keep") {
       await diagnoseEffective();
       return;
@@ -89,7 +89,12 @@ async function launcher(
     }
     if (key === "editor") file.editor = { ...command,
       enabled: await confirm(prompt, "Open this editor automatically when opening a workspace?", false) };
-    else file.agent = { ...command, enabled: await confirm(prompt, "Start this assistant automatically when opening a workspace?", false) };
+    else {
+      const previous = file.agent ?? (target.scope === "repository" ? target.scopes.global.values.agent : undefined);
+      file.agent = { ...command,
+        ...(previous && previous.wait_for_setup !== undefined ? { wait_for_setup: previous.wait_for_setup } : {}),
+        enabled: await confirm(prompt, "Start this assistant automatically when opening a workspace?", false) };
+    }
     return;
   }
 }

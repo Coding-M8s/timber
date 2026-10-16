@@ -269,6 +269,8 @@ and compile-checked service consumers; it claims no Git lifecycle verification.
 
 ## TIM-9 agent additions
 
+This describes the foreground path. TIM-27 below defines editor-owned terminals.
+
 `NewOptions.agent` and `OpenOptions.agent` are optional booleans: undefined
 defers to config, true enables, false disables. CLI rejects both controls
 together. `CommandContext.interactive` is optional; absent means false.
@@ -327,3 +329,17 @@ foreground agent launch and post-create setup remain separate operations.
 `readWorkflowAssociation(repository, worktree)` returns assigned, unassigned, or invalid metadata. `writeWorkflowAssociation(repository, worktree, name)` writes a versioned, atomic, private Git-admin record after reciprocal Git identity validation. The record contains the name and canonical paths only. `open` rejects invalid saved records and missing saved definitions instead of selecting another workflow; a valid explicit assignment can replace a stale identity record. `ls` keeps all Git rows and renders invalid records as `?`.
 
 `new` and branch-materializing `open` save an explicitly selected workflow before running setup. One setup invocation runs resolved ordinary scripts then workflow scripts, with `TIMBER_WORKFLOW` in the environment. Existing-worktree `open` without `--setup` never runs creation scripts. When a workflow is selected, existing-worktree `open` never launches an implicit agent, even if ordinary agent defaults are enabled; `--agent` is an explicit launch. No-workflow worktrees retain the earlier ordinary-agent behavior. Editor selection is reevaluated from current config on every open. CLI `--workflow`, `-w`, and `--w` normalize to the same option, and duplicate aliases fail before dispatch.
+
+## TIM-27 reviewed launch extension
+
+Editor/workflow editor launchers carry optional `integration: "orca"`. Agent and
+workflow agent launchers carry optional `waitForSetup`, from boolean TOML
+`wait_for_setup`, with effective default false. Scope tables still replace whole
+lower-scope tables. A shared coordinator chooses the editor-terminal seam only
+for an enabled Orca integration. It receives repository/worktree, effective editor,
+resolved agent, selected setup and workflow context; it waits for required setup
+and actual spawn acknowledgement, never interactive agent lifetime. Legacy seams
+remain separate. Existing opens suppress implicit agents whenever the editor is
+enabled; disabled-editor behavior remains unchanged. Private transient requests
+carry literal args/context and trusted hook source, with bounded exact local
+readiness and no foreground fallback. See the TIM-27 CLI launch contract.

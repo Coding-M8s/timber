@@ -1,5 +1,5 @@
 import { resolveAgentCommand } from "./agent";
-import type { AgentConfig, EditorConfig, ExecutableCommand, RepositoryConfig, WorkflowConfig } from "./types";
+import type { AgentCommand, AgentConfig, EditorConfig, RepositoryConfig, WorkflowConfig } from "./types";
 
 /** Selecting a name never guesses another workflow. */
 export function selectWorkflow(config: RepositoryConfig, name: string | null): WorkflowConfig | null {
@@ -27,7 +27,7 @@ export function workflowEditor(
 export function resolveWorkflowAgent(
   config: RepositoryConfig, workflow: WorkflowConfig | null,
   explicit: boolean | undefined, interactive: boolean, created: boolean,
-): ExecutableCommand | null {
+): AgentCommand | null {
   if (workflow === null) return resolveAgentCommand(config, explicit, interactive);
   if (explicit === false || (!created && explicit !== true)) return null;
   const configured: AgentConfig | null = workflow.agent === false

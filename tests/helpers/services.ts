@@ -24,6 +24,7 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     launchEditor: unexpected("launchEditor"),
     runSetup: unexpected("runSetup"),
     launchAgent: unexpected("launchAgent"),
+    launchEditorTerminals: unexpected("launchEditorTerminals"),
     ...overrides,
   };
 }
