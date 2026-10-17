@@ -194,3 +194,19 @@ test("long menus keep the arrow-selected option visible within terminal height",
     expect(rows.some(row => row.includes("Branch 40"))).toBe(false);
   } finally { prompt.close(); }
 });
+
+test("search picker treats q and digits as query text, ignores empty matches, and preserves later pasted answers", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const output = Object.assign(new PassThrough(), { columns: 38, rows: 9 });
+  let displayed = "";
+  output.on("data", bytes => { displayed += bytes.toString(); });
+  const prompt = createKeyboardPrompt(input, output);
+  try {
+    const result = prompt.select("Model", [{ value: "a", label: "Qwen 3" }, { value: "b", label: "Other" }], "b", { search: true });
+    input.end("zz\r\u007f\u007fq3\rnext\r");
+    expect(await result).toBe("a");
+    expect(await prompt.text("Next")).toBe("next");
+    expect(displayed).toContain("No matches");
+  } finally { prompt.close(); }
+  expect(input.isRaw).toBe(false);
+});

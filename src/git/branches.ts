@@ -6,12 +6,13 @@ import type {
 type RefRow = { ref: string; symbolic: string; upstream: string };
 
 async function git(
-  repository: RepositoryContext, args: readonly string[], action: string, options?: GitReadOptions,
+  repository: RepositoryContext, args: readonly string[], action: string, options?: GitReadOptions & { unattended?: boolean },
 ): Promise<string> {
   let result;
   try {
     result = await execa("git", [...args], {
-      cwd: repository.primaryWorktreeRoot, reject: false, env: { GIT_OPTIONAL_LOCKS: "0" },
+      cwd: repository.primaryWorktreeRoot, reject: false, env: { GIT_OPTIONAL_LOCKS: "0", ...(options?.unattended ? { GIT_TERMINAL_PROMPT: "0" } : {}) },
+      ...(options?.unattended ? { stdin: "ignore" as const, timeout: 10_000 } : {}),
       ...(options?.signal === undefined ? {} : { cancelSignal: options.signal, forceKillAfterDelay: 250 }),
     });
   } catch {
@@ -64,36 +65,43 @@ export async function listBranches(repository: RepositoryContext, options?: GitR
   return branchRows(repository, await refs(repository, options));
 }
 
+export interface LiveRemoteHead { branch: RemoteBranch; commit: string }
+
 /** Read advertised remote heads without fetching objects or changing any refs. */
-export async function listLiveRemoteBranches(
+export async function listLiveRemoteHeads(
   repository: RepositoryContext, input: string, config: RepositoryConfig,
-): Promise<readonly RemoteBranch[]> {
+): Promise<readonly LiveRemoteHead[]> {
   const explicit = [...repository.remotes].sort((a, b) => b.name.length - a.name.length)
     .find(remote => input.startsWith(`${remote.name}/`));
   const selected = explicit?.name ?? config.remote;
   if (selected !== null && !repository.remotes.some(remote => remote.name === selected)) {
     throw new Error("Configured remote does not exist in this repository.");
   }
-  const branches: RemoteBranch[] = [];
+  const heads: LiveRemoteHead[] = [];
   for (const remote of repository.remotes.filter(remote => selected === null || remote.name === selected)) {
     let result;
     try {
       result = await execa("git", ["ls-remote", "--heads", "--", remote.name], {
         cwd: repository.primaryWorktreeRoot, reject: false, timeout: 10_000,
-        env: { GIT_TERMINAL_PROMPT: "0" },
+        env: { GIT_TERMINAL_PROMPT: "0" }, stdin: "ignore",
       });
     } catch {
       throw new Error("Could not check existing remote branches; no workspace was created.");
     }
     if (result.exitCode !== 0) throw new Error("Could not check existing remote branches; no workspace was created.");
     for (const line of result.stdout.split("\n").filter(Boolean)) {
-      const match = /^[0-9a-f]{40,64}\trefs\/heads\/(.+)$/u.exec(line);
+      const match = /^([0-9a-f]{40}|[0-9a-f]{64})\trefs\/heads\/(.+)$/u.exec(line);
       if (!match) throw new Error("Could not parse remote branches; no workspace was created.");
-      const name = match[1]!;
-      branches.push({ kind: "remote", remote: remote.name, name, ref: `refs/remotes/${remote.name}/${name}` });
+      const name = match[2]!;
+      heads.push({commit: match[1]!, branch: { kind: "remote", remote: remote.name, name, ref: `refs/remotes/${remote.name}/${name}` }});
     }
   }
-  return branches;
+  return heads;
+}
+
+/** Compatibility view for ordinary open; arena also needs each advertised commit. */
+export async function listLiveRemoteBranches(repository: RepositoryContext, input: string, config: RepositoryConfig): Promise<readonly RemoteBranch[]> {
+  return (await listLiveRemoteHeads(repository, input, config)).map(head => head.branch);
 }
 
 function result(candidates: readonly Branch[]): Resolution<Branch> {
@@ -150,7 +158,7 @@ export async function validateNewBranchName(repository: RepositoryContext, name:
 }
 
 /** TIM-3 calls this again immediately before creating from a remote ref. */
-export async function refreshRemoteBranch(repository: RepositoryContext, branch: RemoteBranch): Promise<RemoteBranch> {
+export async function refreshRemoteBranch(repository: RepositoryContext, branch: RemoteBranch, options: { unattended?: boolean } = {}): Promise<RemoteBranch> {
   const knownRemote = repository.remotes.some(remote => remote.name === branch.remote);
   const expectedRef = `refs/remotes/${branch.remote}/${branch.name}`;
   if (!knownRemote || branch.ref !== expectedRef) {
@@ -161,7 +169,7 @@ export async function refreshRemoteBranch(repository: RepositoryContext, branch:
     await git(repository, [
       "fetch", "--no-tags", "--no-prune", "--no-prune-tags", "--refmap=", "--", branch.remote,
       `+refs/heads/${branch.name}:${branch.ref}`,
-    ], "refresh remote branch");
+    ], "refresh remote branch", options);
     await git(repository, ["rev-parse", "--verify", "--quiet", `${branch.ref}^{commit}`], "verify remote branch");
   } catch {
     throw new Error(`Could not refresh remote branch ${branch.remote}/${branch.name}. Check remote availability and branch existence.`);

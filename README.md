@@ -822,3 +822,263 @@ See [prerequisites, workflows and recovery](docs/editor-terminals.md). Zed termi
 automation is tracked in [#60](https://github.com/Coding-M8s/timber/issues/60),
 and VS Code terminals in [#61](https://github.com/Coding-M8s/timber/issues/61).
 Their generic workspace opening remains available.
+
+This integration applies to ordinary `new` and `open`; Arena keeps its sequential
+foreground launches in the invoking terminal.
+
+## Arena: multiple isolated attempts
+
+`timber arena new <name-or-ticket>` gives at least two attempts the same task and starting
+commit. Select an **agent tool**, optional **model** and **effort**, and **number of runs**.
+Arena displays source details, numbered runs, setup progress, and recovery commands
+in separate blocks. Terminal output uses color; `NO_COLOR=1` disables it. Redirected
+output is plain unless color is explicitly forced with `FORCE_COLOR=1`.
+Agents run one at a time in your foreground terminal; exit one before the next
+starts. Manual worktrees need no agent configuration or AI subscription.
+
+### Arena lifecycle
+
+An existing local or remote branch can supply the starting commit, even without
+its own worktree. `arena new` creates fresh attempt branches/worktrees from that
+commit. The source branch remains intact. Existing arena names or attempt
+destinations are refused; continuing an existing attempt belongs to resume.
+
+| Command | Responsibility | Availability |
+| --- | --- | --- |
+| `arena new` | Create isolated attempts, prepare them, and launch agents sequentially in the invoking terminal | Implemented in [TIM-20](https://github.com/Coding-M8s/timber/issues/40) |
+| `arena resume` | Select and revisit an existing attempt, preserving its current work; explicitly retry setup when needed | Planned in [TIM-21](https://github.com/Coding-M8s/timber/issues/41) |
+| `arena pick` | Show grouped attempt state and changes, let the user choose a winner, and clean up only eligible losers | Planned in [TIM-22](https://github.com/Coding-M8s/timber/issues/42) |
+
+Creation displays attempt paths, live foreground agent output, and completion or
+failure status. Grouped comparison belongs to `pick`: committed and uncommitted
+tracked changes against the common base, plus separate untracked-file indicators.
+These tickets keep winner selection with the user and preserve unsafe losing work.
+They do not introduce parallel/background agent management, a collected final-answer
+report, automatic quality scoring, or automatic merging/publishing.
+
+The ticket-key shortcut below selects source context for a new arena; it follows
+the same fresh-attempt lifecycle. Task instructions remain explicit.
+
+```bash
+# Guided tool → model → effort → runs, plus task entry (/done finishes):
+timber arena new search-fix
+
+# Two independent runs of one model; omit --model for tool default:
+timber arena new search-fix --prompt-file task.md \
+  --tool codex --model your-model-id --runs 2
+
+# Compare tool/model combinations. Each --tool starts another group:
+timber arena new compare --prompt-file task.md \
+  --tool codex --model your-codex-model --runs 1 \
+  --tool claude --model your-claude-model --runs 1
+
+# Compare Cursor CLI with Codex, using each tool's default model:
+timber arena new cursor-compare --prompt-file task.md \
+  --tool cursor --tool codex
+
+# Start from existing ticket progress; source worktree is not required:
+timber arena new TIM-123 --name api-slice --prompt-file remaining-api-work.md \
+  --tool codex --runs 2
+
+# Explicit remote-only starting point, including a branch not fetched yet:
+timber arena new api-slice --base origin/feature/TIM-123 \
+  --prompt-file remaining-api-work.md --tool codex --runs 2
+
+# Prepare unattended without starting agents:
+timber arena new prepared --prompt-file task.md \
+  --tool codex --runs 2 --no-agent --no-editor
+
+# Manual attempts:
+timber arena new manual-review --prompt-file task.md \
+  --tool manual --runs 2 --no-editor
+```
+
+`--tool` starts a group. Its `--model` and `--effort` are optional; `--runs`
+defaults to one. Model must precede effort when both are supplied. Repeat `--tool`
+or `--preset` for another group. At least two runs are required overall; no fixed
+upper count cap. Counts and their total must be positive safe whole numbers.
+`--base` remains optional and selects starting code, not an existing attempt.
+
+Tool, model, and preset choices support fuzzy search, including flag values:
+
+```bash
+# Partial tool/model names resolve after Enter; ambiguity opens a searchable list:
+timber arena new compare --prompt-file task.md \
+  --tool cur --model sonnet --tool cod --model sol
+
+# Task already supplied; guided selection asks tool → model → effort → runs:
+timber arena new compare --prompt "write hello world"
+```
+
+Exact values win, then canonical prefixes, then fuzzy matches. A unique match
+resolves automatically; multiple matches require explicit selection. Type to filter,
+use arrows and Enter, or Escape/Ctrl-C to cancel. Scripts never prompt: ambiguity
+reports exact matching values before creation. Unknown custom model IDs remain
+literal for the native tool to validate. IDs entered through the wizard's custom
+model option always remain literal, even when they resemble catalog entries.
+Resolved flag choices and preset keys remain exact in records;
+there are no extra preset aliases. Search does not rewrite prompt text or base refs.
+
+Model choices come from Cursor's `cursor-agent models`, Codex's local model cache,
+and Claude's documented native aliases, supplemented by saved presets. Discovery
+runs at most once per tool per invocation; native commands have closed stdin and
+bounded runtime/output. Failed discovery is reported; native default, presets,
+and exact custom IDs remain usable. Cached choices and aliases do not guarantee
+account availability; native tools still enforce policy. Model defaults are never
+guessed or copied from another active agent session.
+
+`--default-effort <level>` supplies an arena-wide fallback. Each tool group's
+`--effort <level>` overrides it; `--effort default` keeps that group's native
+setting. Saved preset effort wins over the fallback; a native preset without
+effort inherits it. Manual runs and opaque wrappers do not inherit native effort.
+Every resulting native tool/model combination is validated before creation:
+unsupported or unknown support is an error, never silently skipped. Use an explicit
+model with capability data, or opt that tool group out with `--effort default`.
+
+```bash
+# Low for first Codex group, medium for second, native effort for Cursor:
+timber arena new compare --prompt "Check whether 0.1 + 0.2 equals 0.3; explain briefly." \
+  --default-effort low \
+  --tool codex --model gpt-6-luna \
+  --tool codex --model gpt-6-luna --effort medium \
+  --tool cursor --model composer-2.5 --effort default
+```
+
+Effort appears after model selection when capability data supplies supported levels,
+plus “Use tool/model effort default.” With an arena default, the wizard also offers
+inheritance and native opt-out, including when model support is unknown. With no
+arena or per-group effort, Timber passes no native effort override. Explicit effort
+requires a known explicit model and supported level; unsupported/unknown settings
+fail before creation. Codex uses its reasoning-effort configuration override;
+Claude's general CLI help does not establish model-specific support, so its aliases
+keep native effort defaults and do not offer an effort picker or accept overrides.
+Select effort within Claude when supported. Cursor uses advertised model variants.
+An explicit Cursor model ID and conflicting `--effort` are rejected;
+in the wizard, choosing effort selects the corresponding advertised variant.
+Manual worktrees have no model/effort. Custom IDs without capability metadata retain
+native effort defaults. Tool/account policy can further restrict levels.
+
+Run summaries distinguish requested effort from native defaults and always label
+effective runtime effort as unknown. For Claude native defaults, an inherited
+`CLAUDE_CODE_EFFORT_LEVEL` is shown and recorded when present. Only recognized
+levels or `auto` are retained; other values are labeled `unrecognized`, with their
+contents omitted. Explicit validated Claude effort sets both native `--effort` and
+the child's `CLAUDE_CODE_EFFORT_LEVEL` to the same value, because that environment
+variable can override the flag. Parent environment and other tools are unchanged.
+Native settings, account policy, and in-session changes can still affect execution;
+Timber's requested value is not proof of actual runtime effort.
+
+Built-ins launch `codex`, `claude`, or `cursor-agent` on PATH. Cursor deliberately
+uses `cursor-agent`: `cursor` opens the editor, and `agent` can belong to another
+tool. Use installed, authenticated tools. Agents run sequentially in the invoking
+terminal; exit one tool to proceed to the next.
+
+Attempt count controls batch size; agents still run one at a time. Each attempt
+needs its own worktree and setup, and planning/records hold the full batch in memory.
+Available resources and runtime limits govern practical batch size. Removing the
+count cap does not provide distributed swarm execution or establish million-attempt
+scalability.
+
+Named executable/model presets remain optional shortcuts:
+
+```toml
+[arena.agents.review]
+tool = "claude"
+command = "claude"
+model = "your-model-id" # Optional; omit to use tool default.
+args = []
+
+[arena.agents.cursor-review]
+tool = "cursor"
+command = "cursor-agent"
+model = "your-cursor-model-id" # Optional; omit to use Cursor default.
+args = []
+
+[arena.agents.custom]
+tool = "wrapper"
+command = "/absolute/path/to/my-agent-wrapper"
+args = []
+```
+
+```bash
+timber arena new review --prompt-file task.md --preset review --runs 2
+timber arena new custom --prompt-file task.md --preset custom --runs 2
+```
+
+A preset saves one complete tool/model/effort/argument configuration. `--runs`
+applies to the preceding tool or preset; following model/effort overrides on a
+preset are rejected. Optional native `effort` belongs beside `model` in TOML.
+Do not duplicate fields in native arguments: Codex `-m`/`--model` and Claude
+`--model`/`--effort` remain supported when unambiguous. Cursor presets accept only
+native `--model` arguments; effort must match the explicit model variant. Wrapper
+models/effort stay in literal wrapper arguments. No native print, resume, workspace
+override, or Cursor-created nested worktree behavior is added.
+
+Presets merge by name; repository definitions replace whole same-name machine
+presets. Per-name `false` and root `arena = false` disable inheritance. Setup
+preserves these tables. `manual` and `configured` are reserved names. Interactive
+creation can reuse ordinary `[agent]` arguments after explicit handoff selection;
+ordinary agent/workflow configuration retains its behavior. Draft `--harness`,
+`--attempts`, `--task-file`, `--participant`, and `--preset name:count` spellings
+are not accepted.
+
+**Starting point:** `--base` is optional. An explicit local/remote branch wins.
+Without it, a ticket key seeks existing ticket branches: unique local progress
+works offline, including unpublished branches with no worktree. Ambiguous matches
+require selection or an exact `--base`. With no local match, live remote heads are
+checked; discovery failure blocks creation. Ticket matches respect key boundaries
+and slash-delimited branch segments (`TIM-123-work`, `feature/TIM-123`,
+`user/TIM-123-api`), excluding `TIM-1234` and arbitrary substrings.
+
+When no ticket branch exists, use configured base, selected remote default, then
+unambiguous local main/master. Normal name-only creation uses that same precedence.
+Ticket input supplies context, not task instructions: describe the remaining part
+in your task file or prompt. No Jira credentials are required for Git ticket
+matching. Exact uppercase ticket input derives a lowercase arena name; `--name`
+lets separate portions of one ticket use distinct arena identities.
+
+Remote selection is read-only before final review. Review shows source ref/commit,
+tools/models, counts and destinations. Cancellation before confirmation leaves
+refs and records untouched. After confirmation (or explicit noninteractive input),
+fetch only the selected remote branch and verify the reviewed commit. If the tip
+changed or refresh failed, stop before creating attempts and report that cached
+refs may have refreshed. Every attempt starts at the same pinned commit; no extra
+source worktree is created. Modified, untracked and ignored source files stay in
+place; they are never copied/stashed or automatically committed.
+
+Attempt branches are fresh `arena/<name>/<group-label>-<ordinal>` branches, using
+existing worktree folder rules. Local branch/path and known remote target collisions
+fail before creation; choose another arena name. Local sources use cached remote
+inventory and remain offline. Remote sources also use discovered live inventory;
+unfetched/unreachable remote name collisions cannot be ruled out offline.
+
+Task files resolve from invoking cwd and must be nonsymlink regular UTF-8 files,
+nonblank, without NUL, at most 1 MiB. Timber snapshots task bytes privately under
+common Git metadata, outside checkout files. Native tools receive an identical
+instruction to read that snapshot, separated from literal arguments with `--`.
+Wrappers receive `TIMBER_TASK_FILE`, `TIMBER_ARENA`, `TIMBER_ATTEMPT`, `TIMBER_REPO`,
+`TIMBER_WORKTREE`, and `TIMBER_BRANCH`; they read the task and keep their tool in
+foreground. Task body never enters native agent argv or Timber diagnostics. Inline `--prompt`
+text is present in Timber argv and may appear in shell history; use a file for
+private instructions. `--prompt` and `--prompt-file` are mutually exclusive. With
+neither, interactive task entry explains `/done` on each line. Tools may retain
+transcripts/output. Native model execution/file permissions are not smoke-tested;
+real terminal stubs verify argument/task transport and foreground behavior.
+
+All worktrees and ordinary setup hooks finish before per-attempt editor/agent
+startup. Editors default off; `--editor`/`--no-editor` override normal policy.
+Noninteractive creation requires explicit prompt/file and groups, plus `--no-agent`
+for native/wrapper agents. Errors or nonzero child exit stop later stages and retain
+completed workspaces/refs/files. Agent statuses propagate, including 130/143 for
+signal exits. Reciprocal UUID markers reject replaced worktrees immediately before
+setup/editor/agent actions. Private v2 manifests record source/ticket/harness/model
+context and optional requested effort; existing v1/v2 records remain readable
+without migration or guessed model/effort defaults.
+
+Inspect `timber ls`, then reopen retained work with
+`timber open --no-agent --no-editor -- '<absolute-worktree-path>'`. Deliberately retry
+all hooks with `--setup --no-agent --no-editor`; manually relaunch the assigned
+tool/preset with the recorded task snapshot. `arena resume` and `arena pick`
+remain separate follow-ups. Stale locks require inspection; crashes may leave
+uncertain state. Private records are local visibility controls, not encryption.
+Linux x86_64 remains the verified target. See [arena contract](docs/cli-contract.md#arena-creation-post-10-tim-20).

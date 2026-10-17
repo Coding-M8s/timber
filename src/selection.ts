@@ -4,6 +4,8 @@ import type { Readable, Writable } from "node:stream";
 export interface ChoiceOption {
   value: string;
   label: string;
+  description?: string;
+  keywords?: readonly string[];
 }
 
 export type TerminalChooser = (message: string, choices: readonly ChoiceOption[]) => Promise<string | null>;

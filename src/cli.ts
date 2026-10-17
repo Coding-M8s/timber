@@ -1,4 +1,7 @@
-import { Command, CommanderError } from "commander";
+import { parseArenaGroups } from "./arena/participants";
+import type { ArenaGroupToken } from "./arena/types";
+import type { ArenaNewOptions } from "./arena/types";
+import { Command, CommanderError, Option } from "commander";
 import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
 import type { CommandContext, CommandHandlers, NewOptions, OpenOptions } from "./services";
@@ -93,6 +96,43 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
       onExitCode((await handlers.open(input, normalized, context)) ?? 0);
+    });
+
+  const arena = program.command("arena")
+    .description("Prepare isolated attempts with the same task and base (Linux; sequential agents)");
+  const arenaTokens: ArenaGroupToken[] = [];
+  editorOptions(arena.command("new <name-or-ticket>"))
+    .description("Create at least 2 attempts; task entry and tool/model/effort/run selection are interactive by default")
+    .option("--prompt-file <path>", "Read task instructions from a UTF-8 file; alternative to --prompt")
+    .option("--name <name>", "Override arena name, including for another portion of a ticket")
+    .option("--tool <name>", "Start an ordered codex, claude, cursor, or manual attempt group")
+    .option("--model <id>", "Select model for preceding native tool; omission uses its configured default")
+    .option("--default-effort <level>", "Arena effort default; validated for every selected native tool/model")
+    .option("--effort <level>", "Override preceding tool/model effort; default keeps its native setting")
+    .option("--runs <count>", "Number of runs in preceding tool or preset group (default: 1)")
+    .option("--preset <name>", "Select a saved agent preset (searchable name)")
+    .option("--prompt <text>", "Use quoted task instructions instead of --prompt-file")
+    .on("option:tool", (value: string) => arenaTokens.push({option: "tool", value}))
+    .on("option:model", (value: string) => arenaTokens.push({option: "model", value}))
+    .on("option:effort", (value: string) => arenaTokens.push({option: "effort", value}))
+    .on("option:runs", (value: string) => arenaTokens.push({option: "runs", value}))
+    .on("option:preset", (value: string) => arenaTokens.push({option: "preset", value}))
+    .option("--base <ref>", "Resolve one starting commit for every attempt")
+    .option("--no-agent", "Prepare workspaces without launching agents; required for agent presets without a terminal")
+    .addHelpText("after", "\nAll worktrees and setup finish before sequential editor/foreground-agent launches. Failures retain completed state. No automatic cleanup or background sessions. Resume/pick follow in later releases.")
+    .action(async (name: string, options: { promptFile?: string; prompt?: string; defaultEffort?: string; name?: string; base?: string; agent?: boolean; editor?: boolean }) => {
+      const normalized: ArenaNewOptions = {
+        ...(options.defaultEffort === undefined ? {} : { defaultEffort: options.defaultEffort }),
+        ...(options.promptFile === undefined ? {} : { taskFile: options.promptFile }),
+        ...(options.prompt === undefined ? {} : { prompt: options.prompt }),
+        ...(arenaTokens.length ? { groups: parseArenaGroups(arenaTokens) } : {}),
+        ...(options.name === undefined ? {} : { name: options.name }),
+        ...(options.base === undefined ? {} : { base: options.base }),
+        ...(options.agent === false ? { agent: false as const } : {}),
+        ...(options.editor === undefined ? {} : { editor: options.editor }),
+      };
+      if (handlers.arenaNew === undefined) throw new Error("Arena handler is unavailable in this embedding.");
+      onExitCode(await handlers.arenaNew(name, normalized, context));
     });
 
   program.command("setup")

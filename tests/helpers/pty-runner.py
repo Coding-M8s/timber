@@ -37,7 +37,7 @@ try:
                 output.extend(chunk)
             else:
                 eof = True
-        if not eof and not sent and b"AGENT_READY" in output:
+        if not eof and not sent and payload.get("sendAt", "AGENT_READY").encode() in output:
             if payload.get("interrupt"):
                 os.write(master, b"\x03")
             elif "input" in payload:

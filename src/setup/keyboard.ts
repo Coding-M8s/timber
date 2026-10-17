@@ -1,6 +1,8 @@
 import { emitKeypressEvents } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import { searchChoices } from "../search";
 import { safeDiagnostic } from "../display";
+import { terminalStyle } from "../terminal-style";
 import type { SetupPrompt } from "./types";
 
 export type RawInput = Readable & { setRawMode(mode: boolean): unknown; isRaw?: boolean };
@@ -51,7 +53,16 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
     while (!queue.length && !ended) { await new Promise<void>(resolve => { wake = resolve; }); wake = undefined; }
     return cancelled ? null : queue.shift() ?? null;
   };
-  const title = (message: string) => output.write(`\n\n${message.split("\n").map(safeDiagnostic).join("\n")}\n`);
+  const style = terminalStyle((output as Writable & { isTTY?: boolean }).isTTY === true);
+  const title = (message: string, headingLines: readonly number[] = [], labelLines: readonly number[] = []) => {
+    const lines = message.split("\n").map((line, index) => {
+      if (headingLines.includes(index)) return style.heading(line);
+      const text = safeDiagnostic(line);
+      const field = labelLines.includes(index) ? /^( *)([^ ]+)( +)(.*)$/u.exec(text) : null;
+      return field ? `${field[1]}${style.label(field[2]!)}${field[3]}${field[4]}` : text;
+    });
+    output.write(`\n\n${lines.join("\n")}\n`);
+  };
   const readLine = async (message: string, hidden = false): Promise<string | null> => {
     output.write(message);
     let value = "";
@@ -97,7 +108,48 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
   };
   return {
     signal: controller.signal,
-    async select(message, choices, defaultValue) {
+    async select(message, choices, defaultValue, options) {
+      if (options?.search) {
+        title(message);
+        const terminal = output as Writable & { columns?: number; rows?: number };
+        const width = Math.max(1, (terminal.columns ?? 80) - 1);
+        const height = Math.min(choices.length, Math.max(1, (terminal.rows || 24) - message.split("\n").length - 5));
+        let query = options.query ?? "";
+        let matches = searchChoices(query, choices);
+        let selected = Math.max(0, matches.findIndex(choice => choice.value === defaultValue));
+        let first = 0;
+        const draw = (redraw: boolean) => {
+          if (selected < first) first = selected;
+          if (selected >= first + height) first = selected - height + 1;
+          if (redraw) output.write(`\u001b[${height + 2}A`);
+          output.write(`\r\u001b[2K${fitLine(`Search: ${safeDiagnostic(query)}`, width)}\n`);
+          for (let row = 0; row < height; row++) {
+            const choice = matches[first + row];
+            const label = choice ? `${first + row === selected ? "›" : " "} ${safeDiagnostic(choice.label)}` : row === 0 && !matches.length ? "No matches" : "";
+            output.write(`\r\u001b[2K${fitLine(label, width)}\n`);
+          }
+          output.write(`\r\u001b[2K${fitLine(`Type to search · ↑/↓ · Enter select · Esc cancel · ${matches.length} matches`, width)}\n`);
+        };
+        draw(false);
+        while (true) {
+          const key = await next();
+          if (key === null || key.name === "escape") return null;
+          if (key.name === "return" || key.name === "enter") {
+            if (matches[selected]) return matches[selected]!.value;
+            continue;
+          }
+          if (key.name === "up" || key.name === "down") {
+            if (matches.length) selected = (selected + (key.name === "up" ? -1 : 1) + matches.length) % matches.length;
+          } else {
+            if (key.name === "backspace") query = Array.from(query).slice(0, -1).join("");
+            else if (!key.ctrl && !key.meta && key.sequence && !/[\u0000-\u001f\u007f-\u009f]/u.test(key.sequence)) query += key.sequence;
+            else continue;
+            matches = searchChoices(query, choices);
+            selected = 0; first = 0;
+          }
+          draw(true);
+        }
+      }
       const defaultIndex = choices.findIndex(choice => choice.value === defaultValue);
       if (defaultIndex < 0) throw new Error("Invalid setup default choice.");
       title(message);
@@ -148,8 +200,8 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
       try { return await readLine("Input hidden (/cancel to cancel): ", true); }
       finally { output.write("\u001b[?2004l"); }
     },
-    async confirm(message, defaultValue) {
-      title(message);
+    async confirm(message, defaultValue, options) {
+      title(message, options?.headingLines, options?.labelLines);
       while (true) {
         const answer = await readLine(defaultValue ? "[Y/n] " : "[y/N] ");
         if (answer === null || answer.toLowerCase() === "q") return null;

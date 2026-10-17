@@ -3,11 +3,11 @@ import type { ChoiceOption } from "../selection";
 import type { RepositoryContext } from "../types";
 
 export interface SetupPrompt {
-  select(message: string, choices: readonly ChoiceOption[], defaultValue: string): Promise<string | null>;
+  select(message: string, choices: readonly ChoiceOption[], defaultValue: string, options?: { search?: boolean; query?: string }): Promise<string | null>;
   text(message: string, defaultValue?: string): Promise<string | null>;
   /** Must never echo input or display a previous value; absent adapters cannot accept secrets. */
   secret?(message: string): Promise<string | null>;
-  confirm(message: string, defaultValue: boolean): Promise<boolean | null>;
+  confirm(message: string, defaultValue: boolean, options?: { headingLines?: readonly number[]; labelLines?: readonly number[] }): Promise<boolean | null>;
   close(): void;
   signal?: AbortSignal;
 }

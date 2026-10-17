@@ -101,3 +101,11 @@ option. It makes the Bash suite generate the script from, and send its queries
 to, the built executable instead of the source entry.
 
 Release builds require exactly the packageManager version in package.json.
+
+Arena completion follows the same Commander definitions: `timber arena <Tab>`
+suggests subcommands, and `timber arena new --<Tab>` suggests creation flags.
+`arena new --base` completes cached branch refs using the existing bounded Git
+reads. Completion never loads arena presets, reads task snapshots, or writes
+arena records. Built-in `--tool` values complete without reading config. Model IDs,
+preset names, and prompt-file paths are not completed. Public flags derive from
+Commander, including `--model`, `--default-effort`, `--effort`, `--runs`, and `--preset`.

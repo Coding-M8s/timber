@@ -1,4 +1,10 @@
 #!/usr/bin/env bun
+import { resolveArenaSource, finalizeArenaSource } from "./arena/source";
+import { createArenaNewHandler } from "./commands/arena-new";
+import { collectArenaInput } from "./arena/input";
+import { confirmArenaPlan, chooseArenaSource } from "./arena/prompt";
+import { planArenaDraft } from "./arena/plan";
+import { reserveArena, validateArenaAttempt } from "./arena/storage";
 import { showInstallationHint } from "./guidance";
 import { runEditorTask } from "./editor-terminals/runner";
 import { createEditorTerminalLauncher } from "./editor-terminals/launch";
@@ -48,6 +54,17 @@ if (!completing) {
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
     ...placeholderHandlers,
+    arenaNew: createArenaNewHandler({
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveSource: resolveArenaSource, finalizeSource: finalizeArenaSource, createWorktree,
+      planDraft: planArenaDraft, reserveArena, validateArenaAttempt, checkExecutable, runSetup, launchEditor, launchAgent,
+      collectInput: (options, config, context) => collectArenaInput(options, config, context,
+        () => createSetupPrompt(process.stdin, process.stdout)),
+      confirmPlan: (plan, review) => review ? review(plan) : confirmArenaPlan(plan, () => createSetupPrompt(process.stdin, process.stdout)),
+      chooseSource: async candidates => {
+        const prompt = createSetupPrompt(process.stdin, process.stdout);
+        try {return await chooseArenaSource(candidates, prompt);} finally {prompt.close();}
+      },
+    }),
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
       jira: createJiraSetupSession,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),

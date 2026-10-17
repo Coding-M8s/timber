@@ -1,3 +1,4 @@
+import type { ArenaNewOptions } from "./arena/types";
 import type {
   AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
@@ -56,7 +57,7 @@ export interface CommandServices {
   runSetup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, io: CommandIO,
     workflowName?: string, workflowScripts?: readonly string[]): Promise<void>;
   /** TIM-9: await the owned foreground child; null command skips launching. */
-  launchAgent(worktree: Worktree, command: ExecutableCommand | null): Promise<AgentResult>;
+  launchAgent(worktree: Worktree, command: ExecutableCommand | null, environment?: NodeJS.ProcessEnv): Promise<AgentResult>;
   /** TIM-27: exact local editor terminals, required setup and startup acknowledgements only. */
   launchEditorTerminals?(launch: EditorTerminalLaunch, io: CommandIO): Promise<void>;
 }
@@ -104,6 +105,8 @@ export interface OpenOptions {
 }
 
 export interface CommandHandlers {
+  /** Optional for existing embedders; production entry point wires arena creation. */
+  arenaNew?(name: string, options: ArenaNewOptions, context: CommandContext): Promise<number>;
   setup(options: { global: boolean }, context: CommandContext): Promise<void>;
   new: (branch: string, options: NewOptions, context: CommandContext) => Promise<void | number>;
   open(input: string, options: OpenOptions, context: CommandContext): Promise<void | number>;

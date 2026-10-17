@@ -1,3 +1,4 @@
+import type { ArenaConfig } from "./arena/types";
 /** Absolute filesystem paths. Git's common directory identifies a repository. */
 export interface RepositoryContext {
   currentWorktreeRoot: string;
@@ -109,6 +110,8 @@ export interface JiraTicket {
 }
 
 export interface RepositoryConfig {
+  /** Optional named executable presets for arena attempts. */
+  arena?: ArenaConfig;
   baseBranch: string | null;
   remote: string | null;
   worktreeDir: string | null;
@@ -129,7 +132,7 @@ export type OpenTarget =
   | { kind: "branch"; branch: Branch };
 
 export type CreateWorktreeRequest =
-  | { kind: "new"; branch: string; base: ValidatedBase }
+  | { kind: "new"; branch: string; base: ValidatedBase; expectedPath?: string }
   | { kind: "local"; branch: Extract<Branch, { kind: "local" }> }
   | { kind: "remote"; branch: RemoteBranch };
 
