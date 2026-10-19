@@ -340,7 +340,13 @@ agent startup.
 directory, or a linked checkout. `timber setup --global` configures defaults for
 all repositories and works outside Git. Both require interactive stdin/stdout and
 CI off; noninteractive use fails with guidance and no writes. Main questions cover editor, agent, and Jira ticket naming; scripts and Git/folder
-defaults live in an optional advanced section, skipped by default. Blank Enter
+defaults live in an optional advanced section, skipped by default. Scripts have
+separate creation and pre-deletion questions; keep, replace, or clear each list
+without losing the effective other list. Editing a list materializes the whole
+effective hooks table in that scope, retaining whole-table replacement semantics.
+The creation question also offers a reset of the entire hooks table to machine
+defaults (or absent global defaults), explicitly labeled as affecting all scripts.
+The review summary shows both counts without printing script source. Blank Enter
 leaves new settings absent or retains existing values. Each question is separated
 by a blank line. Terminal selectors support Up/Down arrows and Enter; single-key
 number shortcuts 1–9 select immediately. Additional options in long menus use

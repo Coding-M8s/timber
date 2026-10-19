@@ -20,7 +20,7 @@ const sections: readonly { value: keyof ConfigFile; label: string }[] = [
   { value: "editor", label: "Edit editor" },
   { value: "agent", label: "Edit coding assistant" },
   { value: "jira", label: "Edit Jira ticket naming" },
-  { value: "hooks", label: "Edit workspace setup scripts" },
+  { value: "hooks", label: "Edit creation and pre-deletion scripts" },
   { value: "base_branch", label: "Edit starting branch" },
   { value: "remote", label: "Edit Git remote" },
   { value: "worktree_dir", label: "Edit workspace folder" },
@@ -36,7 +36,7 @@ function summary(target: SetupTarget, file: ConfigFile, context: CommandContext)
   context.io.stdout(`Editor: ${config.editor ? `${safeDisplay(config.editor.command)}${orca ? " (Orca terminals)" : ""}` : "off"}\n`);
   context.io.stdout(`Agent: ${config.agent ? safeDisplay(config.agent.command) : "off"}; launch by default: ${config.agent?.enabled ? "yes" : "no"}`
     + `${orca && config.agent ? `; waits for setup: ${config.agent.waitForSetup ? "yes" : "no"}` : ""}\n`);
-  context.io.stdout(`Post-create hooks: ${config.hooks?.postCreate.length ?? 0}; Jira: ${config.jira ? "enabled" : "off"}\n`);
+  context.io.stdout(`Post-create hooks: ${config.hooks?.postCreate.length ?? 0}; Pre-delete hooks: ${config.hooks?.preDelete?.length ?? 0}; Jira: ${config.jira ? "enabled" : "off"}\n`);
   context.io.stdout(`Workflows: ${Object.keys(config.workflows ?? {}).length}\n`);
   context.io.stdout(`Base: ${safeDisplay(config.baseBranch ?? "automatic")}; remote: ${safeDisplay(config.remote ?? "automatic")}; worktree directory: ${safeDisplay(file.worktree_dir ?? config.worktreeDir ?? "default sibling directory")}\n`);
   context.io.stdout(target.scope === "global"

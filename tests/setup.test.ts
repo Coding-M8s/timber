@@ -76,7 +76,7 @@ for (const section of ["base_branch", "remote", "worktree_dir"] as const) {
 test("guided choices keep editor and agent separate with agent disabled by default", async () => {
   const capture = io();
   const file = await questionnaire(target(), scripted([
-    "code", false, "codex", false, "none", true, "none", "keep", "keep", "keep",
+    "code", false, "codex", false, "none", true, "none", "keep", "keep", "keep", "keep",
   ]), capture.io, async () => true);
   expect(file?.editor).toEqual({ command: "code", args: ["--new-window"], enabled: false });
   expect(file?.agent).toEqual({ command: "codex", args: [], enabled: false });
@@ -123,10 +123,95 @@ test.each(["local", "global"])("editing setup scripts retains %s pre-deletion ho
   const file = scope === "local" ? { hooks } : {};
   const destination = target(file);
   if (scope === "global") destination.scopes.global.values = { hooks };
-  await editSetupSection("hooks", file, destination, scripted(["custom", "new setup", "finish"]),
+  await editSetupSection("hooks", file, destination, scripted(["custom", "new setup", "finish", "keep"]),
     io().io, async () => true);
   expect(parseConfigSource(renderConfig(file), "saved.toml").hooks)
     .toEqual({ post_create: ["new setup"], pre_delete: [" printf cleanup "] });
+});
+
+test.each(["repository", "global"] as const)("%s setup configures literal pre-deletion scripts and retains creation scripts", async scope => {
+  const file: ConfigFile = { hooks: { post_create: ["existing setup"] } };
+  const destination = { ...target(file), scope };
+  const capture = io();
+  await editSetupSection("hooks", file, destination,
+    scripted(["keep", "custom", " ", "bad\0source", " printf 'cleanup' ", "add", "echo done", "finish"]),
+    capture.io, async () => true);
+  expect(parseConfigSource(renderConfig(file), "saved.toml").hooks).toEqual({
+    post_create: ["existing setup"], pre_delete: [" printf 'cleanup' ", "echo done"],
+  });
+  expect(capture.output()).toContain("nonempty command without NUL");
+  expect(capture.output()).not.toContain("bad");
+});
+
+test.each(["creation", "deletion"])("clearing %s scripts retains the other effective list", async phase => {
+  const file: ConfigFile = {};
+  const destination = target(file);
+  destination.scopes.global.values.hooks = { post_create: ["global setup"], pre_delete: ["global cleanup"] };
+  await editSetupSection("hooks", file, destination,
+    scripted(phase === "creation" ? ["none", "keep"] : ["keep", "none"]), io().io, async () => true);
+  const config = resolveConfig({ ...destination.scopes, local: { ...destination.file, values: file } }, "/repo");
+  expect(config.hooks?.postCreate).toEqual(phase === "creation" ? [] : ["global setup"]);
+  expect(config.hooks?.preDelete ?? []).toEqual(phase === "deletion" ? [] : ["global cleanup"]);
+});
+
+test("keeping both script lists preserves inheritance and deletion-only editing retains inherited creation scripts", async () => {
+  const file: ConfigFile = {};
+  const destination = target(file);
+  destination.scopes.global.values.hooks = { post_create: ["global setup"], pre_delete: ["global cleanup"] };
+  await editSetupSection("hooks", file, destination, scripted(["keep", "keep"]), io().io, async () => true);
+  expect(file).not.toHaveProperty("hooks");
+  await editSetupSection("hooks", file, destination,
+    scripted(["keep", "custom", "local cleanup", "finish"]), io().io, async () => true);
+  expect(file.hooks).toEqual({ post_create: ["global setup"], pre_delete: ["local cleanup"] });
+});
+
+test("adding deletion scripts to disabled hooks does not resurrect inherited creation scripts", async () => {
+  const file: ConfigFile = { hooks: false };
+  const destination = target(file);
+  destination.scopes.global.values.hooks = { post_create: ["global setup"], pre_delete: ["global cleanup"] };
+  await editSetupSection("hooks", file, destination,
+    scripted(["keep", "custom", "local cleanup", "finish"]), io().io, async () => true);
+  expect(file.hooks).toEqual({ post_create: [], pre_delete: ["local cleanup"] });
+});
+
+test("clearing both inherited script lists explicitly disables hooks", async () => {
+  const file: ConfigFile = {};
+  const destination = target(file);
+  destination.scopes.global.values.hooks = { post_create: ["global setup"], pre_delete: ["global cleanup"] };
+  await editSetupSection("hooks", file, destination, scripted(["none", "none"]), io().io, async () => true);
+  expect(file.hooks).toBe(false);
+});
+
+test("resetting script settings restores the whole inherited table", async () => {
+  const file: ConfigFile = { hooks: { post_create: ["local setup"], pre_delete: ["local cleanup"] } };
+  const destination = target(file);
+  destination.scopes.global.values.hooks = { post_create: ["global setup"], pre_delete: ["global cleanup"] };
+  const prompt = scripted(["inherit", "keep"]);
+  const select = prompt.select;
+  prompt.select = async (...args) => {
+    const answer = await select(...args);
+    if (answer === "inherit") expect(args[1].find(choice => choice.value === answer)?.label).toContain("all scripts");
+    return answer;
+  };
+  await editSetupSection("hooks", file, destination, prompt, io().io, async () => true);
+  expect(file).not.toHaveProperty("hooks");
+  expect(resolveConfig({ ...destination.scopes, local: { ...destination.file, values: file } }, "/repo").hooks)
+    .toEqual({ postCreate: ["global setup"], preDelete: ["global cleanup"] });
+});
+
+test("advanced setup can cancel at the pre-deletion question without changing existing settings", async () => {
+  const existing = { hooks: { post_create: ["original setup"], pre_delete: ["original cleanup"] } };
+  const prompt = scripted(["keep", "keep", "keep", true, "custom", "replacement setup", "finish", null]);
+  const select = prompt.select;
+  let cancelledQuestion = "";
+  prompt.select = async (...args) => {
+    const answer = await select(...args);
+    if (answer === null) cancelledQuestion = args[0];
+    return answer;
+  };
+  expect(await questionnaire(target(existing), prompt, io().io, async () => true)).toBeNull();
+  expect(cancelledQuestion).toContain("removed");
+  expect(existing.hooks).toEqual({ post_create: ["original setup"], pre_delete: ["original cleanup"] });
 });
 
 test("guided setup preserves named workflow definitions and disables during save", async () => {
@@ -146,7 +231,7 @@ test("custom commands, hooks, and Jira values round trip with literal quotes and
     "custom", "my editor", '["a\\\"b", "$(touch nope)", ""]',
     false,
     "claude", true, "configure", "https://example.atlassian.net/", true, "00000000-0000-4000-8000-000000000000",
-    true, "custom", "printf 'one'", "add", "echo two", "finish",
+    true, "custom", "printf 'one'", "add", "echo two", "finish", "keep",
     "custom", "trunk", "custom", "upstream", "custom", " ../work trees ",
   ]), capture.io, async () => true);
   expect(file?.hooks).toEqual({ post_create: ["printf 'one'", "echo two"] });
@@ -189,7 +274,7 @@ test("repeated repository setup can remove optional overrides and inherit global
     agent: { command: "codex", args: [], enabled: true }, hooks: { post_create: ["global hook"] },
     jira: { site_url: "https://global.atlassian.net" } };
   const file = await questionnaire(destination, scripted([
-    "inherit", "inherit", "inherit", true, "inherit", "keep", "keep", "keep",
+    "inherit", "inherit", "inherit", true, "inherit", "keep", "keep", "keep", "keep",
   ]), io().io, async () => true);
   expect(file).toEqual({});
   expect(resolveConfig({ ...destination.scopes, local: { ...destination.file, values: file! } }, "/repo").agent)

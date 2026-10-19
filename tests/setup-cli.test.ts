@@ -43,8 +43,8 @@ test("setup summary precedes saving and names repository destination", async () 
   expect(result.stdout).toContain("/repo/.timber.toml");
 });
 
-test("setup review counts workflows without displaying their executable arguments", async () => {
-  const existing = parseConfigSource('[workflows.review.agent]\ncommand = "wrapper"\nargs = ["PRIVATE_PROMPT"]\n', "existing.toml");
+test("setup review counts workflows and both hook lists without displaying private source", async () => {
+  const existing = parseConfigSource('[hooks]\npost_create = ["PRIVATE_SETUP"]\npre_delete = ["PRIVATE_CLEANUP_1", "PRIVATE_CLEANUP_2"]\n[workflows.review.agent]\ncommand = "wrapper"\nargs = ["PRIVATE_PROMPT"]\n', "existing.toml");
   const destination: SetupTarget = { ...target,
     file: { path: file.path, source: "configured", values: existing },
     scopes: { ...target.scopes, local: { path: file.path, source: "configured", values: existing } } };
@@ -56,7 +56,10 @@ test("setup review counts workflows without displaying their executable argument
   await handler({ global: false }, { cwd: "/repo", interactive: true,
     io: { stdout: text => { output += text; }, stderr: () => {} } });
   expect(output).toContain("Workflows: 1");
+  expect(output).toContain("Post-create hooks: 1; Pre-delete hooks: 2");
   expect(output).not.toContain("PRIVATE_PROMPT");
+  expect(output).not.toContain("PRIVATE_SETUP");
+  expect(output).not.toContain("PRIVATE_CLEANUP");
 });
 
 test("declining replacement and cancelling questionnaire never writes settings", async () => {
@@ -87,8 +90,8 @@ test("setup --global dispatches scope and help without prompting", async () => {
 
 test("review can edit every section without restarting or losing other draft answers", async () => {
   const selections = ["keep", "keep", "keep", "editor", "code", "agent", "codex", "jira", "configure",
-    "hooks", "custom", "finish", "base_branch", "custom", "remote", "custom", "worktree_dir", "custom", "save"];
-  const texts = ["https://example.atlassian.net", "bun install", "trunk", "upstream", "../review-workspaces"];
+    "hooks", "custom", "finish", "custom", "finish", "base_branch", "custom", "remote", "custom", "worktree_dir", "custom", "save"];
+  const texts = ["https://example.atlassian.net", "bun install", "./stop-services.sh", "trunk", "upstream", "../review-workspaces"];
   const questions: string[] = [];
   let saved: unknown; let closed = false;
   const prompt: SetupPrompt = {
@@ -107,7 +110,7 @@ test("review can edit every section without restarting or losing other draft ans
   await handler({ global: false }, { cwd: "/repo", interactive: true, io: { stdout() {}, stderr() {} } });
   expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"], enabled: false },
     agent: { command: "codex", args: [], enabled: false }, jira: { site_url: "https://example.atlassian.net" },
-    hooks: { post_create: ["bun install"] }, base_branch: "trunk", remote: "upstream", worktree_dir: "../review-workspaces" });
+    hooks: { post_create: ["bun install"], pre_delete: ["./stop-services.sh"] }, base_branch: "trunk", remote: "upstream", worktree_dir: "../review-workspaces" });
   expect(questions.filter(question => question.includes("Which editor"))).toHaveLength(2);
   expect(questions.filter(question => question.includes("Use an AI"))).toHaveLength(2);
   expect(selections).toEqual([]);

@@ -183,24 +183,37 @@ async function jiraSettings(file: ConfigFile, target: SetupTarget, prompt: Setup
 }
 
 async function hookSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
-  const hooks = await choose(prompt,
-    "Run scripts when a workspace is first created?\nFor example, install project dependencies. These are trusted shell commands run with your permissions.",
-    [option("keep", keepLabel(target, "hooks")), option("custom", "Add setup scripts"),
-      ...("hooks" in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
-      option("none", "Do not run scripts")]);
-  if (hooks === "inherit") delete file.hooks;
-  if (hooks === "none") file.hooks = false;
-  if (hooks === "custom") {
-    const commands: string[] = [];
-    while (true) {
-      const source = await text(prompt, "Setup command, e.g. bun install");
-      if (!source.trim() || source.includes("\0")) { io.stderr("Enter a nonempty command without NUL characters.\n"); continue; }
-      commands.push(source);
-      if (await choose(prompt, "Add another setup command?", [option("finish", "Done"), option("add", "Add another command")]) === "finish") break;
-    }
+  const phases = [
+    { key: "post_create", name: "creation", example: "bun install",
+      question: "Run scripts when a workspace is first created?\nFor example, install project dependencies." },
+    { key: "pre_delete", name: "pre-deletion", example: "./scripts/stop-services.sh",
+      question: "Run scripts before a workspace is removed?\nFor example, stop services for that workspace. A failed script prevents removal." },
+  ] as const;
+  for (const phase of phases) {
     const effective = file.hooks ?? (target.scope === "repository" ? target.scopes.global.values.hooks : undefined);
-    file.hooks = { post_create: commands,
-      ...(effective && effective.pre_delete !== undefined ? { pre_delete: effective.pre_delete } : {}) };
+    const keep = file.hooks === undefined ? keepLabel(target, "hooks")
+      : effective && effective[phase.key]?.length ? "Keep current scripts" : "Keep disabled";
+    const selected = await choose(prompt,
+      `${phase.question}\nThese are trusted shell commands run with your permissions.`,
+      [option("keep", keep), option("custom", `Set ${phase.name} scripts`),
+        ...(phase.key === "post_create" && "hooks" in file ? [option("inherit", target.scope === "repository"
+          ? "Use machine defaults for all scripts" : "Reset all scripts (leave blank)")] : []),
+        option("none", `Do not run ${phase.name} scripts`)]);
+    if (selected === "keep") continue;
+    if (selected === "inherit") { delete file.hooks; continue; }
+    const commands: string[] = [];
+    if (selected === "custom") {
+      while (true) {
+        const source = await text(prompt, `${phase.name === "creation" ? "Creation" : "Pre-deletion"} command, e.g. ${phase.example}`);
+        if (!source.trim() || source.includes("\0")) { io.stderr("Enter a nonempty command without NUL characters.\n"); continue; }
+        commands.push(source);
+        if (await choose(prompt, `Add another ${phase.name} command?`, [option("finish", "Done"), option("add", "Add another command")]) === "finish") break;
+      }
+    }
+    // One list edit replaces the table in this scope, so carry the effective
+    // sibling list with it rather than accidentally disabling or inheriting it.
+    const hooks = { ...(effective || { post_create: [] }), [phase.key]: commands };
+    file.hooks = hooks.post_create.length || hooks.pre_delete?.length ? hooks : false;
   }
 }
 
@@ -225,7 +238,7 @@ export async function questionnaire(target: SetupTarget, prompt: SetupPrompt, io
     for (const section of ["editor", "agent", "jira"] as const) {
       await editSetupSection(section, file, target, prompt, io, available, jira);
     }
-    if (await confirm(prompt, "Advanced settings: add workspace setup scripts or change Git/folder defaults? Skip if you're unsure.")) {
+    if (await confirm(prompt, "Advanced settings: add creation or pre-deletion scripts, or change Git/folder defaults? Skip if you're unsure.")) {
       for (const section of ["hooks", "base_branch", "remote", "worktree_dir"] as const) {
         await editSetupSection(section, file, target, prompt, io, available);
       }

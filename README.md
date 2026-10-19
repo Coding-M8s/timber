@@ -560,8 +560,10 @@ pre_delete = ['./scripts/stop-worktree-services.sh']
 the selected worktree, even with `--keep-branch`. It uses the setup hook shell,
 environment variables and output streams, with closed stdin. No workflow is
 selected and inherited `TIMBER_WORKFLOW` is cleared. Cancellation or an initial
-safety refusal runs no commands. Guided setup preserves deletion steps when
-editing setup scripts; edit `pre_delete` directly in TOML.
+safety refusal runs no commands. In `timber setup` (or `timber setup --global`),
+enable advanced settings to configure creation and pre-deletion scripts in
+separate questions. Each list can be kept, replaced, or cleared while preserving
+the other list. The review summary shows both counts without displaying scripts.
 
 A failed step stops cleanup before Timber removes the worktree or branch. Its
 diagnostic names the step and gives a `timber done` retry retaining
@@ -711,7 +713,8 @@ checkout, use `bun run dev setup` or `bun run dev setup --global`. The first CLI
 invocation also prints this hint, including for the standalone executable.
 
 Setup asks about VS Code/Zed/Orca terminals/custom editors, Claude/Codex/custom
-coding assistants, Jira ticket naming, and optional advanced settings for scripts,
+coding assistants, Jira ticket naming, and optional advanced settings for creation
+and pre-deletion scripts,
 Git, and workspace folders. With Orca terminals selected, or inherited from machine
 defaults, it also asks whether the assistant waits for setup scripts. Use Up/Down arrows and Enter, or press a numbered shortcut to choose
 immediately. Shortcuts cover the first nine options; use arrows for additional

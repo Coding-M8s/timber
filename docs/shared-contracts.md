@@ -248,8 +248,11 @@ streams. `runPreDelete` reuses the ordinary shell runner and environment context
 without setup/workflow steps or editor/agent launch. Failure retains the worktree
 and branch, reports a safe `done` retry with retention options, and never rolls
 back hook side effects. Revalidate identity, status, relevant refs and preservation
-evidence after hooks; hooks cannot grant deletion authority. Guided setup retains
-existing pre-deletion steps when editing creation scripts; edit deletion steps in TOML.
+evidence after hooks; hooks cannot grant deletion authority. Guided setup offers
+separate creation and pre-deletion script questions in advanced settings and
+when reviewing scripts. Editing/clearing either list retains the effective other
+list; retaining both preserves inheritance. Reset applies to the entire hooks
+table. Review shows both counts without script source.
 When deletion hooks run, publication evidence also captures the remote name,
 remote branch, tracking ref and effective fetch URL for private comparison across
 hooks. Never render this identity: URLs may contain credentials. No extra URL
