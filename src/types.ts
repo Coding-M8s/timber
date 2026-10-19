@@ -119,7 +119,7 @@ export interface RepositoryConfig {
   /** Missing when neither config scope mentions workflows. */
   workflows?: Readonly<Record<string, WorkflowConfig>>;
   /** Trusted 0.2 shell source. Absent hooks mean setup is off. */
-  hooks?: { postCreate: readonly string[] };
+  hooks?: { postCreate: readonly string[]; preDelete?: readonly string[] };
   /** Absent means Jira ticket lookup is disabled for this repository. */
   jira?: JiraConfig;
 }

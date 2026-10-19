@@ -113,6 +113,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     )
     .option("--keep-ignored", "Refuse removal when ignored files exist; leave them in the worktree", false)
     .option("--discard-ignored", "Discard ignored files, including .env (the default)")
+    .addHelpText("after", "\nConfigured pre_delete hooks run after initial safety checks and before removal, including with --keep-branch.\nHook failure retains the worktree and branch; hook side effects remain. Safety is rechecked after hooks.\n")
     .action((input: string, options: { keepBranch?: boolean; keepIgnored?: boolean; discardIgnored?: boolean }) => {
       if (options.keepIgnored && options.discardIgnored) {
         throw new Error("Cannot combine --keep-ignored and --discard-ignored.");

@@ -55,9 +55,9 @@ function bashAnsiCQuote(value: string): string {
 }
 
 /** Ordinary paths keep their POSIX-quoted retry; control characters need a printable Bash command. */
-export function retryForDisplay(path: string, ordinaryRetry: string, options = ""): string {
+export function retryForDisplay(path: string, ordinaryRetry: string, options = "", command = "open"): string {
   return terminalControl.test(path)
-    ? `timber open ${options ? options + " " : ""}-- ${bashAnsiCQuote(path)}`
+    ? `timber ${command} ${options ? options + " " : ""}-- ${bashAnsiCQuote(path)}`
     : ordinaryRetry;
 }
 

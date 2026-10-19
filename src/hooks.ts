@@ -1,7 +1,7 @@
 import { execa } from "execa";
 import { retryForDisplay } from "./display";
 import type { CommandIO } from "./services";
-import type { RepositoryConfig, RepositoryContext, Worktree } from "./types";
+import type { CleanupOptions, RepositoryConfig, RepositoryContext, Worktree } from "./types";
 
 /** Ordinary paths use POSIX quoting; control characters use a printable Bash command. */
 function retryCommand(path: string): string {
@@ -20,7 +20,7 @@ function failureReason(error: unknown): string {
       return `signal ${error.signal}`;
     }
   }
-  return "the setup shell could not run";
+  return "the hook shell could not run";
 }
 
 export class SetupFailure extends Error {
@@ -47,6 +47,35 @@ export function taskEnvironment(task: Pick<SetupTask, "cwd" | "repositoryRoot" |
     TIMBER_WORKFLOW: task.workflow };
 }
 
+async function runHook(source: string, cwd: string, env: ReturnType<typeof taskEnvironment>, io: CommandIO): Promise<void> {
+  const child = execa("/bin/sh", ["-c", source], { cwd, env, stdin: "ignore", buffer: false });
+  child.stdout?.setEncoding("utf8").on("data", (chunk: string) => io.stdout(chunk));
+  child.stderr?.setEncoding("utf8").on("data", (chunk: string) => io.stderr(chunk));
+  await child;
+}
+
+/** Cleanup owns safety checks before and after these trusted steps. */
+export async function runPreDelete(
+  repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
+  options: CleanupOptions, io: CommandIO,
+): Promise<void> {
+  const env = taskEnvironment({ cwd: worktree.path, repositoryRoot: repository.primaryWorktreeRoot,
+    branch: worktree.branch });
+  for (const [index, source] of (config.hooks?.preDelete ?? []).entries()) {
+    try {
+      await runHook(source, worktree.path, env, io);
+    } catch (error) {
+      const flags = [options.keepBranch ? "--keep-branch" : "", !options.discardIgnored ? "--keep-ignored" : ""]
+        .filter(Boolean).join(" ");
+      const ordinary = `timber done ${flags ? flags + " " : ""}-- '${worktree.path.replaceAll("'", "'\\''")}'`;
+      const retry = retryForDisplay(worktree.path, ordinary, flags, "done");
+      throw new Error(`Pre-deletion pre_delete step ${index + 1} failed (${failureReason(error)}). ` +
+        `Timber did not remove the worktree or delete its branch at ${displayPath(worktree.path)}. ` +
+        `Hook side effects are retained. Fix the hook or its prerequisites, then retry all pre-deletion steps with: ${retry}`);
+    }
+  }
+}
+
 /** Linux setup uses fixed /bin/sh and unchanged trusted source; context is environment data only. */
 export async function runSetup(
   repository: RepositoryContext,
@@ -70,15 +99,7 @@ export async function runSetupTask(task: SetupTask, io: CommandIO): Promise<void
 
   for (const [index, step] of hooks.entries()) {
     try {
-      const child = execa("/bin/sh", ["-c", step.source], {
-        cwd: task.cwd,
-        env,
-        stdin: "ignore",
-        buffer: false,
-      });
-      child.stdout?.setEncoding("utf8").on("data", (chunk: string) => io.stdout(chunk));
-      child.stderr?.setEncoding("utf8").on("data", (chunk: string) => io.stderr(chunk));
-      await child;
+      await runHook(step.source, task.cwd, env, io);
     } catch (error) {
       // Execa's message includes shell source/output, so report only structured failure metadata.
       throw new SetupFailure(index + 1, step.phase, failureReason(error), task.cwd);

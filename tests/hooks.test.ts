@@ -3,7 +3,7 @@ import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
-import { runSetup } from "../src/hooks";
+import { runPreDelete, runSetup } from "../src/hooks";
 import { createNewHandler } from "../src/commands/new";
 import { createOpenHandler } from "../src/commands/open";
 import { runCli } from "../src/cli";
@@ -69,15 +69,21 @@ test("setup launch errors omit shell source and supply a safely executable retry
   }
 });
 
-test("hook stdout is streamed before completion and stdin reaches EOF without a prompt", async () => {
+test.each(["setup", "pre-delete"])("%s stdout is streamed before completion and stdin reaches EOF without a prompt", async phase => {
   const directory = await mkdtemp(join(tmpdir(), "timber hook stream "));
   try {
     let stdout = "";
     const received = Promise.withResolvers<void>();
-    const running = runSetup(repositoryFixture(), worktreeFixture({ path: directory }), {
+    const taskConfig = {
       ...config,
-      hooks: { postCreate: ['printf ready; while test ! -f continue; do sleep 0.01; done; read value && exit 99; printf done'] },
-    }, { stdout: text => { stdout += text; if (stdout === "ready") received.resolve(); }, stderr: () => {} });
+      hooks: { postCreate: ['printf ready; while test ! -f continue; do sleep 0.01; done; read value && exit 99; printf done'],
+        preDelete: ['printf ready; while test ! -f continue; do sleep 0.01; done; read value && exit 99; printf done'] },
+    };
+    const io = { stdout: (text: string) => { stdout += text; if (stdout === "ready") received.resolve(); }, stderr: () => {} };
+    const running = phase === "setup"
+      ? runSetup(repositoryFixture(), worktreeFixture({ path: directory }), taskConfig, io)
+      : runPreDelete(repositoryFixture(), worktreeFixture({ path: directory }), taskConfig,
+        { keepBranch: false, discardIgnored: true }, io);
     const timeout = setTimeout(() => received.reject(new Error("Hook output was not streamed")), 1_000);
     try {
       await received.promise;
@@ -88,6 +94,26 @@ test("hook stdout is streamed before completion and stdin reaches EOF without a 
       await running;
     }
     expect(stdout).toBe("readydone");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("pre-deletion shell startup errors omit source and retain the done retry", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "timber deletion launch "));
+  try {
+    const path = join(directory, "missing ' $(touch injected)");
+    const message = await runPreDelete(repositoryFixture(), worktreeFixture({ path }),
+      { ...config, hooks: { postCreate: [], preDelete: ["SECRET_SOURCE"] } },
+      { keepBranch: false, discardIgnored: true }, { stdout: () => {}, stderr: () => {} })
+      .then(() => "resolved", error => (error as Error).message);
+    expect(message).toContain("pre_delete step 1");
+    expect(message).toContain("shell could not run");
+    expect(message).not.toContain("SECRET_SOURCE");
+    const retry = message.split("retry all pre-deletion steps with: ")[1];
+    const capture = await execa("/bin/bash", ["-c", 'timber() { printf "%s\\0" "$@"; }; ' + retry], { cwd: directory });
+    expect(capture.stdout.split("\0")).toEqual(["done", "--", path, ""]);
+    expect(await access(join(directory, "injected")).then(() => true, () => false)).toBe(false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

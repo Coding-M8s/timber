@@ -118,6 +118,17 @@ test("keeping existing values retains custom arguments hooks and explicit off wi
   expect(file).not.toHaveProperty("worktree_dir");
 });
 
+test.each(["local", "global"])("editing setup scripts retains %s pre-deletion hooks through save", async scope => {
+  const hooks = { post_create: ["old setup"], pre_delete: [" printf cleanup "] };
+  const file = scope === "local" ? { hooks } : {};
+  const destination = target(file);
+  if (scope === "global") destination.scopes.global.values = { hooks };
+  await editSetupSection("hooks", file, destination, scripted(["custom", "new setup", "finish"]),
+    io().io, async () => true);
+  expect(parseConfigSource(renderConfig(file), "saved.toml").hooks)
+    .toEqual({ post_create: ["new setup"], pre_delete: [" printf cleanup "] });
+});
+
 test("guided setup preserves named workflow definitions and disables during save", async () => {
   const existing = parseConfigSource([
     '[workflows.review]', 'post_create = ["printf review"]',

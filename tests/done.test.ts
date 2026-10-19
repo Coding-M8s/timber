@@ -93,6 +93,17 @@ test("done reports retained branches only from CleanupResult, never selection-ti
   expect(result.stdout).not.toContain("Deleted");
 });
 
+test("done streams hook output through the invoking command IO", async () => {
+  const result = await invoke(services({ cleanupWorktree: async (_repository, _tree, _config, _options, io) => {
+    io!.stdout("cleanup output\n");
+    io!.stderr("cleanup warning\n");
+    return { removedWorktreePath: tree.path, deletedLocalBranch: null, retainedLocalBranch: tree.branch };
+  } }));
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toStartWith("cleanup output\nRemoved worktree");
+  expect(result.stderr).toBe("cleanup warning\n");
+});
+
 test("detached cleanup reports only completed worktree removal", async () => {
   const detached = { ...tree, branch: null };
   const result = await invoke(services({
@@ -181,6 +192,7 @@ test.each(["choose", "cancel", "invalid", "changed"] as const)("done chooser %s 
   let cleaned: string | undefined;
   let resolutions = 0;
   const result = await invoke(services({
+    loadConfig: async () => ({ ...config, hooks: { postCreate: [], preDelete: ["exit 99"] } }),
     resolveOpenTarget: async (_repo, input, _config, options) => {
       expect(options).toEqual({ assertOpenable: false });
       resolutions++;

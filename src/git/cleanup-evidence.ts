@@ -14,10 +14,12 @@ export type CleanupEvidence = {
   headCommit: string;
   branchRef: string | null;
   upstreamCommit: string | null;
+  /** Private comparison data; may contain a credential-bearing URL. Never display it. */
+  upstreamIdentity?: string;
   validatedBase: ValidatedBase | null;
 };
 
-export type CleanupPublication = { state: PublicationState; upstreamCommit: string | null };
+export type CleanupPublication = { state: PublicationState; upstreamCommit: string | null; upstreamIdentity?: string };
 
 type GitResult = { exitCode: number; stdout: string };
 
@@ -147,6 +149,7 @@ async function liveUpstreamTip(
 
 async function publication(
   cwd: string, repository: RepositoryContext, branchRef: string | null, head: string,
+  captureIdentity = false,
 ): Promise<CleanupPublication> {
   if (!branchRef) {
     return { state: unknownPublication("Detached HEAD has no local branch or upstream publication evidence."), upstreamCommit: null };
@@ -157,6 +160,16 @@ async function publication(
       state: unknownPublication("The local branch has no verifiable remote upstream; refresh repository state and retry."),
       upstreamCommit: null,
     };
+  }
+  let upstreamIdentity: string | undefined;
+  if (captureIdentity) {
+    try {
+      const url = await runGit(cwd, ["remote", "get-url", "--", upstream.remote]);
+      if (url.exitCode !== 0 || !url.stdout) return { state: unknownPublication(), upstreamCommit: null };
+      upstreamIdentity = JSON.stringify([upstream.remote, upstream.remoteRef, upstream.trackingRef, url.stdout]);
+    } catch {
+      return { state: unknownPublication(), upstreamCommit: null };
+    }
   }
   const tip = await liveUpstreamTip(cwd, repository, upstream);
   if (!tip) return { state: unknownPublication(), upstreamCommit: null };
@@ -169,7 +182,8 @@ async function publication(
   }
   try {
     const result = await runGit(cwd, ["merge-base", "--is-ancestor", head, localTip]);
-    if (result.exitCode === 0) return { state: { kind: "published", upstreamRef: upstream.trackingRef }, upstreamCommit: localTip };
+    if (result.exitCode === 0) return { state: { kind: "published", upstreamRef: upstream.trackingRef }, upstreamCommit: localTip,
+      ...(upstreamIdentity === undefined ? {} : { upstreamIdentity }) };
     if (result.exitCode !== 1) return { state: unknownPublication(), upstreamCommit: null };
     const commits = await aheadCommits(cwd, localTip, head);
     return commits
@@ -278,7 +292,8 @@ async function readCleanupEvidenceImpl(
   const [ancestryState, publicationEvidence] = await Promise.all([
     ancestry(freshRepository.primaryWorktreeRoot, headFromWorktree, base, branchRef),
     includePublication
-      ? publication(freshRepository.primaryWorktreeRoot, freshRepository, branchRef, headFromWorktree)
+      ? publication(freshRepository.primaryWorktreeRoot, freshRepository, branchRef, headFromWorktree,
+        (config.hooks?.preDelete?.length ?? 0) > 0)
       : Promise.resolve({
         state: unknownPublication("Publication was not repeated during the final local safety check."),
         upstreamCommit: null,
@@ -293,6 +308,8 @@ async function readCleanupEvidenceImpl(
     headCommit: headFromWorktree,
     branchRef,
     upstreamCommit: publicationEvidence.upstreamCommit,
+    ...("upstreamIdentity" in publicationEvidence && publicationEvidence.upstreamIdentity !== undefined
+      ? { upstreamIdentity: publicationEvidence.upstreamIdentity } : {}),
     validatedBase: base,
   };
 }
@@ -313,6 +330,7 @@ export async function readCleanupTarget(
 /** Recheck live upstream publication after final local safety reads, before removal. */
 export async function readCleanupPublication(
   repository: RepositoryContext, branchRef: string | null, headCommit: string,
+  captureIdentity = false,
 ): Promise<CleanupPublication> {
   if (branchRef === null) {
     return { state: unknownPublication("Detached HEAD has no local branch or upstream publication evidence."), upstreamCommit: null };
@@ -334,5 +352,5 @@ export async function readCleanupPublication(
       upstreamCommit: null,
     };
   }
-  return publication(freshRepository.primaryWorktreeRoot, freshRepository, branchRef, headCommit);
+  return publication(freshRepository.primaryWorktreeRoot, freshRepository, branchRef, headCommit, captureIdentity);
 }

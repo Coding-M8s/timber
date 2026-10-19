@@ -74,6 +74,26 @@ test("empty or relative XDG_CONFIG_HOME uses the home fallback", async () => {
   });
 });
 
+test("pre-delete hooks inherit literally and repository tables replace both hook lists", async () => {
+  await scopes(async (root, env) => {
+    await writeFile(join(env.XDG_CONFIG_HOME!, "timber/config.toml"),
+      '[hooks]\npost_create = ["global setup"]\npre_delete = [" printf cleanup "]\n');
+    const repository = repositoryFixture({ primaryWorktreeRoot: root });
+    expect((await loadRepositoryConfig(repository, env)).hooks)
+      .toEqual({ postCreate: ["global setup"], preDelete: [" printf cleanup "] });
+    for (const [source, expected] of [
+      ['[hooks]\npre_delete = ["local cleanup"]', { postCreate: [], preDelete: ["local cleanup"] }],
+      ['[hooks]\npost_create = ["local setup"]', { postCreate: ["local setup"] }],
+      ['[hooks]\npre_delete = []', { postCreate: [], preDelete: [] }],
+      ['[hooks]', { postCreate: [] }],
+      ['hooks = false', undefined],
+    ] as const) {
+      await writeFile(join(root, ".timber.toml"), source);
+      expect((await loadRepositoryConfig(repository, env)).hooks).toEqual(expected);
+    }
+  });
+});
+
 test("workflow definitions merge by name and replace complete tables", async () => {
   await scopes(async (root, env) => {
     await writeFile(join(env.XDG_CONFIG_HOME!, "timber/config.toml"), [
