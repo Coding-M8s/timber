@@ -48,7 +48,8 @@ export interface CommandServices {
    * integration or verified live upstream publication; keepBranch skips deletion only. No destructive force, remote
    * deletion, stash, or process killing.
    */
-  cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions): Promise<CleanupResult>;
+  cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions,
+    io?: CommandIO): Promise<CleanupResult>;
   /** TIM-8: executable + args, no shell; null config or disabled means skipped. */
   launchEditor(worktree: Worktree, config: RepositoryConfig, disabled: boolean): Promise<EditorResult>;
   /** TIM-7: sequential trusted /bin/sh hooks; rejection retains workspace and blocks launch. */

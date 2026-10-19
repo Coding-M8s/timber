@@ -340,6 +340,10 @@ identity checks remain enforced. There is no `--force`, automatic stash, remote
 branch deletion, or process killing.
 
 Success names the removed path and the deleted or retained local branch.
+Optional `[hooks].pre_delete` commands run after the initial safety checks and
+before removal, including with `--keep-branch`. A failure retains the worktree
+and branch. Timber rechecks safety after hooks and refuses removal if they leave
+protected files or change the selected refs. See [pre-deletion hooks](#pre-deletion-hooks).
 If removal succeeds but branch deletion fails, Timber exits nonzero, reports
 the observed partial result on stderr, and does not claim completion. Inspect
 the reported Git state before retrying. Remote branches, the primary checkout,
@@ -496,8 +500,9 @@ post_create = [
 `new` runs these steps after creating the branch/worktree. `open` runs them when
 it creates a worktree for an existing local or remote branch. Reopening an
 existing worktree skips setup unless you explicitly pass `--setup`. Missing effective
-hooks, an empty replacement table/list, or local `hooks = false` perform no setup. Only `post_create` is
-supported; invalid values and unknown keys are rejected before Git creation.
+hooks, an empty replacement table/list, or local `hooks = false` perform no setup.
+The table also accepts `pre_delete` for cleanup; invalid values and unknown keys
+are rejected before Git creation.
 `--no-editor` skips the editor while still allowing setup.
 
 On the initial Linux target, each step runs sequentially in a fresh
@@ -540,6 +545,35 @@ retry command, such as `timber open --setup -- '<absolute-worktree-path>'`.
 Retries run **all steps from the beginning**; make hooks safe to rerun.
 Normal `open` can reopen the retained workspace without retrying setup.
 Agent launching starts only after setup succeeds.
+
+### Pre-deletion hooks
+
+Add trusted cleanup commands to the same hooks table:
+
+```toml
+[hooks]
+post_create = ["bun install --frozen-lockfile"]
+pre_delete = ['./scripts/stop-worktree-services.sh']
+```
+
+`done` first checks that cleanup is safe, then runs `pre_delete` sequentially in
+the selected worktree, even with `--keep-branch`. It uses the setup hook shell,
+environment variables and output streams, with closed stdin. No workflow is
+selected and inherited `TIMBER_WORKFLOW` is cleared. Cancellation or an initial
+safety refusal runs no commands. Guided setup preserves deletion steps when
+editing setup scripts; edit `pre_delete` directly in TOML.
+
+A failed step stops cleanup before Timber removes the worktree or branch. Its
+diagnostic names the step and gives a `timber done` retry retaining
+`--keep-branch`/`--keep-ignored` when selected. Hook side effects remain; Timber
+does not roll them back. Explicit retries run all steps from the beginning, so
+make them safe to rerun. Commands are trusted code with your permissions.
+
+After hooks succeed, Timber rechecks identity, files, refs and preservation
+evidence. New modified/untracked files or changed target/base refs refuse
+cleanup. `--keep-ignored` still protects ignored files; otherwise ignored content
+is discarded as usual. A repository hooks table replaces the entire global
+table, and `hooks = false` disables both hook lists.
 
 ### Optional interactive agents (0.2)
 

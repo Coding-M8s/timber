@@ -333,6 +333,10 @@ test("parses trusted post_create commands without trimming shell source", async 
 
 for (const example of [
   { source: 'hooks = "SECRET_MARKER"', field: "hooks" },
+  { source: '[hooks]\npre_delete = "SECRET_MARKER"', field: "hooks.pre_delete" },
+  { source: '[hooks]\npre_delete = [77777]', field: "hooks.pre_delete.0" },
+  { source: '[hooks]\npre_delete = [" "]', field: "hooks.pre_delete.0" },
+  { source: '[hooks]\npre_delete = ["bad\\u0000source"]', field: "hooks.pre_delete.0" },
   { source: '[hooks]\npost_create = "SECRET_MARKER"', field: "hooks.post_create" },
   { source: '[hooks]\npost_create = [77777]', field: "hooks.post_create.0" },
   { source: '[hooks]\npost_create = [" "]', field: "hooks.post_create.0" },

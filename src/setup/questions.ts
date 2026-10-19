@@ -198,7 +198,9 @@ async function hookSettings(file: ConfigFile, target: SetupTarget, prompt: Setup
       commands.push(source);
       if (await choose(prompt, "Add another setup command?", [option("finish", "Done"), option("add", "Add another command")]) === "finish") break;
     }
-    file.hooks = { post_create: commands };
+    const effective = file.hooks ?? (target.scope === "repository" ? target.scopes.global.values.hooks : undefined);
+    file.hooks = { post_create: commands,
+      ...(effective && effective.pre_delete !== undefined ? { pre_delete: effective.pre_delete } : {}) };
   }
 }
 

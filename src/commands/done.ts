@@ -79,7 +79,7 @@ export function createDoneHandler(
     const worktree = selected.worktree;
     if (worktree.isPrimary) throw new Error(`Cannot clean up the primary worktree at ${display(worktree.path)}.`);
 
-    const result = await services.cleanupWorktree(repository, worktree, config, options);
+    const result = await services.cleanupWorktree(repository, worktree, config, options, context.io);
     context.io.stdout(`Removed worktree at ${display(result.removedWorktreePath)}\n`);
     if (result.deletedLocalBranch !== null) {
       context.io.stdout(`Deleted local branch ${display(result.deletedLocalBranch)}\n`);

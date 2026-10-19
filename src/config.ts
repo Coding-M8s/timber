@@ -21,10 +21,10 @@ const editorCommandSchema = executableSchema.extend({ integration: z.literal("or
 const agentCommandSchema = executableSchema.extend({ wait_for_setup: z.boolean().optional() });
 const editorSchema = editorCommandSchema.extend({ enabled: z.boolean().default(false) });
 
-const postCreateSchema = z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")));
+const hookStepsSchema = z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")));
 const workflowSchema = z.strictObject({
   description: z.string().trim().min(1).optional(),
-  post_create: postCreateSchema.default([]),
+  post_create: hookStepsSchema.default([]),
   editor: z.union([z.literal(false), editorCommandSchema]).optional(),
   agent: z.union([z.literal(false), agentCommandSchema]).optional(),
 });
@@ -49,7 +49,8 @@ export const configFileSchema = z.strictObject({
   remote: z.string().trim().min(1).optional(),
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
   hooks: z.union([z.literal(false), z.strictObject({
-    post_create: postCreateSchema.default([]),
+    post_create: hookStepsSchema.default([]),
+    pre_delete: hookStepsSchema.optional(),
   })]).optional(),
   workflows: z.union([z.literal(false), z.record(workflowNameSchema,
     z.union([z.literal(false), workflowSchema]))]).optional(),
@@ -142,7 +143,8 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
     editor: config.editor || null,
     agent: config.agent ? normalizedAgent(config.agent) : null,
     ...(globalWorkflows === undefined && localWorkflows === undefined ? {} : { workflows }),
-    ...(config.hooks ? { hooks: { postCreate: config.hooks.post_create } } : {}),
+    ...(config.hooks ? { hooks: { postCreate: config.hooks.post_create,
+      ...(config.hooks.pre_delete === undefined ? {} : { preDelete: config.hooks.pre_delete }) } } : {}),
     ...(config.jira ? { jira: {
       siteUrl: config.jira.site_url,
       ...(config.jira.cloud_id === undefined ? {} : { cloudId: config.jira.cloud_id }),

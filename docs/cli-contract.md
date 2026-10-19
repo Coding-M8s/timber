@@ -191,8 +191,8 @@ integration.
 
 ## Setup hooks (0.2, TIM-7)
 
-The strict `[hooks]` table accepts only `post_create`, a string array defaulting
-to `[]`. Each command must contain non-whitespace source and no NUL bytes;
+The strict `[hooks]` table accepts `post_create` and `pre_delete`, string arrays
+defaulting to `[]`. Each command must contain non-whitespace source and no NUL bytes;
 preserve its source literally. Absent hooks mean setup is off. Read hooks only
 from the primary root's config, never the linked worktree's config.
 
@@ -221,6 +221,33 @@ workspace state. Do not echo shell source in the diagnostic or roll back hook
 changes. Report a safely quoted retry of the form
 `timber open --setup -- '<absolute-worktree-path>'`; use a printable Bash retry
 for paths containing terminal controls. Timber never executes the retry text.
+
+### Pre-deletion hooks (issue #63)
+
+`done` runs ordinary `[hooks].pre_delete` steps after target selection and the
+initial cleanup safety checks, before removing the linked worktree. This includes
+`--keep-branch`. Cancellation, primary/invalid targets, and safety refusals run no
+hooks. There are no workflow-specific deletion hooks or editor terminal handoffs.
+Absent/empty steps leave cleanup unchanged. Whole-table config replacement and
+`hooks = false` apply to both lists; read repository hooks from the primary root.
+
+Use the same sequential Linux shell execution, closed stdin, streamed output,
+and repository/worktree/branch/ticket environment as setup. Clear any inherited
+`TIMBER_WORKFLOW`; deletion does not select a workflow. A failed step stops later
+steps and returns nonzero before Timber removes a worktree or deletes a branch.
+Report the one-based step and exit code, signal, or shell startup failure without
+echoing source. Hook side effects remain; trusted hooks are not rolled back.
+Provide a safely quoted `timber done [--keep-branch] [--keep-ignored] -- '<path>'`
+retry preserving the invocation's retention options. Retrying deliberately runs
+all steps from the beginning after safety checks; never retry automatically.
+
+After successful hooks, recheck repository/worktree identity and registration,
+branch/head, file status, validated base/integration and required live publication
+before removal. Changed target/base refs, upstream identity or preservation
+evidence, new modified/untracked files, and ignored files under `--keep-ignored`
+refuse cleanup. Leave the resulting files and refs intact; do not undo hook work.
+Ignored content otherwise follows the existing discard policy. Hooks never
+authorize bypassing cleanup safeguards.
 
 ## Editor terminals (TIM-27)
 

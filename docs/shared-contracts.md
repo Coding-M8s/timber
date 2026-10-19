@@ -231,13 +231,29 @@ chooser prints `Cancelled.` to stdout and returns success; manual-only selection
 remain errors with actionable guidance.
 
 TIM-7 adds optional `RepositoryConfig.hooks` with `postCreate: readonly string[]`.
-TOML `[hooks].post_create` maps to that field; absent hooks leave existing
+Issue #63 adds optional `preDelete: readonly string[]`, mapped from
+`[hooks].pre_delete`; omission means no deletion steps. Whole-table replacement
+applies to both lists. TOML `[hooks].post_create` maps to `postCreate`; absent hooks leave existing
 configuration shapes unchanged. `runSetup(repository, worktree, config, io)`
 executes trusted source sequentially via fixed `/bin/sh -c`, streaming output
 through `CommandIO`, and rejects with retained-state/retry guidance on failure.
 It never removes a workspace or changes Git refs. It overrides repository,
 worktree, branch and optional leading-ticket context through environment values.
 The [CLI contract](cli-contract.md#setup-hooks-02-tim-7) defines the exact semantics.
+
+`cleanupWorktree(repository, worktree, config, options, io?)` owns pre-deletion
+execution between its initial safety checks and its final evidence reads.
+`createDoneHandler` passes invoking `CommandIO`; direct callers default to process
+streams. `runPreDelete` reuses the ordinary shell runner and environment context,
+without setup/workflow steps or editor/agent launch. Failure retains the worktree
+and branch, reports a safe `done` retry with retention options, and never rolls
+back hook side effects. Revalidate identity, status, relevant refs and preservation
+evidence after hooks; hooks cannot grant deletion authority. Guided setup retains
+existing pre-deletion steps when editing creation scripts; edit deletion steps in TOML.
+When deletion hooks run, publication evidence also captures the remote name,
+remote branch, tracking ref and effective fetch URL for private comparison across
+hooks. Never render this identity: URLs may contain credentials. No extra URL
+read is required for cleanup without deletion hooks.
 
 `createNewHandler` calls setup after creation; `createOpenHandler` calls it on
 creation or explicit `OpenOptions.setup: true`. Neither calls the seam when

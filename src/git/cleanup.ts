@@ -1,6 +1,8 @@
 import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { execa } from "execa";
+import { runPreDelete } from "../hooks";
+import type { CommandIO } from "../services";
 import { resolveBase } from "./branches";
 import { hasIntegratedContent, integratedBase } from "./cleanup-integration";
 import { readCleanupEvidence, readCleanupPublication, readCleanupTarget } from "./cleanup-evidence";
@@ -183,6 +185,7 @@ export async function inspectCleanup(
 /** Remove a linked worktree only when current preservation and ancestry evidence permits it. */
 export async function cleanupWorktree(
   repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions,
+  io: CommandIO = { stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } },
 ): Promise<CleanupResult> {
   let primaryRepository: RepositoryContext;
   try {
@@ -200,6 +203,9 @@ export async function cleanupWorktree(
   }
   const initialFailure = refusal(evidence.inspection, options);
   if (initialFailure) throw new Error(initialFailure);
+
+  const hasDeletionHooks = (config.hooks?.preDelete?.length ?? 0) > 0;
+  if (hasDeletionHooks) await runPreDelete(primaryRepository, evidence.inspection.worktree, config, options, io);
 
   // Re-read local status, identity, refs, and the validated base first. When removal
   // depends on live publication rather than proven integration, recheck publication after
@@ -220,9 +226,17 @@ export async function cleanupWorktree(
 
   let currentPublication = evidence.inspection.publication;
   if (integratedBase(finalEvidence.inspection) === null) {
-    currentPublication = (await readCleanupPublication(
-      primaryRepository, finalEvidence.branchRef, finalEvidence.headCommit,
-    )).state;
+    const publication = await readCleanupPublication(
+      primaryRepository, finalEvidence.branchRef, finalEvidence.headCommit, hasDeletionHooks,
+    );
+    currentPublication = publication.state;
+    if (hasDeletionHooks && evidence.inspection.publication.kind === "published" &&
+        (currentPublication.kind !== "published" ||
+          currentPublication.upstreamRef !== evidence.inspection.publication.upstreamRef ||
+          publication.upstreamCommit !== evidence.upstreamCommit ||
+          publication.upstreamIdentity !== evidence.upstreamIdentity)) {
+      throw new Error("Live upstream publication changed after pre-deletion hooks; the worktree and branch are retained. Refresh repository state and retry cleanup.");
+    }
   }
 
   const finalInspection: CleanupInspection = {
