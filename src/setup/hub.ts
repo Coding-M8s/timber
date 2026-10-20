@@ -14,6 +14,7 @@ const sections: readonly { value: SetupSection; title: string }[] = [
   { value: "agent", title: "Coding assistant" },
   { value: "jira", title: "Jira tickets" },
   { value: "hooks", title: "Setup scripts" },
+  { value: "pre_delete", title: "Pre-done scripts" },
   { value: "base_branch", title: "Starting branch" },
   { value: "remote", title: "Git remote" },
   { value: "worktree_dir", title: "Workspace folder" },
@@ -35,7 +36,7 @@ function effectiveConfig(file: ConfigFile, target: SetupTarget) {
 /** Compact live status for one config section in the setup hub. */
 export function sectionStatus(key: SetupSection, file: ConfigFile, target: SetupTarget): string {
   const resolved = effectiveConfig(file, target);
-  const note = inheritedNote(file, target, key);
+  const note = inheritedNote(file, target, key === "pre_delete" ? "hooks" : key);
 
   switch (key) {
     case "editor": {
@@ -61,12 +62,12 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
       if (!jira) return `not set${note}`;
       return `${safeDisplay(jira.site_url)}${jira.cloud_id ? " · scoped" : ""}${note}`;
     }
-    case "hooks": {
+    case "hooks": case "pre_delete": {
       if (file.hooks === false) return "off";
       const hooks = resolved.hooks;
       if (!hooks) return `not set${note}`;
-      const count = hooks.postCreate.length;
-      return `${count} setup script${count === 1 ? "" : "s"}${note}`;
+      const count = key === "hooks" ? hooks.postCreate.length : hooks.preDelete?.length ?? 0;
+      return `${count} ${key === "hooks" ? "setup" : "pre-done"} script${count === 1 ? "" : "s"}${note}`;
     }
     case "base_branch":
       return `${safeDisplay(resolved.baseBranch ?? "automatic")}${note}`;

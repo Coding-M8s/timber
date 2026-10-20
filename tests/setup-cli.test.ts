@@ -94,8 +94,8 @@ test("setup --global dispatches scope and help without prompting", async () => {
 
 test("review can edit every section without restarting or losing other draft answers", async () => {
   const selections = ["editor", "code", "agent", "codex", "jira", "configure",
-    "hooks", "custom", "finish", "base_branch", "custom", "remote", "custom", "worktree_dir", "custom", "save"];
-  const texts = ["https://example.atlassian.net", "bun install", "trunk", "upstream", "../review-workspaces"];
+    "hooks", "custom", "finish", "pre_delete", "custom", "finish", "base_branch", "custom", "remote", "custom", "worktree_dir", "custom", "save"];
+  const texts = ["https://example.atlassian.net", "bun install", "bun run cleanup", "trunk", "upstream", "../review-workspaces"];
   const questions: string[] = [];
   let saved: unknown; let closed = false;
   const prompt: SetupPrompt = {
@@ -114,10 +114,10 @@ test("review can edit every section without restarting or losing other draft ans
   await handler({ global: false }, { cwd: "/repo", interactive: true, io: { stdout() {}, stderr() {} } });
   expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"], enabled: false },
     agent: { command: "codex", args: [], enabled: false }, jira: { site_url: "https://example.atlassian.net" },
-    hooks: { post_create: ["bun install"] }, base_branch: "trunk", remote: "upstream", worktree_dir: "../review-workspaces" });
+    hooks: { post_create: ["bun install"], pre_delete: ["bun run cleanup"] }, base_branch: "trunk", remote: "upstream", worktree_dir: "../review-workspaces" });
   expect(questions.filter(question => question.includes("Which editor"))).toHaveLength(1);
   expect(questions.filter(question => question.includes("Use an AI"))).toHaveLength(1);
-  expect(questions.filter(question => question.includes("Settings -"))).toHaveLength(8);
+  expect(questions.filter(question => question.includes("Settings -"))).toHaveLength(9);
   expect(selections).toEqual([]);
   expect(texts).toEqual([]);
   expect(target.file.values).toEqual({});

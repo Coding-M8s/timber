@@ -560,10 +560,12 @@ pre_delete = ['./scripts/stop-worktree-services.sh']
 the selected worktree, even with `--keep-branch`. It uses the setup hook shell,
 environment variables and output streams, with closed stdin. No workflow is
 selected and inherited `TIMBER_WORKFLOW` is cleared. Cancellation or an initial
-safety refusal runs no commands. Guided setup preserves deletion steps when
-editing setup scripts; edit `pre_delete` directly in TOML. Setup scripts offer
-None or Add/Edit scripts, with existing commands prefilled. Choose Done while
-editing to remove the remaining commands from that list.
+safety refusal runs no commands. In `timber setup`, choose **Pre-done scripts**
+or use the guided advanced settings to configure these commands. Editing or
+disabling either script list preserves the other effective list. Each script step
+offers None or Add/Edit scripts; empty lists default to None, and existing
+commands are prefilled for editing.
+Choose Done while editing to remove the remaining commands from that list.
 
 A failed step stops cleanup before Timber removes the worktree or branch. Its
 diagnostic names the step and gives a `timber done` retry retaining
@@ -713,7 +715,7 @@ checkout, use `bun run dev setup` or `bun run dev setup --global`. The first CLI
 invocation also prints this hint, including for the standalone executable.
 
 Setup opens a settings menu with an optional guided walkthrough. Edit editors,
-coding assistants, Jira ticket naming, creation scripts, Git,
+coding assistants, Jira ticket naming, creation scripts, pre-done scripts, Git,
 and workspace folders individually. Setup opens directly on the menu and returns
 there immediately after each edit. Save and exit is the default. Relevant help,
 errors, and pending credential changes appear inline; PgUp/PgDn scroll long

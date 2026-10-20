@@ -64,6 +64,21 @@ test("hub edits one section then saves the draft", async () => {
   expect(file).toEqual({ editor: { command: "code", args: ["--new-window"], enabled: false } });
 });
 
+test("hub offers pre-done scripts and saves them without replacing creation scripts", async () => {
+  const destination = target({ hooks: { post_create: ["bun install"] } });
+  const prompt = scripted(["pre_delete", "custom", "printf 'cleanup one'", "add", "printf 'cleanup two'", "finish", "save"]);
+  const select = prompt.select;
+  prompt.select = async (message, choices, defaultValue) => {
+    if (message.includes("Settings -")) {
+      expect(choices.find(choice => choice.value === "pre_delete")?.label).toContain("Pre-done");
+    }
+    return select(message, choices, defaultValue);
+  };
+  const file = await runSetupHub(destination, prompt, io().io, async () => true);
+  expect(file?.hooks).toEqual({ post_create: ["bun install"], pre_delete: ["printf 'cleanup one'", "printf 'cleanup two'"] });
+  expect(sectionStatus("pre_delete", file!, destination)).toBe("2 pre-done scripts");
+});
+
 test("hub guided walkthrough asks essentials then returns for save", async () => {
   const file = await runSetupHub(target(), scripted([
     "guide", "none", "none", "none", false, "save",

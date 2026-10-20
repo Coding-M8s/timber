@@ -396,7 +396,7 @@ not transactions spanning arbitrary external writers.
 
 Open directly on the settings menu with destination, scope, compact section status,
 and an explicit Save and exit choice,
-individual editor/agent/Jira/setup-scripts/base-branch/remote/workspace-folder edit choices,
+individual editor/agent/Jira/setup-scripts/pre-done-scripts/base-branch/remote/workspace-folder edit choices,
 and cancellation. Save is the menu default. Do not show introductory summaries or
 require acknowledgements between edits and the menu. Full-screen prompts show
 guidance, errors, and pending credential actions inline with the active question
@@ -410,11 +410,12 @@ preserves the other draft answers, uses current draft values for keep/reset
 choices, and returns directly to the updated menu.
 Advanced sections remain editable even if skipped initially. Invalid scalar edits
 retry their input without discarding the draft. No writes occur until Save.
-Setup script editing offers only None and Add/Edit scripts: None is the default
-for empty lists, and Edit is selected for existing lists with commands prefilled.
-Accepting unchanged commands preserves inheritance. Editing or disabling setup
-scripts preserves effective pre-deletion commands. Restore whole-table inheritance
-by removing the TOML override.
+Setup and pre-done script lists are edited separately, including in the guided
+advanced steps. Each script step offers only None and Add/Edit scripts: None is
+the default for empty lists, and Edit is selected for existing lists with commands
+prefilled. Accepting unchanged commands preserves inheritance. Editing or disabling
+one list preserves the other effective list, copying it into the local hooks table
+when inherited. Restore whole-table inheritance by removing the TOML override.
 Invalid existing TOML is preserved. Generated readable TOML
 round-trips through the actual parser. Local setup adds `/.timber.toml` to the
 Git-discovered common `info/exclude`, preserving existing entries, and verifies
