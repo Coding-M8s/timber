@@ -16,6 +16,10 @@ This is a small TypeScript CLI using Bun for development, tests, and optional st
 
 ## Commit hygiene
 
+- Never add AI coauthor trailers or AI-generated authorship signatures to commits, PR descriptions, or other authorship metadata. This includes Claude, Codex, ChatGPT, Copilot, Cursor, Gemini, Grok, and similar assistants. Preserve legitimate human coauthors.
+- Validate proposed commit messages with `bun run check:attribution --message-file <path>`. With no arguments this checks the current tip; `--all-history` audits reachable history. CI rejects AI author/committer identities and prohibited AI attribution in introduced commits and PR descriptions, including edited PRs.
+- `.githooks/commit-msg` provides the same check before local commits when explicitly activated; do not change Git hook configuration without the user's specific authorization.
+
 - Keep Superpowers plans, specs, ledgers, and execution artifacts local. Never commit `.superpowers/` or `docs/superpowers/`, including with `git add -f`. This project preference overrides skill instructions to commit those artifacts.
 - Treat commits as potentially public from day one. Do not commit credentials, private keys, real environment files, customer data, or private operational details in code, fixtures, plans, logs, or documentation.
 - Commit shared product contracts and contributor documentation intentionally; review staged changes before committing. Ignore rules do not remove files from existing history.

@@ -36,12 +36,13 @@ function failure(worktree: Worktree, error: unknown): AgentResult {
 
 /** Own and await one foreground child. Never detach, unref, or invoke a shell. */
 export async function launchAgent(
-  worktree: Worktree, command: ExecutableCommand | null,
+  worktree: Worktree, command: ExecutableCommand | null, environment?: NodeJS.ProcessEnv,
 ): Promise<AgentResult> {
   if (command === null) return { kind: "skipped" };
   try {
     const child = spawn(command.command, [...command.args], {
       cwd: worktree.path, shell: false, stdio: "inherit", detached: false,
+      ...(environment === undefined ? {} : { env: { ...process.env, ...environment } }),
     });
     return await new Promise<AgentResult>(resolve => {
       // Terminal Ctrl-C already signals our foreground child. Forwarding it

@@ -443,3 +443,233 @@ Shell-independent candidate lookup returns raw selectors. Bash transports them
 with NUL separators and quotes insertion literally, including spaces and shell
 metacharacters, without evaluating candidate text. See [Bash completion](completion.md)
 for activation and the actually verified Bash/Linux environment.
+
+## Arena creation (post-1.0, TIM-20)
+
+`timber arena new <name-or-ticket>` prepares at least two fresh attempts from one pinned
+commit and identical immutable task instructions, then launches agents sequentially
+in the invoking terminal. This enhancement does not block stable release;
+resume/pick remain separate tickets.
+
+### Lifecycle boundaries
+
+[TIM-20](https://github.com/Coding-M8s/timber/issues/40) owns creation and initial
+sequential foreground launches. Existing committed progress is a source for fresh
+attempts, whether its branch is local or remote and whether it has a worktree.
+Source selection never adopts that branch as an attempt. Existing arena identities
+and attempt destinations fail preflight rather than implicitly resuming or replacing
+work. Ticket-key input is a source-selection convenience within this lifecycle;
+it does not change the task, isolation, execution, or preservation contract.
+
+[TIM-21](https://github.com/Coding-M8s/timber/issues/41) owns recovery/revisit of a
+recorded attempt. It must revalidate membership, reuse the task/configuration,
+preserve the attempt's evolved committed and uncommitted state, and require explicit
+setup retry. Workspace continuation does not promise universal conversation restore.
+
+[TIM-22](https://github.com/Coding-M8s/timber/issues/42) owns grouped summaries and
+human winner selection: attempt labels, agents, branches, paths and known states;
+tracked committed/uncommitted changes against the recorded base; separate untracked
+indicators; and inspection/reopen paths. A selected winner remains intact. Losing
+work is eligible for cleanup only through the ordinary preservation checks, and
+selection itself is not publication or integration evidence.
+
+Creation exposes live foreground output, paths and stage/exit outcomes. These
+contracts do not add collected final-answer reports, automatic quality judging,
+parallel/background session management, automatic merging/publishing, or implicit
+process killing. Resume and pick remain future commands until their tickets land.
+
+### Tool, model, effort, and runs
+
+`--tool <query>` starts an ordered native (`codex`, `claude`, `cursor`) or manual
+group; `--preset <query>` starts a saved agent configuration group. `--model <id>`
+and `--effort <level>` attach only to a tool group; when both appear, model comes
+first. `--runs <count>` attaches to either tool or preset and defaults to one.
+A preset owns its model/effort/arguments, so overrides are rejected. Require at
+least two runs overall and positive safe integer counts/total; no fixed upper
+cap in parser, questionnaire, plans, or storage. Counts control batch size, while
+agents remain sequential. Practical scale depends on resources/runtime limits;
+distributed or million-run execution is not established. Reject orphan/duplicate
+fields, models/effort for manual groups, and unsupported effort before mutation.
+
+Public labels use “Agent tool,” “Model,” “Effort,” “Runs,” and “Agent preset.”
+Draft --harness/--attempts/--task-file/--participant and preset colon counts have
+no compatibility aliases. Internal v1/v2 harness fields retain their identity.
+
+A shared matcher ranks exact canonical values, then canonical prefixes, then
+fuzzy name/label/keyword matches. Ranking uses fuzzysort behind a small pure
+adapter; terminal and catalog ownership remain separate. Tools/models/presets
+share it between flags and guided selection. Unique matches resolve; ambiguity
+requires explicit searchable selection in an interactive terminal, or actionable
+exact choices without prompting in scripts. Terminal search treats letters and
+digits as query text, preserves pasted answers, scrolls within terminal height,
+and restores original terminal modes. Cancellation remains mutation-free. Unknown
+custom model IDs pass literally to the tool; do not guess their capabilities.
+Wizard custom IDs are always literal. Resolve flag queries once and preserve the
+exact selected value through planning, storage, and launch.
+Never fuzzy-match task text, branch refs, or record identities.
+
+Interactive order is tool → model → supported effort → run count; an agent preset
+supplies the saved configuration and goes to run count. Model omission passes no
+native override, never infers another session's selected model. Model discovery
+is invocation-local and tool-specific: bounded/closed-stdin `cursor-agent models`,
+Codex's local model cache, and Claude's native aliases from installed CLI help,
+plus configured exact preset models. Native command discovery is bounded to eight
+seconds and 1 MiB output; failure is visible and leaves default/custom/preset
+paths. Cache/aliases do not promise account availability. Do not build a provider
+integration framework, start agent tasks for discovery, or dump private native
+configuration/credentials into diagnostics.
+
+`--default-effort <level>` sets an arena-wide fallback independent of flag order.
+A native tool group's `--effort <level>` overrides it; `--effort default` opts that
+group into native defaults. A preset's saved effort wins over the fallback; native
+presets without saved effort inherit it. Manual and wrapper groups do not inherit
+native effort. Validate every resulting native tool/model separately before Git
+mutation; unknown/unsupported levels fail with no silent skip. Global `default`
+means no fallback. Guided selection offers inheritance and native opt-out after
+model selection, alongside supported model-specific levels. Preset definitions and
+ordinary agent configuration are never mutated by invocation defaults.
+
+Effort choices are the capability levels available for that selected tool/model,
+plus native default; no common universal scale. Missing metadata means no effort
+picker/override, rather than guessed levels. Codex translates to
+`--config model_reasoning_effort="<level>"`; Claude to native `--effort`; Cursor
+uses variants actually advertised by its model listing. Explicit conflicting
+Cursor model variant and effort fail; wizard effort selection can choose another
+advertised variant. Claude general help is not model-specific capability evidence;
+its aliases retain unknown effort support, with a visible notice, no effort picker,
+and no override. Users can select supported effort inside Claude. Recognized effort
+spellings, including Codex `ultra`, share one definition across discovery,
+validation, and storage; only model-advertised subsets are offered.
+Reviews and launch output label explicit effort as requested, native omission as
+tool/model default, and effective runtime effort as unknown in both cases. Capture
+an inherited `CLAUDE_CODE_EFFORT_LEVEL` for Claude defaults in optional V2
+`effortEnvironment`: recognized spellings or `auto` only, otherwise `unrecognized`
+without raw contents. It is observation of inherited input, not model capability
+proof or effective effort. Explicit validated Claude effort sets the child's native
+flag and environment variable to the same requested level; do not modify the parent
+process environment or other tools. Native settings can still override a request.
+
+Native account/model policy remains authoritative. Presets
+may store optional native `effort`; reject duplicate field/native-argument effort.
+
+Built-ins invoke `codex`, `claude`, or `cursor-agent` on PATH. Never substitute
+Cursor editor `cursor` or ambiguous `agent`. Named presets own custom executable
+paths/literal args. Strict `[arena.agents.<name>]` tables accept tool (`codex`,
+`claude`, `cursor`, `wrapper`), command, args (default []), and optional native
+model/effort. Wrapper model/effort belong in literal args, not native fields.
+Accept unambiguous native --model/--model=..., Codex -m, and native effort arguments;
+restricted argument boundaries prohibit implicit prompt/subcommand/workspace/
+background/resume behavior. Cursor native args initially accept only --model.
+Validate every config scope even for unused/overridden presets. Merge whole named
+presets; per-name false and arena=false remove inheritance. Setup preserves arena
+tables. Ordinary [agent]/workflow contracts remain compatible; ordinary-agent
+reuse asks task handoff explicitly. `configured` and `manual` stay reserved.
+
+Names match `^[a-z][a-z0-9_-]{0,47}$`. Exact uppercase ticket input retains its key
+as context and derives a lowercase arena identity; `--name <name>` overrides it,
+including for multiple pieces of one ticket. No task text or Jira body is inferred
+from the key. Prompt/file or interactive instructions describe remaining work.
+
+### Source resolution and confirmed refresh
+
+Explicit `--base <branch-or-ref>` wins, including exact local full refs and explicit
+remote/branch selectors. Missing explicit base is an error. Without it, ticket input
+seeks local committed branches first; unique local progress works offline without
+a source worktree. Multiple matches require a stable chooser or exact noninteractive
+selector. Ticket matching recognizes the key at the start of a slash-delimited
+branch segment followed by end or `-`, `_`, `.`; no arbitrary substring or longer
+key match. This arena policy does not alter ordinary new/open matching.
+
+With no local ticket match, discover live remote heads respecting explicit/configured
+remote selection, otherwise relevant remotes. Discovery failure blocks fallback.
+Only successful absence permits configured/default base selection. Name-only input
+uses ordinary precedence: configured base, selected remote default, then unambiguous
+local main/master. Selected local refs remain offline; selected remote refs require
+refresh, even if cached. Source worktree creation is never needed. Raw SHA base
+selection is outside this interface.
+
+Source discovery and complete destination/input preflight are read-only. Interactive
+review shows source ref and advertised/validated commit, ticket/default-source note,
+tool/model/effort groups, counts and destinations; defaults to Cancel. Task body and raw
+arguments are omitted. Keep one prompt lifetime through source choice/review and
+restore modes before Git/setup/launch actions. Cancellation before confirmation
+returns zero without refs/files/records changes. Noninteractive explicit input is
+confirmation, with no prompts.
+
+After confirmation, refresh only the selected remote branch with argument arrays,
+closed stdin, disabled Git terminal prompting, and bounded runtime. Verify the
+fetched commit equals the reviewed advertisement; a moved tip or failed fetch stops
+without attempt creation, never silently falling back to stale cached refs. Report
+that this explicitly confirmed fetch may have updated cached refs. A local selected
+commit stays pinned even if its branch later advances. All attempts use the exact
+one recorded commit. Never copy/stash/reset/commit source modified, untracked, or
+ignored content, nor create or publish the source branch locally.
+
+### Attempts, records, and failures
+
+Generate fresh branches `arena/<name>/<group-label>-<ordinal>` and use existing
+configured/default worktree paths. Validate the whole batch's local refs, namespace,
+paths, primary protection, and known remote target names before confirmed fetch or
+creation. Known remote attempt-name/namespace collisions require another arena
+name; source branches are read, not reused as attempts. Local sources consult cached
+remote inventory and stay offline. Remote sources also consult discovered live
+heads; unknown/unreachable remote collisions cannot be ruled out offline.
+Creation still rechecks local targets and expected physical paths at mutation time.
+
+Reserve `<commonGitDir>/timber/arenas/<name>/` exclusively after source finalization.
+Private dirs 0700/files 0600 hold immutable `task.txt` and atomic versioned manifest.
+Manifest reads have no fixed byte ceiling tied to attempt count; regular-file,
+private-permission, symlink, schema, and identity checks still apply. Task snapshots
+retain their separate 1 MiB limit. V2 includes arena/attempt UUIDs, canonical repository identity, pinned base, source
+selector/provenance, optional ticket key, requested tool/model/configuration and optional effort
+reference/fingerprint, task reference/digest, Git/worktree identities, stages and
+exit/signal outcomes. No raw task/command argument dump. V1 and existing V2 records remain readable unchanged. Missing optional effort
+remains unknown/default; never synthesize historical effort or model defaults. Reject unsupported,
+malformed/inconsistent/stale records, unsafe/symlink metadata, changed task snapshots,
+and active/interrupted invocation locks. Never overwrite an arena or take ownership of an existing invocation lock.
+Reciprocal UUID markers prevent adopting removed/recreated worktrees by path/name.
+Git remains authoritative and membership is never cleanup/deletion proof.
+
+`--prompt-file` paths resolve from invoking cwd: nonsymlink regular UTF-8, nonblank, no NUL,
+at most 1 MiB; preserve bytes. Interactive multiline entry finishes with /done and
+supports explicit cancellation. Optional quoted `--prompt <text>` uses the same
+validation/snapshot and is mutually exclusive with --prompt-file; it appears in
+Timber argv/shell history but is never echoed in review/diagnostics. Native launch appends `--` plus an identical prompt
+to read the private absolute snapshot; body never enters native agent argv. Wrapper handoff uses
+TIMBER_TASK_FILE without guessed flags. Agents receive arena/attempt/repository/
+worktree/branch environment data; inherited TIMBER_WORKFLOW/TIMBER_TASK_ID are
+removed. Tools may store their own transcripts/output; native model file access is
+not universally guaranteed by Timber transport tests.
+
+Create/bind all attempts, run ordinary hooks for all, then editor policy and optional
+foreground agent per attempt. `--no-agent` prepares only. Explicit group selection
+opts into initial interactive launch independent of ordinary agent.enabled.
+Noninteractive native/wrapper preparation requires --no-agent and explicit prompt/file/groups;
+manual needs no agent flag. CLI editor overrides and preflight remain as before.
+Immediately revalidate reciprocal Git/UUID identity before each external setup,
+editor and agent boundary, including after awaited editor startup. Await one owned
+agent with inherited terminal stdio and existing signal handling; no detach/unref.
+Stop first failed stage/nonzero child, retain all completed state, preserve numeric
+statuses including 130/143, and never claim exit zero proves quality/integration.
+
+Persist intent before hooks/launch and actual outcomes afterward. Stages: planned,
+created, setup-running, ready, launch-running, exited, failed; failures identify
+creation/setup/editor/agent. Metadata errors stop later stages; uncertain crash
+states never authorize implicit replay or recreation. Source-fetch failure may
+leave only refreshed cached refs; later failures retain private records/workspaces.
+Inspect timber ls, reopen with `timber open --no-editor --no-agent -- '<path>'`, or
+explicitly rerun hooks with --setup. Relaunch assigned tool/preset manually with
+the task snapshot until TIM-21. Ordinary open --agent uses ordinary config, not the
+arena preset. No automatic winner, merge, publish, cleanup, or unrelated process kill.
+
+### Downstream Arena consumers
+
+TIM-21 must reuse recorded exact tool/model/configuration, optional requested
+effort and task snapshot after Git identity revalidation; synchronize explicit Claude
+effort with its child environment. Optional inherited effort observations may be
+shown as historical inputs, never runtime confirmation. Absent historical
+values stay unknown and never trigger guessed overrides. TIM-22 may display
+these selections alongside state/diffs and retain its existing human selection
+and preservation rules. Neither command should rerun fuzzy resolution against
+mutable current catalogs to reinterpret a recorded run. No resume, winner,
+comparison, merging, cleanup or parallel-session behavior is added by selection.

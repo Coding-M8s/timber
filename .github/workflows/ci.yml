@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -13,9 +14,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
+      - name: Reject AI commit attribution
+        run: bun --no-env-file scripts/check-commit-attribution.ts --event "$GITHUB_EVENT_PATH"
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test

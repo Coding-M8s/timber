@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { parse } from "smol-toml";
 import { z } from "zod";
 import { globalConfigPath } from "./config-paths";
+import { validateParticipant } from "./arena/participants";
 import type { RepositoryConfig, RepositoryContext } from "./types";
 
 const defaults: RepositoryConfig = {
@@ -28,6 +29,20 @@ const workflowSchema = z.strictObject({
   editor: z.union([z.literal(false), editorCommandSchema]).optional(),
   agent: z.union([z.literal(false), agentCommandSchema]).optional(),
 });
+const arenaPresetSchema = z.strictObject({
+  tool: z.enum(["codex", "claude", "cursor", "wrapper"]),
+  model: z.string().optional(),
+  effort: z.string().optional(),
+  command: z.string().refine(value => value.trim().length > 0 && !value.includes("\0")),
+  args: z.array(z.string().refine(value => !value.includes("\0"))).default([]),
+}).superRefine((preset, context) => {
+  try { validateParticipant(preset); }
+  catch {
+    const field = preset.command.includes("/") && !isAbsolute(preset.command) ? "command" : "args";
+    context.addIssue({ code: "custom", path: [field], message: "Invalid arena executable or native arguments." });
+  }
+});
+const arenaPresetNameSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/u).refine(name => name !== "manual" && name !== "configured");
 const workflowNameSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/u);
 
 const jiraSiteSchema = z.string().refine(value => {
@@ -45,6 +60,9 @@ const jiraSiteSchema = z.string().refine(value => {
 }).transform(value => new URL(value).origin);
 
 export const configFileSchema = z.strictObject({
+  arena: z.union([z.literal(false), z.strictObject({
+    agents: z.record(arenaPresetNameSchema, z.union([z.literal(false), arenaPresetSchema])).default({}),
+  })]).optional(),
   base_branch: z.string().trim().min(1).optional(),
   remote: z.string().trim().min(1).optional(),
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
@@ -135,8 +153,16 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
       ...(value.editor === undefined ? {} : { editor: value.editor }),
       ...(value.agent === undefined ? {} : { agent: value.agent === false ? false as const : normalizedAgent(value.agent) }),
     }]]));
+  const globalArena = scopes.global.values.arena;
+  const localArena = scopes.local?.values.arena;
+  const arenaAgents = localArena === false ? {} : {
+    ...(globalArena ? globalArena.agents : {}), ...(localArena ? localArena.agents : {}),
+  };
   return {
     ...defaults,
+    ...(globalArena === undefined && localArena === undefined ? {} : {
+      arena: { agents: Object.fromEntries(Object.entries(arenaAgents).filter((entry): entry is [string, Exclude<typeof entry[1], false>] => entry[1] !== false)) },
+    }),
     baseBranch: config.base_branch ?? null,
     remote: config.remote ?? null,
     worktreeDir: config.worktree_dir === undefined ? null : resolve(primaryRoot, config.worktree_dir),

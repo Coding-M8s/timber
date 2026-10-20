@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import { searchChoices } from "../search";
 import { safeDiagnostic } from "../display";
 import type { SetupPrompt } from "./types";
 import { createKeyboardPrompt } from "./keyboard";
@@ -38,7 +39,21 @@ export function createSetupPrompt(input: Readable, output: Writable): SetupPromp
   };
   return {
     signal: controller.signal,
-    async select(message, choices, defaultValue) {
+    async select(message, choices, defaultValue, options) {
+      if (options?.search) {
+        let matches = searchChoices(options.query ?? "", choices);
+        while (true) {
+          output.write(`\n${safeDiagnostic(message)}\n`);
+          matches.forEach((choice, index) => output.write(`${index + 1}) ${safeDiagnostic(choice.label)}\n`));
+          const answer = await ask("Type search, number to select, Enter for default, or /cancel: ");
+          if (answer === null) return null;
+          if (!answer.trim()) {
+            const preferred = matches.find(choice => choice.value === defaultValue) ?? matches[0];
+            if (preferred) return preferred.value;
+          } else if (/^[1-9]\d*$/u.test(answer) && matches[Number(answer) - 1]) return matches[Number(answer) - 1]!.value;
+          else matches = searchChoices(answer, choices);
+        }
+      }
       if (!choices.some(choice => choice.value === defaultValue)) throw new Error("Invalid setup default choice.");
       output.write(`\n\n${message.split("\n").map(safeDiagnostic).join("\n")}\n`);
       choices.forEach((choice, index) => output.write(`${index + 1}) ${safeDiagnostic(choice.label)}${choice.value === defaultValue ? " (default)" : ""}\n`));

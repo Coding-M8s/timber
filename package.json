@@ -10,12 +10,14 @@
     "dev": "bun src/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "check:attribution": "bun --no-env-file scripts/check-commit-attribution.ts",
     "build": "bun build src/index.ts --target=bun --outdir dist",
     "build:release": "bun --no-env-file scripts/release.ts"
   },
   "dependencies": {
     "commander": "15.0.0",
     "execa": "10.1.0",
+    "fuzzysort": "4.0.2",
     "smol-toml": "1.9.0",
     "zod": "4.6.5"
   },

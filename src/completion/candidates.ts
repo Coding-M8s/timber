@@ -59,13 +59,25 @@ export async function completionCandidates(program: Command, request: Completion
       ? help.visibleOptions(program).flatMap(option => [option.short, option.long].filter((flag): flag is string => !!flag))
       : commands.flatMap(command => [command.name(), ...command.aliases()]), prefix);
   }
-  const command = commands.find(command => command.name() === words[0] || command.aliases().includes(words[0]!));
-  if (!command) return [];
+  const selectedCommand = commands.find(command => command.name() === words[0] || command.aliases().includes(words[0]!));
+  if (!selectedCommand) return [];
+  let command: Command = selectedCommand;
+  let commandWords = words.slice(1);
+  while (command.commands.length && commandWords.length) {
+    const child: Command | undefined = help.visibleCommands(command).find(candidate => candidate.name() === commandWords[0]
+      || candidate.aliases().includes(commandWords[0]!));
+    if (!child) break;
+    command = child;
+    commandWords = commandWords.slice(1);
+  }
+  if (command.commands.length && commandWords.length === 0 && !prefix.startsWith("-")) {
+    return filtered(help.visibleCommands(command).flatMap(child => [child.name(), ...child.aliases()]), prefix);
+  }
   const options = help.visibleOptions(command);
   let operands = 0;
   let endOptions = false;
   let expectingValue = false;
-  for (const word of words.slice(1)) {
+  for (const word of commandWords) {
     if (expectingValue) { expectingValue = false; continue; }
     if (!endOptions && word === "--") { endOptions = true; continue; }
     if (!endOptions && word.startsWith("-")) {
@@ -79,7 +91,11 @@ export async function completionCandidates(program: Command, request: Completion
   }
   if (expectingValue) {
     const previous = words.at(-1);
+    if (previous === "--tool" && command.parent?.name() === "arena") return filtered(["codex", "claude", "cursor", "manual"], prefix);
     return previous === "--base" ? filtered(await repositoryCandidates(cwd, "base"), prefix) : [];
+  }
+  if (!endOptions && prefix.startsWith("--tool=") && command.parent?.name() === "arena") {
+    return filtered(["codex", "claude", "cursor", "manual"].map(value => "--tool=" + value), prefix);
   }
   if (!endOptions && prefix.startsWith("--base=") && command.name() === "new") {
     return filtered((await repositoryCandidates(cwd, "base")).map(value => "--base=" + value), prefix);

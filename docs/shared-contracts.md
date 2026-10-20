@@ -351,11 +351,80 @@ foreground agent launch and post-create setup remain separate operations.
 Editor/workflow editor launchers carry optional `integration: "orca"`. Agent and
 workflow agent launchers carry optional `waitForSetup`, from boolean TOML
 `wait_for_setup`, with effective default false. Scope tables still replace whole
-lower-scope tables. A shared coordinator chooses the editor-terminal seam only
-for an enabled Orca integration. It receives repository/worktree, effective editor,
+lower-scope tables. For ordinary `new` and `open`, a shared coordinator chooses
+the editor-terminal seam only for an enabled Orca integration. It receives
+repository/worktree, effective editor,
 resolved agent, selected setup and workflow context; it waits for required setup
 and actual spawn acknowledgement, never interactive agent lifetime. Legacy seams
 remain separate. Existing opens suppress implicit agents whenever the editor is
 enabled; disabled-editor behavior remains unchanged. Private transient requests
 carry literal args/context and trusted hook source, with bounded exact local
-readiness and no foreground fallback. See the TIM-27 CLI launch contract.
+readiness and no foreground fallback. Arena retains sequential foreground launches
+in the invoking terminal. See the TIM-27 CLI launch contract.
+
+## TIM-20 arena contract
+
+`src/arena/types.ts` exports `ArenaAttemptGroup`, `ArenaNewOptions`,
+`ArenaParticipantConfig`, `PlannedParticipant`, `ArenaDraft`, `ArenaPlan`,
+`ArenaSourceSelection`, `ArenaManifestV1`, `ArenaManifestV2`, and their reader union
+`ArenaManifest`. Internal participant names remain implementation details; public
+creation uses agent tool/model/effort/runs and named agent presets.
+`ArenaNewOptions.defaultEffort` supplies an invocation-wide native effort fallback;
+`--effort default` is normalized to no override for an individual tool group.
+Preset-configured effort wins; a native preset without effort inherits the fallback.
+Manual and wrapper groups remain outside native effort selection. The collector
+validates every selected native model/effort before planning and leaves config
+objects unchanged. `captureArenaEffortEnvironment` adds an optional, safe Claude
+inherited-setting observation to planned attempts; `effortEnvironment` persists it
+in V2 without changing record version. Only recognized levels, `auto`, or the
+redacted `unrecognized` marker are valid, only on Claude attempts without explicit
+effort. Missing historical observations stay absent. `arenaEffortEnvironment`
+synchronizes the child environment with explicit validated Claude effort. Effective
+runtime effort is always unknown; TIM-21/22 must not treat an observation as proof.
+
+`parseArenaGroups` preserves ordered flag boundaries; `resolveArenaGroups` expands native/manual/preset groups deterministically
+and builds literal executable arguments. Preset model fields and documented old
+model argument forms normalize without duplication or default-model guessing.
+
+`RepositoryConfig.arena` holds effective named presets. Configuration fingerprints
+cover resolved tool/command/arguments without raw dumps. V2 attempt configuration
+source distinguishes built-in, preset, ordinary [agent], and manual. Future recovery
+must deliberately revalidate changed/missing configuration, not silently substitute.
+V1 records stay readable unchanged and do not gain fabricated harness/model fields.
+Both record versions require at least two attempts and impose no fixed count cap.
+Count parsing/normalization requires safe positive whole numbers and a safe total;
+questionnaire and planning follow the same rule. Manifest reads scale with record
+size, retaining private-file/schema/identity checks and separate task/marker limits.
+The separate worktree UUID marker retains version 1 and its existing lifecycle.
+
+`resolveArenaSource` returns read-only found/ambiguous selections. A local selection
+contains a verified pinned base and works without a worktree/network; a remote
+selection contains branch identity plus advertised commit, not a fake ValidatedBase.
+`listLiveRemoteHeads` preserves advertised OIDs; ordinary open's existing
+`listLiveRemoteBranches` remains a projection with unchanged semantics.
+`ArenaDraft` holds confirmed-to-be destinations and source selection before fetch;
+`planWorktree` accepts base-free new-branch destination requests for this read-only
+phase. `finalizeArenaSource` runs only after confirmation, refreshes selected remote
+under bounded unattended Git options, rejects a changed advertised tip, and produces
+locally verified `ValidatedBase`. No source branch/worktree is materialized.
+`ArenaPlan` adds final source/ticket provenance to the pinned base and attempt paths.
+
+`CommandHandlers.arenaNew` remains optional for embedders. Production wires narrow
+`ArenaServices` for source resolution/finalization, draft planning, collection/review,
+private storage, and existing creation/setup/editor/agent seams. Prompt collection
+provides lazy/shared source choice and final review so pasted answers survive;
+callers close input in every cancellation/preflight path before fetch/launch.
+Ambiguity uses stable exact refs and capped noninteractive diagnostics.
+
+`reserveArena` returns an owned `ArenaSession` with mutable manifest, task path,
+atomic save, reciprocal bind, digest verification, and lock close. `readArena`
+validates v1/v2 schema, source/model consistency, repository identity and task digest;
+`validateArenaAttempt` checks Git inventory, reciprocal identity and marker immediately
+before external actions. New commits/dirty files do not invalidate membership.
+None of these operations grants cleanup authority to TIM-22.
+
+`launchAgent` retains optional literal environment overrides and unchanged foreground
+signals. Source fetch can update cached refs only after confirmation; creation/setup/
+launch failures retain completed work. Exact precedence, collision limits, privacy,
+flags and recovery live in [arena creation](cli-contract.md#arena-creation-post-10-tim-20).
+TIM-21/TIM-22 must review these shared v1/v2 contracts before consuming them.
