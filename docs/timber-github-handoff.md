@@ -1,4 +1,4 @@
-# Timber CLI — Codex GitHub Setup Handoff
+# Timber CLI - Codex GitHub Setup Handoff
 
 ## Your assignment
 
@@ -42,7 +42,7 @@ Creating the repository, Project, issues, and project metadata is the intended a
 
 ## 2. Product scope and implementation direction
 
-### Timber 0.1 — useful worktree CLI
+### Timber 0.1 - useful worktree CLI
 
 Four commands:
 
@@ -55,11 +55,11 @@ timber done my-feature
 
 Include repository discovery, local and remote branch handling, configuration, editor launching, and conservative cleanup.
 
-### Timber 0.2 — integrations
+### Timber 0.2 - integrations
 
 Add setup hooks, optional Claude/Codex launching, and Jira issue resolution. Both releases must work without Jira credentials or an AI subscription.
 
-### Timber 1.0 — confidence
+### Timber 1.0 - confidence
 
 Stabilize what exists after the team uses it on real repositories. Improve errors, prove cleanup safety, document it, and publish verified packages. Do not use 1.0 to add a framework or IDE.
 
@@ -162,9 +162,9 @@ Create repository milestones with no invented due dates:
 
 | Milestone | Outcome |
 | --- | --- |
-| v0.1 — Worktree CLI | Four commands, Git resolution, config, editor opening, safe cleanup |
-| v0.2 — Integrations | Hooks, Jira, optional agent launching |
-| v1.0 — Stable CLI | Dogfooding fixes, UX, documentation, verified release |
+| v0.1 - Worktree CLI | Four commands, Git resolution, config, editor opening, safe cleanup |
+| v0.2 - Integrations | Hooks, Jira, optional agent launching |
+| v1.0 - Stable CLI | Dogfooding fixes, UX, documentation, verified release |
 
 Create labels as needed without overwriting unrelated labels:
 
@@ -177,7 +177,7 @@ Use a GitHub Project, not a legacy project board. Add these fields:
 | Field | Kind | Values |
 | --- | --- | --- |
 | Status | Single select | Backlog, Ready, In Progress, In Review, Blocked, Done |
-| Lane | Single select | Dev 1 — Git, Dev 2 — Config and integrations, Dev 3 — CLI and release |
+| Lane | Single select | Dev 1 - Git, Dev 2 - Config and integrations, Dev 3 - CLI and release |
 | Priority | Single select | P0, P1 |
 | Size | Single select | S, M, L |
 
@@ -233,7 +233,7 @@ Suggested order once the scaffold merges:
 
 Use each section below as the corresponding issue body, adding its metadata from the inventory. Every body must contain Goal, Scope, Acceptance criteria, Verification, and Dependencies.
 
-### TIM-11 — Bootstrap CLI, CI, and shared contracts
+### TIM-11 - Bootstrap CLI, CI, and shared contracts
 
 **Goal:** Give all three developers a runnable scaffold and stable contracts.
 
@@ -250,7 +250,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** None.
 
-### TIM-1 — Detect repository and worktree context
+### TIM-1 - Detect repository and worktree context
 
 **Goal:** Resolve Git context reliably wherever Timber is run.
 
@@ -266,7 +266,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-11.
 
-### TIM-2 — Resolve local and remote branches
+### TIM-2 - Resolve local and remote branches
 
 **Goal:** Resolve branch inputs without guessing.
 
@@ -283,7 +283,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-1.
 
-### TIM-3 — Create worktrees safely
+### TIM-3 - Create worktrees safely
 
 **Goal:** Support creation from a new, local, or remote branch.
 
@@ -300,7 +300,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-2.
 
-### TIM-4 — Find and open existing worktree targets
+### TIM-4 - Find and open existing worktree targets
 
 **Goal:** Reuse worktrees before attempting new creation.
 
@@ -317,7 +317,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-2.
 
-### TIM-5 — Implement conservative cleanup checks
+### TIM-5 - Implement conservative cleanup checks
 
 **Goal:** Preserve work when removing a worktree or branch.
 
@@ -336,7 +336,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-3.
 
-### TIM-6 — Load and validate repository configuration
+### TIM-6 - Load and validate repository configuration
 
 **Goal:** Make project defaults predictable with one small config file.
 
@@ -354,7 +354,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-11.
 
-### TIM-8 — Launch the configured editor
+### TIM-8 - Launch the configured editor
 
 **Goal:** Open the selected worktree in the user's editor.
 
@@ -371,7 +371,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-6.
 
-### TIM-12 — Implement timber new
+### TIM-12 - Implement timber new
 
 **Goal:** Create a useful workspace in one command.
 
@@ -388,7 +388,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-3, TIM-6, TIM-8.
 
-### TIM-13 — Implement timber open
+### TIM-13 - Implement timber open
 
 **Goal:** Open or materialize the correct existing branch.
 
@@ -406,7 +406,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-3, TIM-4, TIM-6, TIM-8.
 
-### TIM-14 — Implement timber ls
+### TIM-14 - Implement timber ls
 
 **Goal:** Show the repository's worktrees at a glance.
 
@@ -423,7 +423,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-1.
 
-### TIM-15 — Implement timber done
+### TIM-15 - Implement timber done
 
 **Goal:** Expose safe cleanup through an understandable command.
 
@@ -441,7 +441,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-5, TIM-6.
 
-### TIM-7 — Run setup hooks and preserve failed setups
+### TIM-7 - Run setup hooks and preserve failed setups
 
 **Goal:** Automate project setup without hiding failures.
 
@@ -459,7 +459,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-6, TIM-12, TIM-13.
 
-### TIM-9 — Launch optional Claude or Codex agents
+### TIM-9 - Launch optional Claude or Codex agents
 
 **Goal:** Start the user's installed agent in the correct worktree.
 
@@ -478,7 +478,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-8, TIM-12, TIM-13.
 
-### TIM-10 — Resolve Jira tickets and generate branch names
+### TIM-10 - Resolve Jira tickets and generate branch names
 
 **Goal:** Turn a Jira ticket ID into a descriptive branch/worktree.
 
@@ -497,7 +497,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-2, TIM-6, TIM-12.
 
-### TIM-16 — Polish errors and validate real workflows
+### TIM-16 - Polish errors and validate real workflows
 
 **Goal:** Make the implemented tool predictable in daily use.
 
@@ -515,7 +515,7 @@ Use each section below as the corresponding issue body, adding its metadata from
 
 **Dependencies:** TIM-7, TIM-9, TIM-10, TIM-14, TIM-15.
 
-### TIM-17 — Package, document, and verify releases
+### TIM-17 - Package, document, and verify releases
 
 **Goal:** Ship a reproducible installation that matches the completed release scope.
 

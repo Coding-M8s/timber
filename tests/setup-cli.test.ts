@@ -14,12 +14,16 @@ const target: SetupTarget = { scope: "repository", path: file.path, file,
 
 async function setup(options: { interactive?: boolean; tracked?: boolean; existing?: boolean; save?: boolean; cancel?: boolean; global?: boolean } = {}) {
   let stdout = ""; let stderr = ""; let writes = 0; let prompted = false;
+  const questions: string[] = [];
   const destination = { ...target, tracked: options.tracked ?? false,
     file: { ...file, source: options.existing ? 'remote = "upstream"' : null,
       values: options.existing ? { remote: "upstream" } : {} } };
   const prompt: SetupPrompt = {
-    select: async (message, _choices, defaultValue) => options.cancel ? null : message.includes("Tracked") ? "cancel"
-      : message.includes("Review settings") ? options.save ? "save" : "cancel" : defaultValue,
+    select: async (message, _choices, defaultValue) => {
+      questions.push(message);
+      return options.cancel ? null : message.includes("Tracked") ? "cancel"
+        : message.includes("Settings -") ? options.save ? "save" : "cancel" : defaultValue;
+    },
     text: async () => { throw new Error("unexpected text"); },
     confirm: async () => false, close() {},
   };
@@ -32,14 +36,17 @@ async function setup(options: { interactive?: boolean; tracked?: boolean; existi
     handlers: { ...placeholderHandlers, setup: handler }, context: { cwd: "/repo", interactive: options.interactive ?? true,
       io: { stdout: text => { stdout += text; }, stderr: text => { stderr += text; } } },
   });
-  return { code, stdout, stderr, writes, prompted };
+  return { code, stdout, stderr, writes, prompted, questions };
 }
 
-test("setup summary precedes saving and names repository destination", async () => {
+test("setup opens directly on the settings menu with its repository destination", async () => {
   const result = await setup({ save: true });
   expect(result.code).toBe(0);
   expect(result.writes).toBe(1);
-  expect(result.stdout.indexOf("Summary")).toBeLessThan(result.stdout.indexOf("Saved"));
+  expect(result.questions).toHaveLength(1);
+  expect(result.questions[0]).toContain("Settings - this repository");
+  expect(result.questions[0]).toContain("/repo/.timber.toml");
+  expect(result.stdout).not.toContain("Summary");
   expect(result.stdout).toContain("/repo/.timber.toml");
 });
 
@@ -50,7 +57,7 @@ test("setup review counts workflows without displaying their executable argument
     scopes: { ...target.scopes, local: { path: file.path, source: "configured", values: existing } } };
   let output = "";
   const handler = createSetupHandler({ inspectTarget: async () => destination,
-    prompt: () => ({ select: async (message) => message.includes("Review settings") ? "cancel" : "keep",
+    prompt: () => ({ select: async (message) => { output += message; return "cancel"; },
       text: async () => null, confirm: async () => false, close() {} }),
     checkExecutable: async () => true, save: async () => {} });
   await handler({ global: false }, { cwd: "/repo", interactive: true,
@@ -59,7 +66,7 @@ test("setup review counts workflows without displaying their executable argument
   expect(output).not.toContain("PRIVATE_PROMPT");
 });
 
-test("declining replacement and cancelling questionnaire never writes settings", async () => {
+test("declining replacement and cancelling setup never writes settings", async () => {
   for (const options of [{ existing: true }, { cancel: true }, { tracked: true }]) {
     const result = await setup(options);
     expect(result.code).toBe(0);
@@ -86,7 +93,7 @@ test("setup --global dispatches scope and help without prompting", async () => {
 });
 
 test("review can edit every section without restarting or losing other draft answers", async () => {
-  const selections = ["keep", "keep", "keep", "editor", "code", "agent", "codex", "jira", "configure",
+  const selections = ["editor", "code", "agent", "codex", "jira", "configure",
     "hooks", "custom", "finish", "base_branch", "custom", "remote", "custom", "worktree_dir", "custom", "save"];
   const texts = ["https://example.atlassian.net", "bun install", "trunk", "upstream", "../review-workspaces"];
   const questions: string[] = [];
@@ -108,8 +115,9 @@ test("review can edit every section without restarting or losing other draft ans
   expect(saved).toEqual({ editor: { command: "code", args: ["--new-window"], enabled: false },
     agent: { command: "codex", args: [], enabled: false }, jira: { site_url: "https://example.atlassian.net" },
     hooks: { post_create: ["bun install"] }, base_branch: "trunk", remote: "upstream", worktree_dir: "../review-workspaces" });
-  expect(questions.filter(question => question.includes("Which editor"))).toHaveLength(2);
-  expect(questions.filter(question => question.includes("Use an AI"))).toHaveLength(2);
+  expect(questions.filter(question => question.includes("Which editor"))).toHaveLength(1);
+  expect(questions.filter(question => question.includes("Use an AI"))).toHaveLength(1);
+  expect(questions.filter(question => question.includes("Settings -"))).toHaveLength(8);
   expect(selections).toEqual([]);
   expect(texts).toEqual([]);
   expect(target.file.values).toEqual({});
@@ -117,7 +125,7 @@ test("review can edit every section without restarting or losing other draft ans
 });
 
 test("review uses current draft choices to reset a newly configured override", async () => {
-  const selections = ["code", "keep", "keep", "editor", "inherit", "save"];
+  const selections = ["editor", "code", "editor", "none", "save"];
   let saved: unknown;
   const prompt: SetupPrompt = {
     select: async (message, choices) => {
@@ -135,7 +143,7 @@ test("review uses current draft choices to reset a newly configured override", a
 });
 
 test("an invalid folder edit retries that input without discarding the setup draft", async () => {
-  const selections = ["code", "keep", "keep", "worktree_dir", "custom", "save"];
+  const selections = ["editor", "code", "worktree_dir", "custom", "save"];
   const texts = ["", "../corrected-folder"];
   let saved: unknown; let stderr = "";
   const prompt: SetupPrompt = {
@@ -165,8 +173,8 @@ test("visibility recovery recreates the Jira session before the global retry", a
     file: { path: "/home/config.toml", source: null, values: {} },
   };
   const selections = [
-    "keep", "keep", "keep", "save", "global",
-    "keep", "keep", "keep", "save",
+    "save", "global",
+    "save",
   ];
   let sessions = 0;
   let savedScope: string | undefined;

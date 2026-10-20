@@ -54,7 +54,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
 
         const choices = suggestions.map(suggestion => ({
           value: suggestion.key,
-          label: `${suggestion.key} — ${safeTitle(suggestion.title)}`,
+          label: `${suggestion.key} - ${safeTitle(suggestion.title)}`,
         }));
         if (context.choose === undefined) throw noChooserFailure(error.message, branch, suggestions);
 
@@ -122,7 +122,7 @@ function noChooserFailure(
   suggestions: readonly JiraTicket[],
 ): Error {
   const visible = suggestions.slice(0, 5)
-    .map(suggestion => `  ${suggestion.key} — ${safeTitle(suggestion.title)}`)
+    .map(suggestion => `  ${suggestion.key} - ${safeTitle(suggestion.title)}`)
     .join("\n");
   const count = suggestions.length;
   const shown = Math.min(count, 5);

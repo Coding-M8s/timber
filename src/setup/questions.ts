@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { configFileSchema } from "../config";
 import type { ConfigFile } from "../config";
 import { safeDisplay } from "../display";
@@ -8,8 +9,8 @@ import { SetupCancelled } from "./types";
 import type { SetupPrompt, SetupTarget } from "./types";
 import type { JiraSetupSession } from "./jira";
 
-async function choose(prompt: SetupPrompt, message: string, choices: readonly ChoiceOption[]): Promise<string> {
-  const result = await prompt.select(message, choices, choices[0]!.value);
+async function choose(prompt: SetupPrompt, message: string, choices: readonly ChoiceOption[], defaultValue = choices[0]!.value): Promise<string> {
+  const result = await prompt.select(message, choices, defaultValue);
   if (result === null) throw new SetupCancelled();
   if (!choices.some(choice => choice.value === result)) throw new Error("Invalid setup choice; no settings saved.");
   return result;
@@ -29,10 +30,28 @@ async function confirm(prompt: SetupPrompt, message: string, current = false): P
 
 const option = (value: string, label: string): ChoiceOption => ({ value, label });
 
-function keepLabel(target: SetupTarget, key: keyof ConfigFile): string {
-  if (key in target.file.values) return target.file.values[key] === false ? "Keep disabled" : "Keep current setting";
-  return key in target.scopes.global.values && target.scope === "repository"
-    ? "Use your machine settings" : "Skip for now";
+function effectiveSetting<K extends keyof ConfigFile>(key: K, file: ConfigFile, target: SetupTarget): ConfigFile[K] {
+  return file[key] ?? (target.scope === "repository" ? target.scopes.global.values[key] : undefined);
+}
+
+function integrationChoices(key: "editor" | "agent" | "jira", file: ConfigFile, target: SetupTarget,
+  configure: ChoiceOption[]): ChoiceOption[] {
+  const current = effectiveSetting(key, file, target);
+  const inherited = target.scope === "repository" ? target.scopes.global.values[key] : undefined;
+  const none = option("none", "None");
+  return [
+    current ? option("keep", key in file ? "Keep current setting" : "Use machine defaults") : none,
+    ...configure,
+    ...(key in file && inherited && !isDeepStrictEqual(current, inherited)
+      ? [option("inherit", "Use machine defaults")] : []),
+    ...(current ? [none] : []),
+  ];
+}
+
+function disableIntegration(key: "editor" | "agent" | "jira", file: ConfigFile, target: SetupTarget): void {
+  if (file[key] === false) return;
+  if (target.scope === "repository" && target.scopes.global.values[key]) file[key] = false;
+  else delete file[key];
 }
 
 type LauncherPreset = { command: string; args: string[]; integration?: "orca" };
@@ -56,10 +75,10 @@ async function launcher(
   const labels: Record<string, string> = { code: "VS Code", zed: "Zed", orca: "Orca terminals (setup and assistant in the Orca window)",
     claude: "Claude", codex: "Codex" };
   const orca = key === "agent" && effectiveEditor(file, target)?.integration === "orca";
-  const choices = [option("keep", keepLabel(target, key)), ...Object.keys(presets).map(name => option(name, labels[name]!)),
+  const choices = integrationChoices(key, file, target, [
+    ...Object.keys(presets).map(name => option(name, labels[name]!)),
     option("custom", key === "editor" ? "Another editor" : "Another coding assistant"),
-    ...(key in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
-    option("none", key === "editor" ? "Do not open an editor" : "Do not start a coding assistant")];
+  ]);
   const diagnoseEffective = async () => {
     const current = file[key] ?? (target.scope === "repository" ? target.scopes.global.values[key] : undefined);
     if (current && !await available(current.command)) io.stderr(`Configured ${key} executable is unavailable; install it or fix PATH before launching.\n`);
@@ -77,15 +96,15 @@ async function launcher(
 
   while (true) {
     const selected = await choose(prompt, key === "editor"
-      ? "Which editor should open your workspace?\nSkip to open it yourself later."
-      : "Use an AI coding assistant?\nChoose one you already have installed, or skip. It runs in this terminal, or in Orca when its integration is enabled.", choices);
+      ? "Which editor should open your workspace?\nChoose None to open it yourself later."
+      : "Use an AI coding assistant?\nChoose one you already have installed, or None. It runs in this terminal, or in Orca when its integration is enabled.", choices);
     if (selected === "keep") {
       await configureDependency();
       await diagnoseEffective();
       return;
     }
     if (selected === "inherit") { delete file[key]; await configureDependency(); await diagnoseEffective(); return; }
-    if (selected === "none") { file[key] = false; return; }
+    if (selected === "none") { disableIntegration(key, file, target); return; }
     let command: LauncherPreset;
     if (selected === "custom") {
       const executable = await text(prompt, `${key === "editor" ? "Editor" : "Assistant"} program name or full path`);
@@ -108,7 +127,7 @@ async function launcher(
       io.stderr(`Selected ${key} executable is unavailable. Install it or fix PATH, then reselect it, choose none, or cancel.\n`);
       const recovery = await choose(prompt, "Executable unavailable", [option("retry", "Reselect"), option("none", "None / off"), option("cancel", "Cancel setup")]);
       if (recovery === "cancel") throw new SetupCancelled();
-      if (recovery === "none") { file[key] = false; return; }
+      if (recovery === "none") { disableIntegration(key, file, target); return; }
       continue;
     }
     if (key === "editor") {
@@ -137,9 +156,14 @@ async function scalar(key: "base_branch" | "remote" | "worktree_dir", values: re
     remote: 'Choose "Use automatic settings" for automatic remote selection.',
     worktree_dir: 'Choose "Use automatic settings" to put workspaces beside this repository, in <repository-name>-worktrees.',
   })[key];
-  const selected = await choose(prompt, `${question}\n${resetHelp}`, [option("keep", keepLabel(target, key)),
-    option("automatic", inherits ? "Use machine defaults" : "Use automatic settings (leave blank)"),
-    ...values.map((value, index) => option(`value:${index}`, safeDisplay(value))), option("custom", "Custom value")]);
+  const current = effectiveSetting(key, file, target);
+  const keep = key in file;
+  const automatic = !keep || current !== (inherits ? target.scopes.global.values[key] : undefined);
+  const selected = await choose(prompt, `${question}${automatic ? `\n${resetHelp}` : ""}`, [
+    ...(keep ? [option("keep", `Keep ${safeDisplay(current!)}`)] : []),
+    ...(automatic ? [option("automatic", inherits ? "Use machine defaults" : "Use automatic settings (leave blank)")] : []),
+    ...values.flatMap((value, index) => value === current ? [] : [option(`value:${index}`, safeDisplay(value))]),
+    option("custom", "Custom value")]);
   if (selected === "keep") return;
   if (selected === "automatic") { delete file[key]; return; }
   if (selected !== "custom") { file[key] = values[Number(selected.slice(6))]!; return; }
@@ -153,18 +177,17 @@ async function scalar(key: "base_branch" | "remote" | "worktree_dir", values: re
 
 async function jiraSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO, session?: JiraSetupSession): Promise<void> {
   const jira = await choose(prompt,
-    "Use Jira tickets to name branches?\nJira is a work ticket tracker. This lets timber new TEAM-123 use the ticket title. Skip if you don't use Jira.",
-    [option("keep", keepLabel(target, "jira")), option("configure", "Yes, connect my team's Jira"),
-      ...("jira" in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
-      option("none", "Do not use Jira")]);
+    "Use Jira tickets to name branches?\nJira is a work ticket tracker. This lets timber new TEAM-123 use the ticket title. Choose None if you don't use Jira.",
+    integrationChoices("jira", file, target, [option("configure", "Connect my team's Jira")]));
   if (jira === "inherit") delete file.jira;
   if (jira === "none") {
-    file.jira = false;
-    io.stdout("Jira disabled here. Shared personal credentials are retained for other repositories.\n");
+    const wasConfigured = effectiveSetting("jira", file, target);
+    disableIntegration("jira", file, target);
+    if (wasConfigured) io.stdout("Jira disabled here. Shared personal credentials are retained for other repositories.\n");
   }
   if (jira === "configure") {
-    io.stdout("\nUnscoped tokens use your tenant address. Scoped tokens require the cloud UUID and use api.atlassian.com/ex/jira/<cloud-id>.\n");
-    io.stdout("Find your cloud ID by opening https://<your-site>.atlassian.net/_edge/tenant_info in your browser. Help: https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/\n");
+    io.stdout("Unscoped tokens use your tenant address. Scoped tokens require the cloud UUID and use api.atlassian.com/ex/jira/<cloud-id>.\n");
+    io.stdout("Find your cloud ID: https://<your-site>.atlassian.net/_edge/tenant_info\n");
     while (true) {
       const current = file.jira || (target.scope === "repository" ? target.scopes.global.values.jira : undefined);
       const site_url = await text(prompt, "Your team's Jira address, e.g. https://my-team.atlassian.net", current ? current.site_url : "");
@@ -182,30 +205,50 @@ async function jiraSettings(file: ConfigFile, target: SetupTarget, prompt: Setup
     ...(effective.cloud_id ? { cloudId: effective.cloud_id } : {}) }, prompt, io);
 }
 
+function copyHookLists(hooks: { post_create: readonly string[]; pre_delete?: readonly string[] | undefined }) {
+  return {
+    post_create: [...hooks.post_create],
+    ...(hooks.pre_delete === undefined ? {} : { pre_delete: [...hooks.pre_delete] }),
+  };
+}
+
 async function hookSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
+  const label = "setup";
+  const effective = file.hooks ?? (target.scope === "repository" ? target.scopes.global.values.hooks : undefined);
+  const existing = effective ? effective.post_create : [];
   const hooks = await choose(prompt,
-    "Run scripts when a workspace is first created?\nFor example, install project dependencies. These are trusted shell commands run with your permissions.",
-    [option("keep", keepLabel(target, "hooks")), option("custom", "Add setup scripts"),
-      ...("hooks" in target.file.values ? [option("inherit", target.scope === "repository" ? "Use machine defaults" : "Reset (leave blank)")] : []),
-      option("none", "Do not run scripts")]);
-  if (hooks === "inherit") delete file.hooks;
-  if (hooks === "none") file.hooks = false;
+    "Run scripts when a workspace is first created?\nFor example, install project dependencies."
+      + "\nThese are trusted shell commands run with your permissions. Editing keeps the other script list.",
+    [option("none", "None"), option("custom", `${existing.length ? "Edit" : "Add"} ${label} scripts`)],
+    existing.length ? "custom" : "none");
+  if (hooks === "none") {
+    if (!existing.length) return;
+    const other = effective && effective.pre_delete?.length;
+    file.hooks = effective && other ? { ...copyHookLists(effective), post_create: [] } : false;
+  }
   if (hooks === "custom") {
     const commands: string[] = [];
     while (true) {
-      const source = await text(prompt, "Setup command, e.g. bun install");
+      const source = await text(prompt, "Setup command, e.g. bun install",
+        existing[commands.length] ?? "");
       if (!source.trim() || source.includes("\0")) { io.stderr("Enter a nonempty command without NUL characters.\n"); continue; }
       commands.push(source);
-      if (await choose(prompt, "Add another setup command?", [option("finish", "Done"), option("add", "Add another command")]) === "finish") break;
+      const moreExisting = commands.length < existing.length;
+      if (await choose(prompt, moreExisting ? `Continue editing ${label} commands?` : `Add another ${label} command?`, [
+        option("finish", moreExisting ? "Done (remove remaining commands)" : "Done"),
+        option("add", moreExisting ? "Edit next command" : "Add another command"),
+      ], moreExisting ? "add" : "finish") === "finish") break;
     }
-    const effective = file.hooks ?? (target.scope === "repository" ? target.scopes.global.values.hooks : undefined);
-    file.hooks = { post_create: commands,
-      ...(effective && effective.pre_delete !== undefined ? { pre_delete: effective.pre_delete } : {}) };
+    if (!isDeepStrictEqual(commands, existing)) {
+      file.hooks = { ...copyHookLists(effective || { post_create: [] }), post_create: commands };
+    }
   }
 }
 
 /** Edit only one section, using current draft values for keep/reset choices. */
-export async function editSetupSection(section: keyof ConfigFile, file: ConfigFile, target: SetupTarget,
+export type SetupSection = keyof ConfigFile;
+
+export async function editSetupSection(section: SetupSection, file: ConfigFile, target: SetupTarget,
   prompt: SetupPrompt, io: CommandIO, available: (command: string) => Promise<boolean>, jira?: JiraSetupSession): Promise<void> {
   const current = { ...target, file: { ...target.file, values: file } };
   switch (section) {
@@ -225,7 +268,7 @@ export async function questionnaire(target: SetupTarget, prompt: SetupPrompt, io
     for (const section of ["editor", "agent", "jira"] as const) {
       await editSetupSection(section, file, target, prompt, io, available, jira);
     }
-    if (await confirm(prompt, "Advanced settings: add workspace setup scripts or change Git/folder defaults? Skip if you're unsure.")) {
+    if (await confirm(prompt, "Advanced settings: add setup scripts or change Git/folder defaults? Skip if you're unsure.")) {
       for (const section of ["hooks", "base_branch", "remote", "worktree_dir"] as const) {
         await editSetupSection(section, file, target, prompt, io, available);
       }

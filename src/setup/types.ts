@@ -3,6 +3,8 @@ import type { ChoiceOption } from "../selection";
 import type { RepositoryContext } from "../types";
 
 export interface SetupPrompt {
+  /** Full-screen adapters render this context inline with the next question. */
+  notice?(message: string, kind?: "error"): void;
   select(message: string, choices: readonly ChoiceOption[], defaultValue: string, options?: { search?: boolean; query?: string }): Promise<string | null>;
   text(message: string, defaultValue?: string): Promise<string | null>;
   /** Must never echo input or display a previous value; absent adapters cannot accept secrets. */

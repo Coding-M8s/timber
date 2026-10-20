@@ -12,19 +12,19 @@
     "v0.1": {
       "id": 18431473,
       "number": 1,
-      "title": "v0.1 — Worktree CLI",
+      "title": "v0.1 - Worktree CLI",
       "html_url": "https://github.com/Coding-M8s/timber/milestone/1"
     },
     "v0.2": {
       "id": 18431474,
       "number": 2,
-      "title": "v0.2 — Integrations",
+      "title": "v0.2 - Integrations",
       "html_url": "https://github.com/Coding-M8s/timber/milestone/2"
     },
     "v1.0": {
       "id": 18431475,
       "number": 3,
-      "title": "v1.0 — Stable CLI",
+      "title": "v1.0 - Stable CLI",
       "html_url": "https://github.com/Coding-M8s/timber/milestone/3"
     }
   },
@@ -52,7 +52,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDGU",
       "project_values": {
         "Status": "Ready",
-        "Lane": "Dev 3 — CLI and release",
+        "Lane": "Dev 3 - CLI and release",
         "Priority": "P0",
         "Size": "S"
       }
@@ -82,7 +82,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDII",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 1 — Git",
+        "Lane": "Dev 1 - Git",
         "Priority": "P0",
         "Size": "S"
       }
@@ -112,7 +112,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDJ8",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 1 — Git",
+        "Lane": "Dev 1 - Git",
         "Priority": "P0",
         "Size": "M"
       }
@@ -142,7 +142,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDMQ",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 1 — Git",
+        "Lane": "Dev 1 - Git",
         "Priority": "P0",
         "Size": "M"
       }
@@ -172,7 +172,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDNw",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 1 — Git",
+        "Lane": "Dev 1 - Git",
         "Priority": "P0",
         "Size": "S"
       }
@@ -202,7 +202,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDPw",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 1 — Git",
+        "Lane": "Dev 1 - Git",
         "Priority": "P0",
         "Size": "L"
       }
@@ -232,7 +232,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDSk",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 2 — Config and integrations",
+        "Lane": "Dev 2 - Config and integrations",
         "Priority": "P0",
         "Size": "S"
       }
@@ -262,7 +262,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDVE",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 2 — Config and integrations",
+        "Lane": "Dev 2 - Config and integrations",
         "Priority": "P1",
         "Size": "S"
       }
@@ -294,7 +294,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDW4",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 3 — CLI and release",
+        "Lane": "Dev 3 - CLI and release",
         "Priority": "P0",
         "Size": "M"
       }
@@ -327,7 +327,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDYw",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 3 — CLI and release",
+        "Lane": "Dev 3 - CLI and release",
         "Priority": "P0",
         "Size": "M"
       }
@@ -357,7 +357,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDaY",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 3 — CLI and release",
+        "Lane": "Dev 3 - CLI and release",
         "Priority": "P0",
         "Size": "S"
       }
@@ -388,7 +388,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDcw",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 3 — CLI and release",
+        "Lane": "Dev 3 - CLI and release",
         "Priority": "P0",
         "Size": "M"
       }
@@ -420,7 +420,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDeY",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 2 — Config and integrations",
+        "Lane": "Dev 2 - Config and integrations",
         "Priority": "P1",
         "Size": "M"
       }
@@ -452,7 +452,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDgM",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 2 — Config and integrations",
+        "Lane": "Dev 2 - Config and integrations",
         "Priority": "P1",
         "Size": "S"
       }
@@ -484,7 +484,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDiM",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 2 — Config and integrations",
+        "Lane": "Dev 2 - Config and integrations",
         "Priority": "P1",
         "Size": "M"
       }
@@ -518,7 +518,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDkw",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 3 — CLI and release",
+        "Lane": "Dev 3 - CLI and release",
         "Priority": "P1",
         "Size": "M"
       }
@@ -549,7 +549,7 @@
       "project_item_id": "PVTI_lADOEHotiM4BmSYVzg_jDmM",
       "project_values": {
         "Status": "Backlog",
-        "Lane": "Dev 3 — CLI and release",
+        "Lane": "Dev 3 - CLI and release",
         "Priority": "P1",
         "Size": "M"
       }
@@ -652,19 +652,19 @@
       "options": [
         {
           "id": "50285cf9",
-          "name": "Dev 1 — Git",
+          "name": "Dev 1 - Git",
           "color": "BLUE",
           "description": ""
         },
         {
           "id": "7e4c2839",
-          "name": "Dev 2 — Config and integrations",
+          "name": "Dev 2 - Config and integrations",
           "color": "BLUE",
           "description": ""
         },
         {
           "id": "73385ea0",
-          "name": "Dev 3 — CLI and release",
+          "name": "Dev 3 - CLI and release",
           "color": "BLUE",
           "description": ""
         }

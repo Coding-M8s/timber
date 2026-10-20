@@ -3,6 +3,7 @@
 This is a small TypeScript CLI using Bun for development, tests, and optional standalone builds. Read docs/cli-contract.md and the assigned ticket before implementation. The initial setup is documentation only; TIM-11 establishes the scaffold, verifies dependency compatibility, and commits the lockfile.
 
 - Prefer small modules and plain functions. Use Commander, Execa, Zod, and smol-toml after verifying supported versions.
+- Do not use em dashes (U+2014) in code, CLI output, comments, tests, or documentation. Use plain punctuation. Check for this character in every code review.
 - Installed Git and its worktree metadata are the source of truth. Invoke Git using executable plus argument arrays; never interpolate user input into shell commands.
 - No GUI/IDE work, Rust rewrite, database, daemon, local API, global task registry, or provider plugin framework.
 - Test Git mutations with meaningful temporary real repositories, including failure cases that assert files and refs remain intact. Use test doubles at command service seams.
