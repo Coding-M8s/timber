@@ -478,7 +478,7 @@ test("declining a Jira prefix suggestion preserves the real repository and all u
       handlersFor(harness.runtime, lifecycle),
       async (_message, choices) => {
         chooserCalls += 1;
-        expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 — Candidate title" }]);
+        expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 - Candidate title" }]);
         return null;
       },
       "new", "ABU-4", "--no-editor",
@@ -587,7 +587,7 @@ test("creates from a single Jira suggestion only after explicit selection and ex
       async (message, choices) => {
         chooserCalls += 1;
         expect(message).toMatch(/unavailable or not visible[\s\S]*Did you mean/i);
-        expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 — Stale search title" }]);
+        expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 - Stale search title" }]);
         return "ABU-40";
       },
       "new", "ABU-4", "--no-editor",

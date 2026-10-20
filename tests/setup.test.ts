@@ -28,6 +28,132 @@ const io = () => {
     output: () => output };
 };
 
+for (const section of ["hooks"] as const) {
+  test(`${section} offers only None and Add for an empty list`, async () => {
+    const file: ConfigFile = {};
+    const prompt = scripted([]);
+    prompt.select = async (_message, choices, defaultValue) => {
+      expect(choices.map(choice => choice.value)).toEqual(["none", "custom"]);
+      expect(defaultValue).toBe("none");
+      return defaultValue;
+    };
+    await editSetupSection(section, file, target(), prompt, io().io, async () => true);
+    expect(file).toEqual({});
+  });
+
+  test(`${section} keeps inherited scripts on Enter through its two-choice editor`, async () => {
+    const file: ConfigFile = {};
+    const destination = target();
+    destination.scopes.global.values = { hooks: { post_create: ["setup"], pre_delete: ["cleanup", "second cleanup"] } };
+    const prompt = scripted([]);
+    prompt.select = async (message, choices, defaultValue) => {
+      if (message.startsWith("Run")) {
+        expect(choices.map(choice => choice.value)).toEqual(["none", "custom"]);
+        expect(defaultValue).toBe("custom");
+      }
+      return defaultValue;
+    };
+    prompt.text = async (_message, defaultValue) => defaultValue ?? "";
+    await editSetupSection(section, file, destination, prompt, io().io, async () => true);
+    expect(file).toEqual({});
+  });
+
+  test(`${section} can remove trailing commands without changing the other list`, async () => {
+    const file: ConfigFile = { hooks: {
+      post_create: ["setup", "obsolete setup"], pre_delete: ["cleanup", "obsolete cleanup"],
+    } };
+    const prompt = scripted(["custom", "finish"]);
+    let textQuestions = 0;
+    prompt.text = async (_message, current) => { textQuestions++; return current ?? ""; };
+    await editSetupSection(section, file, target(file), prompt, io().io, async () => true);
+    expect(textQuestions).toBe(1);
+    expect(file.hooks).toEqual(section === "hooks"
+      ? { post_create: ["setup"], pre_delete: ["cleanup", "obsolete cleanup"] }
+      : { post_create: ["setup", "obsolete setup"], pre_delete: ["cleanup"] });
+  });
+}
+
+for (const section of ["editor", "agent", "jira"] as const) {
+  test(`${section} has one default None choice when unconfigured`, async () => {
+    const file: ConfigFile = {};
+    const prompt = scripted([]);
+    prompt.select = async (_message, choices, defaultValue) => {
+      expect(choices.some(choice => choice.value === "keep" || choice.value === "inherit")).toBe(false);
+      expect(defaultValue).toBe("none");
+      expect(choices.filter(choice => choice.value === "none")).toHaveLength(1);
+      return defaultValue;
+    };
+    await editSetupSection(section, file, target(), prompt, io().io, async () => true);
+    expect(file).toEqual({});
+  });
+
+  test(`${section} keeps inheritance and disabling as distinct choices when configured`, async () => {
+    const file: ConfigFile = {};
+    const destination = target();
+    destination.scopes.global.values = {
+      editor: { command: "code", args: [], enabled: true },
+      agent: { command: "codex", args: [], enabled: true },
+      jira: { site_url: "https://example.atlassian.net" },
+    };
+    const prompt = scripted([]);
+    prompt.select = async (_message, choices, defaultValue) => {
+      expect(defaultValue).toBe("keep");
+      expect(choices.filter(choice => choice.value === "none")).toHaveLength(1);
+      expect(choices.some(choice => choice.value === "inherit")).toBe(false);
+      return "none";
+    };
+    await editSetupSection(section, file, destination, prompt, io().io, async () => true);
+    expect(file[section]).toBe(false);
+  });
+
+  test(`${section} omits a reset that duplicates the current machine setting`, async () => {
+    const existing: ConfigFile = {
+      editor: { command: "code", args: [], enabled: true },
+      agent: { command: "codex", args: [], enabled: true },
+      jira: { site_url: "https://example.atlassian.net" },
+    };
+    const file = structuredClone(existing);
+    const destination = target(file);
+    destination.scopes.global.values = structuredClone(existing);
+    const prompt = scripted([]);
+    prompt.select = async (_message, choices, defaultValue) => {
+      expect(defaultValue).toBe("keep");
+      expect(choices.some(choice => choice.value === "inherit")).toBe(false);
+      return defaultValue;
+    };
+    await editSetupSection(section, file, destination, prompt, io().io, async () => true);
+    expect(file).toEqual(existing);
+  });
+}
+
+for (const section of ["base_branch", "remote", "worktree_dir"] as const) {
+  test(`${section} offers one automatic default without a duplicate skip choice`, async () => {
+    const file = {};
+    const prompt = scripted([]);
+    prompt.select = async (_message, choices, defaultValue) => {
+      expect(choices.some(choice => choice.value === "keep")).toBe(false);
+      expect(defaultValue).toBe("automatic");
+      return defaultValue;
+    };
+    await editSetupSection(section, file, target(), prompt, io().io, async () => true);
+    expect(file).toEqual({});
+  });
+
+  test(`${section} retains a saved value without duplicating matching machine defaults`, async () => {
+    const file = { [section]: "same-value" };
+    const destination = target(file);
+    destination.scopes.global.values = { [section]: "same-value" };
+    const prompt = scripted([]);
+    prompt.select = async (_message, choices, defaultValue) => {
+      expect(defaultValue).toBe("keep");
+      expect(choices.some(choice => choice.value === "automatic")).toBe(false);
+      return defaultValue;
+    };
+    await editSetupSection(section, file, destination, prompt, io().io, async () => true);
+    expect(file).toEqual({ [section]: "same-value" });
+  });
+}
+
 for (const section of ["editor", "agent"] as const) {
   test(`${section} rejects a relative executable before availability checking`, async () => {
     const file = {};
@@ -36,7 +162,7 @@ for (const section of ["editor", "agent"] as const) {
     await editSetupSection(section, file, target(), scripted([
       "custom", "./tools/launcher", "[]", "none",
     ]), capture.io, async command => { checked.push(command); return true; });
-    expect(file).toEqual({ [section]: false });
+    expect(file).toEqual({});
     expect(checked).toEqual([]);
     expect(capture.output()).toContain("absolute path");
   });
@@ -76,12 +202,12 @@ for (const section of ["base_branch", "remote", "worktree_dir"] as const) {
 test("guided choices keep editor and agent separate with agent disabled by default", async () => {
   const capture = io();
   const file = await questionnaire(target(), scripted([
-    "code", false, "codex", false, "none", true, "none", "keep", "keep", "keep",
+    "code", false, "codex", false, "none", true, "none", "automatic", "automatic", "automatic",
   ]), capture.io, async () => true);
   expect(file?.editor).toEqual({ command: "code", args: ["--new-window"], enabled: false });
   expect(file?.agent).toEqual({ command: "codex", args: [], enabled: false });
-  expect(file?.hooks).toBe(false);
-  expect(file?.jira).toBe(false);
+  expect(file?.hooks).toBeUndefined();
+  expect(file?.jira).toBeUndefined();
 });
 
 test("setup stores the editor command while defaulting automatic launch off", async () => {
@@ -112,7 +238,7 @@ test("keeping existing values retains custom arguments hooks and explicit off wi
   const existing = { editor: false as const, agent: { command: "wrapper", args: ["  literal  "], enabled: true },
     hooks: { post_create: [" printf 'a' "] }, remote: "upstream" };
   const file = await questionnaire(target(existing), scripted([
-    "keep", "keep", "keep", false,
+    "none", "keep", "none", false,
   ]), io().io, async () => true);
   expect(file).toEqual(existing);
   expect(file).not.toHaveProperty("worktree_dir");
@@ -129,13 +255,35 @@ test.each(["local", "global"])("editing setup scripts retains %s pre-deletion ho
     .toEqual({ post_create: ["new setup"], pre_delete: [" printf cleanup "] });
 });
 
+test.each(["hooks"] as const)("disabling %s preserves the other inherited script list", async section => {
+  const file: ConfigFile = {};
+  const destination = target(file);
+  destination.scopes.global.values = { hooks: { post_create: ["setup"], pre_delete: ["cleanup"] } };
+  await editSetupSection(section, file, destination, scripted(["none"]), io().io, async () => true);
+  expect(parseConfigSource(renderConfig(file), "saved.toml").hooks).toEqual(section === "hooks"
+    ? { post_create: [], pre_delete: ["cleanup"] } : { post_create: ["setup"], pre_delete: [] });
+});
+
+test("materializing local hooks does not alias machine-default script arrays", async () => {
+  const globalHooks = { post_create: ["setup"], pre_delete: ["cleanup"] };
+  const file: ConfigFile = {};
+  const destination = target(file);
+  destination.scopes.global.values = { hooks: globalHooks };
+  await editSetupSection("hooks", file, destination, scripted(["none"]), io().io, async () => true);
+  expect(file.hooks).toEqual({ post_create: [], pre_delete: ["cleanup"] });
+  expect(typeof file.hooks).toBe("object");
+  const local = file.hooks as { post_create: string[]; pre_delete: string[] };
+  local.pre_delete.push("mutated");
+  expect(globalHooks.pre_delete).toEqual(["cleanup"]);
+});
+
 test("guided setup preserves named workflow definitions and disables during save", async () => {
   const existing = parseConfigSource([
     '[workflows.review]', 'post_create = ["printf review"]',
     '[workflows.review.editor]', 'command = "zed"', 'args = ["--new"]',
     '[workflows]', 'investigate = false',
   ].join("\n"), "test.toml");
-  const file = await questionnaire(target(existing), scripted(["keep", "keep", "keep", false]), io().io,
+  const file = await questionnaire(target(existing), scripted(["none", "none", "none", false]), io().io,
     async () => true);
   expect(parseConfigSource(renderConfig(file!), "saved.toml").workflows).toEqual(existing.workflows);
 });
@@ -164,7 +312,7 @@ test("a missing executable offers off and never saves an unusable selection sile
   const file = await questionnaire(target(), scripted([
     "zed", "none", "none", "none", false,
   ]), capture.io, async () => false);
-  expect(file?.editor).toBe(false);
+  expect(file?.editor).toBeUndefined();
   expect(capture.output()).toContain("PATH");
 });
 
@@ -184,12 +332,12 @@ test("skipped sections produce editable examples without enabling tools", () => 
 });
 
 test("repeated repository setup can remove optional overrides and inherit global settings again", async () => {
-  const destination = target({ editor: false, agent: false, hooks: false, jira: false });
+  const destination = target({ editor: false, agent: false, jira: false });
   destination.scopes.global.values = { editor: { command: "code", args: ["--new-window"], enabled: false },
     agent: { command: "codex", args: [], enabled: true }, hooks: { post_create: ["global hook"] },
     jira: { site_url: "https://global.atlassian.net" } };
   const file = await questionnaire(destination, scripted([
-    "inherit", "inherit", "inherit", true, "inherit", "keep", "keep", "keep",
+    "inherit", "inherit", "inherit", true, "custom", "global hook", "finish", "automatic", "automatic", "automatic",
   ]), io().io, async () => true);
   expect(file).toEqual({});
   expect(resolveConfig({ ...destination.scopes, local: { ...destination.file, values: file! } }, "/repo").agent)
@@ -201,7 +349,7 @@ test("selecting inheritance checks the newly effective global editor executable"
   destination.scopes.global.values = { editor: { command: "missing-global", args: [], enabled: false } };
   const capture = io();
   const file = await questionnaire(destination, scripted([
-    "inherit", "keep", "keep", false,
+    "inherit", "none", "none", false,
   ]), capture.io, async () => false);
   expect(file).not.toHaveProperty("editor");
   expect(capture.output()).toContain("editor executable is unavailable");
@@ -213,7 +361,7 @@ test("quick setup skips advanced questions and leaves new settings empty on Ente
   const prompt: SetupPrompt = {
     select: async (message, choices, defaultValue) => {
       questions.push(message);
-      expect(choices.find(choice => choice.value === defaultValue)?.label).toContain("Skip");
+      expect(choices.find(choice => choice.value === defaultValue)?.label).toBe("None");
       return defaultValue;
     },
     confirm: async message => { questions.push(message); return false; },

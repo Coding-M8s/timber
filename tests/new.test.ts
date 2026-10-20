@@ -235,7 +235,7 @@ test("new offers a same-project prefix choice after an exact missing ticket, the
     calls.push("choose");
     expect(message).toMatch(/unavailable or not visible[\s\S]*Did you mean/i);
     expect(message).toEndWith("\nDid you mean one of these?");
-    expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 — Old title" }]);
+    expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 - Old title" }]);
     return "ABU-40";
   });
   const handler = createNewHandler(createServiceDouble({

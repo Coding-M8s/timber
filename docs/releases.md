@@ -197,7 +197,7 @@ Record each actual release's evidence here or in its reviewed release notes:
 | Team exercise | Participant/date, downloaded checksum, commands, results, unresolved bugs |
 | Publication | Owner publication and actual supported-platform statement |
 
-## Local implementation verification — 2026-10-12
+## Local implementation verification - 2026-10-12
 
 The development candidate is `0.1.0-dev.0`, built with Bun 1.4.2 from the
 TIM-17 working tree based on `be1ad45ec013ebc82625aa32183029b19d2ca5ef`.

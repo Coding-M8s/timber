@@ -561,7 +561,9 @@ the selected worktree, even with `--keep-branch`. It uses the setup hook shell,
 environment variables and output streams, with closed stdin. No workflow is
 selected and inherited `TIMBER_WORKFLOW` is cleared. Cancellation or an initial
 safety refusal runs no commands. Guided setup preserves deletion steps when
-editing setup scripts; edit `pre_delete` directly in TOML.
+editing setup scripts; edit `pre_delete` directly in TOML. Setup scripts offer
+None or Add/Edit scripts, with existing commands prefilled. Choose Done while
+editing to remove the remaining commands from that list.
 
 A failed step stops cleanup before Timber removes the worktree or branch. Its
 diagnostic names the step and gives a `timber done` retry retaining
@@ -680,9 +682,9 @@ removed and branch retained; inspect the reported state before retrying.
 
 ## Release scope
 
-- **0.1 — Worktree CLI:** repository discovery, local/remote branch resolution, four commands, repository configuration, optional editor opening, conservative cleanup.
-- **0.2 — Integrations:** trusted setup hooks, optional interactive Claude/Codex launching, Jira lookup. The CLI remains usable without Jira credentials or an AI subscription.
-- **1.0 — Stable CLI:** real-repository dogfooding, errors, safety validation, documentation, verified Linux x86_64 packages.
+- **0.1 - Worktree CLI:** repository discovery, local/remote branch resolution, four commands, repository configuration, optional editor opening, conservative cleanup.
+- **0.2 - Integrations:** trusted setup hooks, optional interactive Claude/Codex launching, Jira lookup. The CLI remains usable without Jira credentials or an AI subscription.
+- **1.0 - Stable CLI:** real-repository dogfooding, errors, safety validation, documentation, verified Linux x86_64 packages.
 
 TypeScript and Bun are the development direction, with Commander, Execa, Zod, and smol-toml. Exact dependency versions are pinned in `package.json` and `bun.lock`; compatibility tests exercise them under Bun. No GUI/IDE, Rust rewrite, database, daemon, or plugin framework is included.
 
@@ -710,14 +712,18 @@ Before using Timber, run `timber setup` inside your repository, or
 checkout, use `bun run dev setup` or `bun run dev setup --global`. The first CLI
 invocation also prints this hint, including for the standalone executable.
 
-Setup asks about VS Code/Zed/Orca terminals/custom editors, Claude/Codex/custom
-coding assistants, Jira ticket naming, and optional advanced settings for scripts,
-Git, and workspace folders. With Orca terminals selected, or inherited from machine
+Setup opens a settings menu with an optional guided walkthrough. Edit editors,
+coding assistants, Jira ticket naming, creation scripts, Git,
+and workspace folders individually. Setup opens directly on the menu and returns
+there immediately after each edit. Save and exit is the default. Relevant help,
+errors, and pending credential changes appear inline; PgUp/PgDn scroll long
+details without leaving the active question. With Orca terminals selected, or inherited from machine
 defaults, it also asks whether the assistant waits for setup scripts. Use Up/Down arrows and Enter, or press a numbered shortcut to choose
 immediately. Shortcuts cover the first nine options; use arrows for additional
 entries in long branch lists; the menu scrolls to keep your selection visible.
-Blank Enter skips new settings or keeps existing ones; advanced settings are skipped
-by default. Each question starts after a blank line. Editor and agent launch
+None is the default for unconfigured tools and scripts. Existing settings stay
+selected by default; guided advanced settings are optional. Each question starts
+after a blank line. Editor and agent launch
 default to off; setup asks whether each configured tool should launch automatically.
 Configure Jira with its site origin, token mode, Atlassian email, and hidden API
 token. [Create a token](https://id.atlassian.com/manage-profile/security/api-tokens)

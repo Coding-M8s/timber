@@ -68,7 +68,7 @@ function formatCandidate(item: DecoratedTarget): string[] {
   const { target, selector, shadowedBy, selectable, selectorShared } = item;
   if (shadowedBy !== null && target.kind === "branch" && target.branch.kind === "local") {
     return [
-      `  ${targetLabel(target)} — shadowed by known remote prefix ${safeDisplay(shadowedBy)}; this name is parsed as a remote selector.`,
+      `  ${targetLabel(target)} - shadowed by known remote prefix ${safeDisplay(shadowedBy)}; this name is parsed as a remote selector.`,
       "    To open this local branch, create a Git worktree for it, then run timber open -- '<absolute-worktree-path>'.",
     ];
   }
@@ -137,7 +137,7 @@ export function createOpenHandler(
         interactiveAmbiguityMessage(input, candidates),
         candidates.map(item => ({
           value: item.identity,
-          label: `${targetLabel(item.target)}${item.selectable ? "" : " — manual worktree/path selection required"}`,
+          label: `${targetLabel(item.target)}${item.selectable ? "" : " - manual worktree/path selection required"}`,
         })),
       );
       if (selection === null) {

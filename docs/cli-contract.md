@@ -340,8 +340,13 @@ agent startup.
 directory, or a linked checkout. `timber setup --global` configures defaults for
 all repositories and works outside Git. Both require interactive stdin/stdout and
 CI off; noninteractive use fails with guidance and no writes. Main questions cover editor, agent, and Jira ticket naming; scripts and Git/folder
-defaults live in an optional advanced section, skipped by default. Blank Enter
-leaves new settings absent or retains existing values. Each question is separated
+defaults live in an optional advanced section, skipped by default. Unconfigured
+integrations offer one None choice (the default), without a duplicate Skip/Keep
+disabled choice. Existing enabled integrations retain a default Keep choice;
+machine-default resets appear only when they change the effective setting.
+Git/folder menus similarly offer one automatic/inherited default without a
+duplicate Skip choice. Blank Enter leaves new settings absent or retains
+existing values. Each question is separated
 by a blank line. Terminal selectors support Up/Down arrows and Enter; single-key
 number shortcuts 1–9 select immediately. Additional options in long menus use
 arrows, with no ambiguous multi-digit shortcuts; menus show a viewport sized to
@@ -383,12 +388,27 @@ Locks coordinate Timber writers. As with ordinary config, an unrelated editor
 can race the final check-to-rename; byte comparisons detect changes at the check,
 not transactions spanning arbitrary external writers.
 
-Show the destination, scope, and summary with an explicit save/replacement choice,
-individual editor/agent/Jira/hooks/base-branch/remote/workspace-folder edit choices,
-and cancellation (the default). Editing preserves the other draft answers, uses
-current draft values for keep/reset choices, and returns to the updated review.
+Open directly on the settings menu with destination, scope, compact section status,
+and an explicit Save and exit choice,
+individual editor/agent/Jira/setup-scripts/base-branch/remote/workspace-folder edit choices,
+and cancellation. Save is the menu default. Do not show introductory summaries or
+require acknowledgements between edits and the menu. Full-screen prompts show
+guidance, errors, and pending credential actions inline with the active question
+or menu. Errors appear first beneath the question, labeled `! ERROR`, with bold
+white text on a red background. `NO_COLOR` or `TERM=dumb` disables styling but
+retains the label. Error text remains while editing and clears on the next field.
+Long context wraps and scrolls with PgUp/PgDn while the question and
+input/choices remain visible; scrolling is optional and never selects or submits.
+Editing
+preserves the other draft answers, uses current draft values for keep/reset
+choices, and returns directly to the updated menu.
 Advanced sections remain editable even if skipped initially. Invalid scalar edits
 retry their input without discarding the draft. No writes occur until Save.
+Setup script editing offers only None and Add/Edit scripts: None is the default
+for empty lists, and Edit is selected for existing lists with commands prefilled.
+Accepting unchanged commands preserves inheritance. Editing or disabling setup
+scripts preserves effective pre-deletion commands. Restore whole-table inheritance
+by removing the TOML override.
 Invalid existing TOML is preserved. Generated readable TOML
 round-trips through the actual parser. Local setup adds `/.timber.toml` to the
 Git-discovered common `info/exclude`, preserving existing entries, and verifies

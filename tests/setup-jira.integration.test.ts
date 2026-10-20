@@ -28,8 +28,8 @@ for (const scope of ["repository", "global"] as const) {
         const index = await readFile(join(primary, ".git/index"));
         const exclusion = await readFile(join(primary, ".git/info/exclude"));
         let output = ""; let closed = false;
-        const prompt = scripted(["keep", "keep", "configure", config.siteUrl + "/", false,
-          "replace", pair.email, pair.token, true, false, outcome === "cancel" ? "cancel" : "save"]);
+        const prompt = scripted(["jira", "configure", config.siteUrl + "/", false,
+          "replace", pair.email, pair.token, true, outcome === "cancel" ? "cancel" : "save"]);
         prompt.close = () => { closed = true; };
         const handler = createSetupHandler({ inspectTarget: (global, cwd) => inspectSetupTarget(global, cwd, env),
           prompt: () => prompt, checkExecutable: async () => true,
