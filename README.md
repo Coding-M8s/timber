@@ -726,7 +726,7 @@ selected by default; guided advanced settings are optional. Each question starts
 after a blank line. Editor and agent launch
 default to off; setup asks whether each configured tool should launch automatically.
 Configure Jira with its site origin, token mode, Atlassian email, and hidden API
-token. [Create a token](https://id.atlassian.com/manage-profile/security/api-tokens)
+token, with asterisks showing typing and paste feedback. [Create a token](https://id.atlassian.com/manage-profile/security/api-tokens)
 using Atlassian's [token instructions](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
 Scoped tokens require the cloud UUID and use the Atlassian gateway; unscoped
 tokens use the tenant origin. Find the cloud UUID at

@@ -142,11 +142,16 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
   const readLine = async (message: string, frame?: ReturnType<typeof createFrame>, hidden = false): Promise<string | null> => {
     let value = "";
     let pasting = false;
+    const drawMask = () => {
+      const count = [...graphemes.segment(value)].length;
+      const { width } = terminalSize(output);
+      output.write(`\r\u001b[2K${fitLine(`› ${"*".repeat(Math.min(count, Math.max(0, width - 2)))}`, width)}`);
+    };
     const draw = () => {
       if (!frame) { output.write(message); return; }
       frame.draw();
       output.write(`\u001b[?25h${fitLine(message, terminalSize(output).width)}\n› `);
-      if (!hidden) output.write(value);
+      if (hidden && value) drawMask(); else if (!hidden) output.write(value);
     };
     draw();
     while (true) {
@@ -155,7 +160,7 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
       if (hidden && key?.sequence === "\u001b[200~") { pasting = true; continue; }
       if (hidden && key?.sequence === "\u001b[201~") { pasting = false; continue; }
       if (key === null || key.name === "escape") return null;
-      if (hidden && pasting && (key.name === "return" || key.name === "enter")) { value += "\n"; continue; }
+      if (hidden && pasting && (key.name === "return" || key.name === "enter")) { value += "\n"; drawMask(); continue; }
       if (key.name === "return" || key.name === "enter") {
         if (hidden) {
           // Unbracketed paste may arrive in later PTY chunks after Enter. Drain
@@ -183,12 +188,13 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
       }
       if (key.name === "backspace") {
         if (value) {
-          value = Array.from(value).slice(0, -1).join("");
-          if (!hidden) output.write("\b \b");
+          value = hidden ? [...graphemes.segment(value)].slice(0, -1).map(part => part.segment).join("")
+            : Array.from(value).slice(0, -1).join("");
+          if (hidden) drawMask(); else output.write("\b \b");
         }
       } else if (!key.ctrl && !key.meta && key.sequence && !/[\u0000-\u001f\u007f-\u009f]/u.test(key.sequence)) {
         value += key.sequence;
-        if (!hidden) output.write(key.sequence);
+        if (hidden) drawMask(); else output.write(key.sequence);
       }
     }
   };

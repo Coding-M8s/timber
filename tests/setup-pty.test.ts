@@ -16,6 +16,7 @@ test("real setup saves a pasted token outside Git without echoing it", async () 
     expect(result.code).toBe(0);
     expect(result.output).toContain("Saved repository settings");
     expect(result.output).not.toContain("SYNTHETIC_PASTED_TOKEN");
+    expect(result.output).toMatch(/\r\u001b\[2K› \*+/u);
     expect(await loadSavedCredentials({ siteUrl: "https://example.atlassian.net" }, {
       HOME: directory, XDG_CONFIG_HOME: join(directory, "machine/config"),
     })).toEqual({ email: "person@example.invalid", token: "SYNTHETIC_PASTED_TOKEN" });
@@ -166,6 +167,25 @@ test("review edits only the selected section and saves the revised draft in a re
       .toEqual({ jira: { site_url: "https://example.atlassian.net" } });
     expect(result.output).not.toContain("Which editor should open");
     expect(await git(primary, "status", "--porcelain=v1")).toBe("");
+  });
+});
+
+test("invalid Jira URL stays on the URL field with feedback before token scopes", async () => {
+  await withRepository(async (primary, directory) => {
+    const result = await terminal(primary, directory, [],
+      "42http://example.atlassian.net\rhttps://example.atlassian.net\r\r11");
+    expect(result.code).toBe(0);
+    const error = result.output.indexOf("Invalid Jira URL");
+    expect(error).toBeGreaterThan(-1);
+    expect(error).toBeLessThan(result.output.indexOf("Does your Jira API token use scopes?"));
+    const retry = result.output.split("\u001b[2J").find(screen => screen.includes("Invalid Jira URL")
+      && screen.indexOf("Invalid Jira URL") < screen.indexOf("Type a value"));
+    expect(retry).toContain("Your team's Jira address");
+    expect(retry).toContain("! ERROR: Invalid Jira URL");
+    expect(retry).toContain("\u001b[1;37;41m");
+    expect(result.output).not.toContain("Enter to continue");
+    expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test").jira)
+      .toEqual({ site_url: "https://example.atlassian.net" });
   });
 });
 

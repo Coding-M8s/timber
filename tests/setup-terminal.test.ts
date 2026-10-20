@@ -142,6 +142,24 @@ test("long questions reserve space for choices in a small terminal", async () =>
   } finally { prompt.close(); }
 });
 
+test("scrolling token guidance preserves masked input without revealing it", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const output = Object.assign(new PassThrough(), { columns: 40, rows: 10 });
+  let displayed = "";
+  output.on("data", bytes => { displayed += bytes.toString(); });
+  const prompt = createKeyboardPrompt(input, output);
+  try {
+    prompt.notice?.("Token creation guidance\n".repeat(8));
+    const answer = prompt.secret!("Jira API token");
+    input.write("SYNTHETIC_TOKEN\u001b[6~");
+    await Bun.sleep(0);
+    expect(displayed).not.toContain("SYNTHETIC_TOKEN");
+    expect(displayed.split("\r").at(-1)).toEndWith("› ***************");
+    input.write("\r");
+    expect(await answer).toBe("SYNTHETIC_TOKEN");
+  } finally { prompt.close(); }
+});
+
 test("secret entry hides pasted text and editing, preserves later answers, and restores raw mode", async () => {
   const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
   const output = new PassThrough(); let displayed = "";
@@ -157,6 +175,53 @@ test("secret entry hides pasted text and editing, preserves later answers, and r
     expect(displayed).not.toContain("TOKENx");
   } finally { prompt.close(); }
   expect(input.isRaw).toBe(false);
+});
+
+test("secret input shows masked typing, paste, and backspace feedback without exposing token text", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const output = new PassThrough(); let displayed = "";
+  output.on("data", bytes => { displayed += bytes.toString(); });
+  const prompt = createKeyboardPrompt(input, output);
+  try {
+    const answer = prompt.secret!("Jira API token");
+    await Bun.sleep(0);
+    input.write("abc");
+    await Bun.sleep(0);
+    expect(displayed.split("\r").at(-1)).toEndWith("› ***");
+    input.write("\u007f");
+    await Bun.sleep(0);
+    expect(displayed.split("\r").at(-1)).toEndWith("› **");
+    input.write("\u001b[200~PASTED\u001b[201~");
+    await Bun.sleep(0);
+    expect(displayed.split("\r").at(-1)).toEndWith("› ********");
+    input.write("\r");
+    expect(await answer).toBe("abPASTED");
+    expect(displayed).not.toContain("abc");
+    expect(displayed).not.toContain("PASTED");
+  } finally { prompt.close(); }
+});
+
+test("long secret feedback stays on one line and remains masked after editing", async () => {
+  const input = Object.assign(new PassThrough(), { isRaw: false, setRawMode(mode: boolean) { this.isRaw = mode; } });
+  const output = Object.assign(new PassThrough(), { columns: 20 });
+  let displayed = "";
+  output.on("data", bytes => { displayed += bytes.toString(); });
+  const prompt = createKeyboardPrompt(input, output);
+  try {
+    const answer = prompt.secret!("Token");
+    await Bun.sleep(0);
+    input.write("x".repeat(100));
+    await Bun.sleep(0);
+    const mask = displayed.split("\r").at(-1)!;
+    expect(mask).toContain("*");
+    expect(Bun.stringWidth(mask)).toBeLessThan(20);
+    input.write("\u007f".repeat(99));
+    await Bun.sleep(0);
+    expect(displayed.split("\r").at(-1)).toEndWith("› *");
+    input.write("\r");
+    expect(await answer).toBe("x");
+    expect(displayed).not.toContain("xxx");
+  } finally { prompt.close(); }
 });
 
 test("cancelling secret input restores terminal and non-TTY secret input fails closed", async () => {

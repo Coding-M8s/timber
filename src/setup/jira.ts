@@ -30,15 +30,14 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
   return {
     async edit(config, prompt, io) {
       store ??= await readCredentialStore(env);
-      io.stdout(`\nPersonal Jira credentials: ${safeDisplay(store.path)}\n`);
-      io.stdout("Stored as plaintext, not encrypted: a private 0700 directory and owner-only 0600 file protect access. Both setup scopes share this store outside repositories. Changes wait for Save.\n");
-      io.stdout("Disabling Jira in this repository does not delete credentials used by other repositories. Removal here deletes only this site's selected token mode on Save.\n");
+      io.stdout(`Personal credentials: ${safeDisplay(store.path)}\n`);
+      io.stdout("Plaintext, owner-only storage shared across repositories. Changes apply on Save.\n");
       if (env.JIRA_EMAIL !== undefined || env.JIRA_API_TOKEN !== undefined) {
         io.stdout("Jira environment overrides are present. Runtime requires both nonblank variables; unset both to use saved credentials. This connection check uses the draft pair.\n");
       }
       let pair = store.get(config);
       const choices = [
-        { value: "keep", label: pair ? "Keep saved credentials (token hidden)" : "Skip personal credentials for now" },
+        { value: "keep", label: pair ? "Keep saved credentials (token hidden)" : "None" },
         { value: "replace", label: pair ? "Replace email and API token" : "Enter email and API token" },
         ...(pair ? [{ value: "remove", label: "Remove this site's saved credentials (shared across repositories)" }] : []),
       ];
@@ -47,11 +46,11 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
       if (!choices.some(value => value.value === choice)) throw new Error("Invalid Jira credentials choice; no settings saved.");
       if (choice === "remove") { store.set(config, null); return; }
       if (choice === "replace") {
-        io.stdout("Create an API token (not your password): https://id.atlassian.com/manage-profile/security/api-tokens\nToken help: https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/\n");
         while (true) {
           const email = await prompt.text("Atlassian account email", pair?.email ?? "");
           if (email === null) throw new SetupCancelled();
           if (!prompt.secret) throw new Error("Hidden token input is unavailable; use an interactive terminal with timber setup.");
+          io.stdout("Create an API token: https://id.atlassian.com/manage-profile/security/api-tokens\n");
           const token = await prompt.secret("Jira API token (hidden, including pasted input)");
           if (token === null) throw new SetupCancelled();
           if (!validCredentials({ email, token })) {
@@ -62,7 +61,7 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
         }
       }
       if (!pair) return;
-      io.stdout("Optional read-only check uses the current-user endpoint. Scoped tokens may also need current-user read scopes. A successful check does not guarantee access to every project or issue.\n");
+      io.stdout("Optional check: current-user access only; scoped tokens need current-user read scopes.\n");
       const checking = await prompt.confirm("Check this draft login with Jira now? No settings will be saved.", false);
       if (checking === null) throw new SetupCancelled();
       if (checking) {
@@ -78,10 +77,10 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
     },
     review(io) {
       if (!store) return;
-      io.stdout(`Personal credential destination: ${safeDisplay(store.path)} (plaintext; directory 0700, file 0600).\n`);
       const changes = store.changes();
-      if (!changes.length) io.stdout("Personal credentials: keep existing store; tokens hidden.\n");
+      if (!changes.length) return;
       for (const change of changes) io.stdout(`Personal credentials: ${change.action === "save" ? "save/replace" : "remove"} ${safeDisplay(change.config.siteUrl)} (${change.config.cloudId ? `scoped: ${change.config.cloudId}` : "unscoped"}); shared across repositories.\n`);
+      io.stdout(`Personal credential destination: ${safeDisplay(store.path)} (plaintext; owner-only).\n`);
     },
     async save(publishConfig, signal) {
       if (store) await withCredentialSave(store, publishConfig, signal);

@@ -33,7 +33,7 @@ test("setup drafts replacement privately, checks the draft pair, and saves only 
     session.review(io.io);
     expect(io.output()).toContain("plaintext");
     expect(io.output()).toContain("jira.json");
-    expect(io.output()).toContain("does not guarantee");
+    expect(io.output()).toContain("project and issue access was not checked");
     expect(io.output()).not.toContain(pair.token); expect(io.output()).not.toContain("ENV_SYNTHETIC");
     expect(checked).toBe(true);
     await session.save(async () => {});
