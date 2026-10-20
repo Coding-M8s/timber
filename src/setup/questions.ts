@@ -213,24 +213,27 @@ function copyHookLists(hooks: { post_create: readonly string[]; pre_delete?: rea
   };
 }
 
-async function hookSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
-  const label = "setup";
+async function hookSettings(stage: "post_create" | "pre_delete", file: ConfigFile, target: SetupTarget,
+  prompt: SetupPrompt, io: CommandIO): Promise<void> {
+  const preDone = stage === "pre_delete";
+  const label = preDone ? "pre-done" : "setup";
   const effective = file.hooks ?? (target.scope === "repository" ? target.scopes.global.values.hooks : undefined);
-  const existing = effective ? effective.post_create : [];
+  const existing = effective ? effective[stage] ?? [] : [];
   const hooks = await choose(prompt,
-    "Run scripts when a workspace is first created?\nFor example, install project dependencies."
+    (preDone ? "Run pre-done scripts before removing a workspace?\nThese run after cleanup safety checks; failure stops removal."
+      : "Run scripts when a workspace is first created?\nFor example, install project dependencies.")
       + "\nThese are trusted shell commands run with your permissions. Editing keeps the other script list.",
     [option("none", "None"), option("custom", `${existing.length ? "Edit" : "Add"} ${label} scripts`)],
     existing.length ? "custom" : "none");
   if (hooks === "none") {
     if (!existing.length) return;
-    const other = effective && effective.pre_delete?.length;
-    file.hooks = effective && other ? { ...copyHookLists(effective), post_create: [] } : false;
+    const other = effective && (preDone ? effective.post_create.length : effective.pre_delete?.length);
+    file.hooks = effective && other ? { ...copyHookLists(effective), [stage]: [] } : false;
   }
   if (hooks === "custom") {
     const commands: string[] = [];
     while (true) {
-      const source = await text(prompt, "Setup command, e.g. bun install",
+      const source = await text(prompt, preDone ? "Pre-done command, e.g. bun run cleanup" : "Setup command, e.g. bun install",
         existing[commands.length] ?? "");
       if (!source.trim() || source.includes("\0")) { io.stderr("Enter a nonempty command without NUL characters.\n"); continue; }
       commands.push(source);
@@ -241,13 +244,13 @@ async function hookSettings(file: ConfigFile, target: SetupTarget, prompt: Setup
       ], moreExisting ? "add" : "finish") === "finish") break;
     }
     if (!isDeepStrictEqual(commands, existing)) {
-      file.hooks = { ...copyHookLists(effective || { post_create: [] }), post_create: commands };
+      file.hooks = { ...copyHookLists(effective || { post_create: [] }), [stage]: commands };
     }
   }
 }
 
 /** Edit only one section, using current draft values for keep/reset choices. */
-export type SetupSection = keyof ConfigFile;
+export type SetupSection = keyof ConfigFile | "pre_delete";
 
 export async function editSetupSection(section: SetupSection, file: ConfigFile, target: SetupTarget,
   prompt: SetupPrompt, io: CommandIO, available: (command: string) => Promise<boolean>, jira?: JiraSetupSession): Promise<void> {
@@ -255,7 +258,8 @@ export async function editSetupSection(section: SetupSection, file: ConfigFile, 
   switch (section) {
     case "editor": case "agent": await launcher(section, file, current, prompt, io, available); break;
     case "jira": await jiraSettings(file, current, prompt, io, jira); break;
-    case "hooks": await hookSettings(file, current, prompt, io); break;
+    case "hooks": await hookSettings("post_create", file, current, prompt, io); break;
+    case "pre_delete": await hookSettings("pre_delete", file, current, prompt, io); break;
     case "base_branch": await scalar(section, target.branches, file, current, prompt, io); break;
     case "remote": await scalar(section, target.repository?.remotes.map(remote => remote.name) ?? [], file, current, prompt, io); break;
     case "worktree_dir": await scalar(section, [], file, current, prompt, io); break;
@@ -269,8 +273,8 @@ export async function questionnaire(target: SetupTarget, prompt: SetupPrompt, io
     for (const section of ["editor", "agent", "jira"] as const) {
       await editSetupSection(section, file, target, prompt, io, available, jira);
     }
-    if (await confirm(prompt, "Advanced settings: add setup scripts or change Git/folder defaults? Skip if you're unsure.")) {
-      for (const section of ["hooks", "base_branch", "remote", "worktree_dir"] as const) {
+    if (await confirm(prompt, "Advanced settings: add setup/pre-done scripts or change Git/folder defaults? Skip if you're unsure.")) {
+      for (const section of ["hooks", "pre_delete", "base_branch", "remote", "worktree_dir"] as const) {
         await editSetupSection(section, file, target, prompt, io, available);
       }
     }

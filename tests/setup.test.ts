@@ -60,7 +60,7 @@ test.each([
   expect(capture.output()).not.toContain("PRIVATE_VALUE");
 });
 
-for (const section of ["hooks"] as const) {
+for (const section of ["hooks", "pre_delete"] as const) {
   test(`${section} offers only None and Add for an empty list`, async () => {
     const file: ConfigFile = {};
     const prompt = scripted([]);
@@ -234,7 +234,7 @@ for (const section of ["base_branch", "remote", "worktree_dir"] as const) {
 test("guided choices keep editor and agent separate with agent disabled by default", async () => {
   const capture = io();
   const file = await questionnaire(target(), scripted([
-    "code", false, "codex", false, "none", true, "none", "automatic", "automatic", "automatic",
+    "code", false, "codex", false, "none", true, "none", "none", "automatic", "automatic", "automatic",
   ]), capture.io, async () => true);
   expect(file?.editor).toEqual({ command: "code", args: ["--new-window"], enabled: false });
   expect(file?.agent).toEqual({ command: "codex", args: [], enabled: false });
@@ -287,7 +287,19 @@ test.each(["local", "global"])("editing setup scripts retains %s pre-deletion ho
     .toEqual({ post_create: ["new setup"], pre_delete: [" printf cleanup "] });
 });
 
-test.each(["hooks"] as const)("disabling %s preserves the other inherited script list", async section => {
+test.each(["local", "global"])("editing pre-done scripts retains %s creation scripts through save", async scope => {
+  const hooks = { post_create: [" printf 'setup' "], pre_delete: ["old cleanup"] };
+  const file: ConfigFile = scope === "local" ? { hooks } : {};
+  const destination = target(file);
+  if (scope === "global") destination.scopes.global.values = { hooks };
+  await editSetupSection("pre_delete", file, destination, scripted([
+    "custom", "", "bad\0command", " printf 'cleanup' ", "finish",
+  ]), io().io, async () => { throw new Error("Hooks must never run during setup"); });
+  expect(parseConfigSource(renderConfig(file), "saved.toml").hooks)
+    .toEqual({ post_create: [" printf 'setup' "], pre_delete: [" printf 'cleanup' "] });
+});
+
+test.each(["hooks", "pre_delete"] as const)("disabling %s preserves the other inherited script list", async section => {
   const file: ConfigFile = {};
   const destination = target(file);
   destination.scopes.global.values = { hooks: { post_create: ["setup"], pre_delete: ["cleanup"] } };
@@ -309,6 +321,13 @@ test("materializing local hooks does not alias machine-default script arrays", a
   expect(globalHooks.pre_delete).toEqual(["cleanup"]);
 });
 
+test("guided advanced setup includes a pre-done script step", async () => {
+  const file = await questionnaire(target(), scripted([
+    "none", "none", "none", true, "none", "custom", "printf cleanup", "finish", "automatic", "automatic", "automatic",
+  ]), io().io, async () => true);
+  expect(file?.hooks).toEqual({ post_create: [], pre_delete: ["printf cleanup"] });
+});
+
 test("guided setup preserves named workflow definitions and disables during save", async () => {
   const existing = parseConfigSource([
     '[workflows.review]', 'post_create = ["printf review"]',
@@ -326,7 +345,7 @@ test("custom commands, hooks, and Jira values round trip with literal quotes and
     "custom", "my editor", '["a\\\"b", "$(touch nope)", ""]',
     false,
     "claude", true, "configure", "https://example.atlassian.net/", true, "00000000-0000-4000-8000-000000000000",
-    true, "custom", "printf 'one'", "add", "echo two", "finish",
+    true, "custom", "printf 'one'", "add", "echo two", "finish", "none",
     "custom", "trunk", "custom", "upstream", "custom", " ../work trees ",
   ]), capture.io, async () => true);
   expect(file?.hooks).toEqual({ post_create: ["printf 'one'", "echo two"] });
@@ -369,7 +388,7 @@ test("repeated repository setup can remove optional overrides and inherit global
     agent: { command: "codex", args: [], enabled: true }, hooks: { post_create: ["global hook"] },
     jira: { site_url: "https://global.atlassian.net" } };
   const file = await questionnaire(destination, scripted([
-    "inherit", "inherit", "inherit", true, "custom", "global hook", "finish", "automatic", "automatic", "automatic",
+    "inherit", "inherit", "inherit", true, "custom", "global hook", "finish", "none", "automatic", "automatic", "automatic",
   ]), io().io, async () => true);
   expect(file).toEqual({});
   expect(resolveConfig({ ...destination.scopes, local: { ...destination.file, values: file! } }, "/repo").agent)

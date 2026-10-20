@@ -5,7 +5,7 @@ import type { ConfigFile } from "../config";
 const examples = {
   editor: '[editor]\ncommand = "code"\nargs = ["--new-window"]\nenabled = false',
   agent: '[agent]\ncommand = "claude"\nargs = []\nenabled = false\nwait_for_setup = false',
-  hooks: '[hooks]\npost_create = ["bun install --frozen-lockfile"]',
+  hooks: '[hooks]\npost_create = ["bun install --frozen-lockfile"]\npre_delete = ["bun run cleanup"]',
   jira: '[jira]\nsite_url = "https://example.atlassian.net"\n# cloud_id = "00000000-0000-4000-8000-000000000000"',
 };
 

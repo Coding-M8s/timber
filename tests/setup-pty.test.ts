@@ -157,6 +157,19 @@ test("global setup saves outside Git in a real terminal", async () => {
   });
 });
 
+test("pre-done scripts can be saved in a real terminal without running them", async () => {
+  await withRepository(async (primary, directory) => {
+    const refs = await git(primary, "show-ref");
+    // Hub pre-done (6) → custom (2) → command → finish (1) → save (1).
+    const result = await terminal(primary, directory, [], "62touch should-not-exist\r11");
+    expect(result.code).toBe(0);
+    expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test").hooks)
+      .toEqual({ post_create: [], pre_delete: ["touch should-not-exist"] });
+    expect(await Bun.file(join(primary, "should-not-exist")).exists()).toBe(false);
+    expect(await git(primary, "show-ref")).toBe(refs);
+  });
+});
+
 test("review edits only the selected section and saves the revised draft in a real terminal", async () => {
   await withRepository(async (primary, directory) => {
     // Hub → Jira → configure → site → unscoped → keep credentials (1) → save (1)
