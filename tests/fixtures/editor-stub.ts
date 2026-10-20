@@ -1,10 +1,13 @@
-import { writeFile } from "node:fs/promises";
+import { rename, writeFile } from "node:fs/promises";
 import { writeFileSync } from "node:fs";
 
 const [mode, capturePath, heartbeatPath, ...args] = process.argv.slice(2);
 if (!mode || !capturePath || !heartbeatPath) throw new Error("invalid test fixture input");
 
-await writeFile(capturePath, JSON.stringify({ args, cwd: process.cwd() }));
+// Publish only complete JSON to readers polling for the capture file.
+const pendingCapture = `${capturePath}.${process.pid}.tmp`;
+await writeFile(pendingCapture, JSON.stringify({ args, cwd: process.cwd() }));
+await rename(pendingCapture, capturePath);
 
 if (mode === "late-failure") {
   process.on("exit", () => writeFileSync(heartbeatPath, "late-failure-exited"));

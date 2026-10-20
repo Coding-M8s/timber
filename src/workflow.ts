@@ -26,13 +26,13 @@ export function workflowEditor(
 /** A saved workflow has no implicit agent on reopen, including global defaults. */
 export function resolveWorkflowAgent(
   config: RepositoryConfig, workflow: WorkflowConfig | null,
-  explicit: boolean | undefined, interactive: boolean, created: boolean,
+  explicit: boolean | undefined, canHostAgent: boolean, created: boolean,
 ): AgentCommand | null {
-  if (workflow === null) return resolveAgentCommand(config, explicit, interactive);
+  if (workflow === null) return resolveAgentCommand(config, explicit, canHostAgent);
   if (explicit === false || (!created && explicit !== true)) return null;
   const configured: AgentConfig | null = workflow.agent === false
     ? explicit === true ? config.agent : null
     : workflow.agent === undefined ? config.agent
       : { ...workflow.agent, enabled: true };
-  return resolveAgentCommand({ ...config, agent: configured }, explicit, interactive);
+  return resolveAgentCommand({ ...config, agent: configured }, explicit, canHostAgent);
 }

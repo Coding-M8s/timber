@@ -81,9 +81,13 @@ wait_for_setup = true
   existing `wait_for_setup`; choosing another editor drops the integration,
   because it belongs to the Orca command. The review summary shows
   "(Orca terminals)" and "waits for setup".
-- `--editor`, `--no-editor`, `--agent`, `--no-agent`, `--setup`, `--workflow`
-  and the CI/TTY restrictions apply before any Git or Orca mutation exactly as
-  in foreground mode. Explicit `--agent` still requires an interactive terminal.
+- `--editor`, `--no-editor`, `--agent`, `--no-agent`, `--setup` and `--workflow`
+  apply before any Git or Orca mutation. With the enabled, selected Orca
+  integration, explicit and config-driven initial agents can launch even when
+  the invoking process is noninteractive or CI is on; Orca owns their terminal.
+  Generic editors, disabled Orca integration and `--no-editor` retain foreground
+  requirements: interactive stdin/stdout and CI off. Explicit `--agent` otherwise
+  fails before creation; config-driven launch skips.
 
 ## What Timber does
 

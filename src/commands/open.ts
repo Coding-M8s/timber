@@ -117,9 +117,15 @@ export function createOpenHandler(
     const config = await services.loadConfig(repository);
     if (options.workflow !== undefined) {
       const requested = selectWorkflow(config, options.workflow);
-      resolveWorkflowAgent(config, requested, options.agent, context.interactive === true, true);
+      const selectedEditor = workflowEditor(config, requested, options.editor);
+      const canHostAgent = context.interactive === true
+        || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
+      resolveWorkflowAgent(config, requested, options.agent, canHostAgent, true);
     } else if (options.agent === true && config.workflows === undefined) {
-      resolveAgentCommand(config, true, context.interactive === true);
+      const selectedEditor = workflowEditor(config, null, options.editor);
+      const canHostAgent = context.interactive === true
+        || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
+      resolveAgentCommand(config, true, canHostAgent);
     }
     const resolution = await services.resolveOpenTarget(repository, input, config, { discoverRemote: true });
 
@@ -173,7 +179,9 @@ export function createOpenHandler(
     const selectedEditor = workflowEditor(config, workflow, options.editor);
     const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
     const agentChoice = !created && selectedEditor?.enabled && options.agent !== true ? false : options.agent;
-    const agentCommand = resolveWorkflowAgent(config, workflow, agentChoice, context.interactive === true, created);
+    const canHostAgent = context.interactive === true
+      || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
+    const agentCommand = resolveWorkflowAgent(config, workflow, agentChoice, canHostAgent, created);
     let worktree: Worktree;
     if (selected.kind === "branch") {
       worktree = await services.createWorktree(repository, branchRequest(selected.branch), config);
