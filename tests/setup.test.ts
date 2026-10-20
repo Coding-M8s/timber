@@ -28,6 +28,38 @@ const io = () => {
     output: () => output };
 };
 
+test.each([
+  { label: "malformed", input: "not a url" },
+  { label: "insecure", input: "http://example.atlassian.net" },
+  { label: "wrong host", input: "https://example.invalid" },
+  { label: "extra path", input: "https://example.atlassian.net/issues" },
+  { label: "embedded credentials", input: "https://person:PRIVATE_VALUE@example.atlassian.net" },
+])("Jira rejects a $label URL before asking about token scopes", async ({ input }) => {
+  const file: ConfigFile = { remote: "upstream" };
+  const capture = io();
+  let urlQuestions = 0; let scopesQuestions = 0;
+  const prompt: SetupPrompt = {
+    select: async () => "configure",
+    text: async () => {
+      urlQuestions++;
+      if (urlQuestions === 1) return input;
+      expect(capture.output()).toContain("Invalid Jira URL");
+      expect(scopesQuestions).toBe(0);
+      expect(file).toEqual({ remote: "upstream" });
+      return "https://example.atlassian.net/";
+    },
+    confirm: async () => {
+      scopesQuestions++;
+      expect(urlQuestions).toBe(2);
+      return false;
+    }, close() {},
+  };
+  await editSetupSection("jira", file, target(file), prompt, capture.io, async () => true);
+  expect(file).toEqual({ remote: "upstream", jira: { site_url: "https://example.atlassian.net" } });
+  expect(scopesQuestions).toBe(1);
+  expect(capture.output()).not.toContain("PRIVATE_VALUE");
+});
+
 for (const section of ["hooks"] as const) {
   test(`${section} offers only None and Add for an empty list`, async () => {
     const file: ConfigFile = {};

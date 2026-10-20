@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { configFileSchema } from "../config";
+import { configFileSchema, jiraSiteSchema } from "../config";
 import type { ConfigFile } from "../config";
 import { safeDisplay } from "../display";
 import type { CommandIO } from "../services";
@@ -186,12 +186,13 @@ async function jiraSettings(file: ConfigFile, target: SetupTarget, prompt: Setup
     if (wasConfigured) io.stdout("Jira disabled here. Shared personal credentials are retained for other repositories.\n");
   }
   if (jira === "configure") {
-    io.stdout("Unscoped tokens use your tenant address. Scoped tokens require the cloud UUID and use api.atlassian.com/ex/jira/<cloud-id>.\n");
-    io.stdout("Find your cloud ID: https://<your-site>.atlassian.net/_edge/tenant_info\n");
     while (true) {
       const current = file.jira || (target.scope === "repository" ? target.scopes.global.values.jira : undefined);
-      const site_url = await text(prompt, "Your team's Jira address, e.g. https://my-team.atlassian.net", current ? current.site_url : "");
+      const site = jiraSiteSchema.safeParse(await text(prompt, "Your team's Jira address, e.g. https://my-team.atlassian.net", current ? current.site_url : ""));
+      if (!site.success) { io.stderr("Invalid Jira URL.\nUse https://your-team.atlassian.net (site address only).\n"); continue; }
+      const site_url = site.data;
       const scoped = await confirm(prompt, "Does your Jira API token use scopes? Choose yes only for a scoped token.", !!current && current.cloud_id !== undefined);
+      if (scoped) io.stdout("Find your cloud ID: https://<your-site>.atlassian.net/_edge/tenant_info\nScoped tokens use api.atlassian.com/ex/jira/<cloud-id>.\n");
       const cloud_id = scoped ? await text(prompt, "Jira cloud ID (UUID for your scoped token)", current ? current.cloud_id ?? "" : "") : "";
       if (scoped && !cloud_id) { io.stderr("A scoped token requires a cloud UUID. Enter it or choose unscoped token mode.\n"); continue; }
       const input = { jira: { site_url, ...(cloud_id ? { cloud_id } : {}) } };

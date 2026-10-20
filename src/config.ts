@@ -45,7 +45,7 @@ const arenaPresetSchema = z.strictObject({
 const arenaPresetNameSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/u).refine(name => name !== "manual" && name !== "configured");
 const workflowNameSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/u);
 
-const jiraSiteSchema = z.string().refine(value => {
+export const jiraSiteSchema = z.string().refine(value => {
   if (value !== value.trim() || /[\u0000-\u0020\u007f\\]/u.test(value)) return false;
   // Check the raw form before URL parsing, which normalizes dot segments and backslashes.
   if (!/^https:\/\/[^/?#]+\/?$/iu.test(value)) return false;

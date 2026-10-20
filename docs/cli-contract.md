@@ -362,7 +362,13 @@ user-owned 0700 credentials directory and user-owned 0600 regular file. Symlinks
 unsafe permissions, malformed records, and storage within Git worktrees or Git
 administrative directories are refused. Neither ordinary config file contains
 credentials. Setup explains token creation, scoped/unscoped API roots and cloud-ID
-discovery. Tokens are hidden, including pasted input, and never redisplayed.
+discovery. Validate the site URL before asking about token scopes or credentials;
+invalid URLs show an inline error and retry the URL field immediately. This
+validates URL format and supported hosts; availability uses the optional connection
+check.
+Token characters are hidden, including pasted input, and never redisplayed.
+The current input shows asterisks as typing/paste feedback, capped to fit the
+terminal width; Backspace updates the mask without revealing characters.
 Extra buffered lines from unbracketed secret pastes are discarded and the input
 is rejected; paste one single-line token and wait for each prompt.
 Keep, replace, remove, or skip the selected site's pair; disabling Jira does not
