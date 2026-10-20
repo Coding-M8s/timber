@@ -98,6 +98,17 @@ for (const command of ["new", "open"] as const) {
       expect(result.stdout).toBe("");
     }
   });
+  test(`${command} noninteractive generic editor skips implicit agents and explains explicit rejection`, async () => {
+    const loaded = { ...config, editor: { command: "zed", args: [], enabled: true } };
+    const implicit = await invoke(command, { loaded, interactive: false, materialize: true });
+    expect(implicit.exitCode).toBe(0);
+    expect(implicit.calls).not.toContain("agent");
+    const explicit = await invoke(command, { loaded, interactive: false, flags: ["--agent"] });
+    expect(explicit.exitCode).toBe(1);
+    expect(explicit.calls).toEqual(["discover", "config"]);
+    expect(explicit.stderr).toContain("or enable the Orca editor integration");
+    expect(explicit.stderr).toContain("--no-agent");
+  });
   test(`${command} preserves editor failure behavior and suppresses agent`, async () => {
     const result = await invoke(command, {
       editor: { kind: "failed", message: "editor failed", retryCommand: "retry" },

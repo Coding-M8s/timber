@@ -4,16 +4,16 @@ import { failureWithRetry, safeDisplay } from "./display";
 import type { CommandIO } from "./services";
 import type { AgentCommand, AgentResult, ExecutableCommand, RepositoryConfig, Worktree } from "./types";
 
-/** Resolve opt-in before Git mutation; unattended config never starts a session. */
+/** Resolve opt-in and terminal hosting capability before Git mutation. */
 export function resolveAgentCommand(
-  config: RepositoryConfig, enabled: boolean | undefined, interactive: boolean,
+  config: RepositoryConfig, enabled: boolean | undefined, canHostAgent: boolean,
 ): AgentCommand | null {
   if (!(enabled ?? config.agent?.enabled ?? false)) return null;
   if (config.agent === null) {
     throw new Error("Configure an agent before using --agent. Run timber setup in this repository or timber setup --global for machine defaults.");
   }
-  if (!interactive) {
-    if (enabled === true) throw new Error("--agent requires an interactive stdin/stdout terminal with CI disabled. Use --no-agent for unattended commands.");
+  if (!canHostAgent) {
+    if (enabled === true) throw new Error("Use an interactive stdin/stdout terminal with CI disabled for --agent, or enable the Orca editor integration. Use --no-agent for unattended commands.");
     return null;
   }
   return config.agent;

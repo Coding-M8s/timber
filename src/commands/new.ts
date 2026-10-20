@@ -33,7 +33,9 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const workflow = selectWorkflow(config, options.workflow ?? null);
     const selectedEditor = workflowEditor(config, workflow, options.editor);
     const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
-    const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, context.interactive === true, true);
+    const canHostAgent = context.interactive === true
+      || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
+    const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, canHostAgent, true);
     const base = await services.resolveBase(repository, config, options.base);
     const jiraConfig = config.jira;
     let ticket: JiraTicket | undefined;

@@ -441,7 +441,8 @@ deliberately reruns ordinary and workflow scripts once; `open --agent` deliberat
 starts the selected agent again. `--editor` explicitly starts the selected editor;
 `--no-editor` and `--no-agent` suppress their
 respective launches. Explicit `--agent` requires an interactive terminal with CI
-off. A normal reopen never retries a failed setup or initial prompt.
+off or an enabled, selected Orca editor integration. A normal reopen never retries
+a failed setup or initial prompt.
 
 The selected name is saved only in that worktree's private Git administrative
 metadata, with identity checks; it is not a committed file or branch tag. Git
@@ -651,11 +652,14 @@ exit status. For process-directed shutdown with a terminal, send SIGINT to the
 foreground process group or SIGTERM to Timber. No background agent or session
 manager is started.
 
-Both stdin and stdout must be terminals, and CI must be off. An absent or empty
+For foreground agents, both stdin and stdout must be terminals, and CI must be off. An absent or empty
 `CI`, `CI=0`, and `CI=false` (case insensitive) mean CI is off; other values
 mean CI is on. In CI or with redirected stdin/stdout, config-driven launch
 skips automatically. Explicit `--agent` fails before worktree creation instead
-of waiting for interactive input.
+of waiting for interactive input. With an enabled, selected Orca integration,
+explicit and config-driven initial agents instead use Orca terminals and can
+launch from a noninteractive caller, including with CI on. A generic editor,
+disabled Orca integration or `--no-editor` retains the foreground restrictions.
 
 Startup failures report the retained workspace and exit 1. Fix configuration
 or `PATH`, then retry with
