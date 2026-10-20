@@ -83,3 +83,76 @@ test("CI checks every introduced commit and reports hashes without dumping messa
     expect(createdBranch.exitCode).toBe(0);
   });
 });
+
+
+test("rewritten feature pushes derive complete Git range and ignore incomplete event commit lists", async () => {
+  await withRepository(async (primary, directory) => {
+    const commit = async (message: string) => {
+      await git(primary, "-c", "core.hooksPath=/dev/null", "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", message);
+      return git(primary, "rev-parse", "HEAD");
+    };
+    const legacy = await commit("Legacy credit\n\nCo-authored-by: Claude <noreply@anthropic.com>");
+    await git(primary, "update-ref", "refs/remotes/origin/trunk", legacy);
+    const good = await commit("Clean feature");
+    const event = join(directory, "rewrite.json");
+    const push = { before: "1".repeat(40), after: good, ref: "refs/heads/feature", repository: { default_branch: "trunk" } };
+    const check = () => execa(process.execPath, ["--no-env-file", checker, "--event", event], { cwd: primary, reject: false });
+    await writeFile(event, JSON.stringify(push));
+    expect((await check()).exitCode).toBe(0);
+    const bad = await commit("PRIVATE_REWRITE_SENTINEL\n\nCo-authored-by: Codex <noreply@openai.com>");
+    const head = await commit("Clean tip");
+    await writeFile(event, JSON.stringify({ ...push, after: head, commits: [{ id: head, message: "Clean tip" }] }));
+    const rejected = await check();
+    expect(rejected.exitCode).toBe(1);
+    expect(rejected.stderr).toContain(bad.slice(0, 12));
+    expect(rejected.stderr).not.toContain("PRIVATE_REWRITE_SENTINEL");
+    for (const invalid of [
+      { ...push, repository: {} },
+      { ...push, repository: { default_branch: "missing" } },
+      { ...push, ref: "refs/heads/trunk" },
+      { ...push, pull_request: { base: { sha: push.before }, head: { sha: good } }, commits: [{ id: good, message: "Clean tip" }] },
+    ]) {
+      await writeFile(event, JSON.stringify(invalid));
+      expect((await check()).exitCode).toBe(1);
+    }
+  });
+});
+
+test("AI authors and committers cannot bypass checks with only a human coauthor trailer", async () => {
+  await withRepository(async (primary, directory) => {
+    const base = await git(primary, "rev-parse", "HEAD");
+    await git(primary, "-c", "core.hooksPath=/dev/null", "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "--author", "copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>", "-m", "PRIVATE_BOT_SENTINEL\n\nCo-authored-by: Jane Doe <jane@example.invalid>");
+    const bot = await git(primary, "rev-parse", "HEAD");
+    const event = join(directory, "author.json");
+    await writeFile(event, JSON.stringify({ pull_request: { base: { sha: base }, head: { sha: bot } } }));
+    const result = await execa(process.execPath, ["--no-env-file", checker, "--event", event], { cwd: primary, reject: false });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(bot.slice(0, 12));
+    expect(result.stderr).not.toContain("PRIVATE_BOT_SENTINEL");
+    await git(primary, "-c", "core.hooksPath=/dev/null", "-c", "user.name=Codex", "-c", "user.email=noreply@openai.com", "commit", "--allow-empty", "--author", "Jane Doe <jane@example.invalid>", "-m", "Human patch with AI committer");
+    const committer = await execa(process.execPath, ["--no-env-file", checker], { cwd: primary, reject: false });
+    expect(committer.exitCode).toBe(1);
+    await git(primary, "-c", "core.hooksPath=/dev/null", "-c", "user.name=GitHub", "-c", "user.email=noreply@github.com", "commit", "--allow-empty", "--author", "Claude Smith <human@example.invalid>", "-m", "Human patch through GitHub");
+    expect((await execa(process.execPath, ["--no-env-file", checker], { cwd: primary })).exitCode).toBe(0);
+  });
+});
+
+test("assistant name matching avoids ambiguous human names and pathological regex backtracking", async () => {
+  for (const name of ["GitHub", "Amazon", "Claude Smith", "Amazon Smith"]) {
+    expect(hasAIAttribution(`Co-authored-by: ${name} <human@example.invalid>`)).toBe(false);
+  }
+  const code = `import { hasAIAttribution } from ${JSON.stringify(checker)}; if (hasAIAttribution("Co-authored-by: Claude " + "1.".repeat(200) + "!")) process.exit(1);`;
+  const result = await execa(process.execPath, ["--no-env-file", "-e", code], { timeout: 2000, reject: false });
+  expect(result.exitCode).toBe(0);
+});
+
+test("malformed event roots and missing head never authorize an unchecked push", async () => {
+  await withRepository(async (primary, directory) => {
+    const event = join(directory, "malformed.json");
+    for (const data of [null, [], "event", { before: "1".repeat(40), after: "2".repeat(40), ref: "refs/heads/feature", repository: { default_branch: "trunk" }, commits: [{ id: "2".repeat(40), message: "Clean" }] }]) {
+      await writeFile(event, JSON.stringify(data));
+      const result = await execa(process.execPath, ["--no-env-file", checker, "--event", event], { cwd: primary, reject: false });
+      expect(result.exitCode).toBe(1);
+    }
+  });
+});
