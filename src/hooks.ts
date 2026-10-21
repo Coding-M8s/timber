@@ -1,5 +1,5 @@
 import { execa } from "execa";
-import { retryForDisplay } from "./display";
+import { retryForDisplay, shellQuoteForDisplay } from "./display";
 import type { CommandIO } from "./services";
 import type { CleanupOptions, RepositoryConfig, RepositoryContext, Worktree } from "./types";
 
@@ -65,7 +65,8 @@ export async function runPreDelete(
     try {
       await runHook(source, worktree.path, env, io);
     } catch (error) {
-      const flags = [options.keepBranch ? "--keep-branch" : "", !options.discardIgnored ? "--keep-ignored" : ""]
+      const flags = [options.keepBranch ? "--keep-branch" : "", !options.discardIgnored ? "--keep-ignored" : "",
+        options.base === undefined ? "" : `--base ${shellQuoteForDisplay(options.base)}`]
         .filter(Boolean).join(" ");
       const ordinary = `timber done ${flags ? flags + " " : ""}-- '${worktree.path.replaceAll("'", "'\\''")}'`;
       const retry = retryForDisplay(worktree.path, ordinary, flags, "done");

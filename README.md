@@ -7,6 +7,10 @@ and `open` reuses an existing worktree or creates one for a resolved existing
 branch. `done` safely removes a linked worktree and deletes its local branch
 only when Git proves its commits are published to the live upstream or
 integrated into the validated base.
+Use `timber done my-feature --base parent-feature` when work was merged into a
+non-default branch. The override applies only to that cleanup invocation, keeps
+all safety checks, and never changes TOML. Local and cached remote branch refs
+are supported; Timber does not infer the parent or fetch the base automatically.
 
 ## Install the standalone CLI
 
@@ -121,6 +125,7 @@ timber open my-feature --no-editor
 timber open my-feature --setup
 timber ls
 timber done my-feature
+timber done my-feature --base parent-feature
 timber done my-feature --keep-branch
 timber done "/absolute/path/to/my-feature-worktree" --keep-ignored
 ```

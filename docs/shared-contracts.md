@@ -170,8 +170,9 @@ unknown. Inspection reads current worktree status and ancestry against the
 validated base. It checks the configured upstream's live branch tip; cached
 remote-tracking refs alone do not prove publication. Inspection does not fetch
 or update tracking refs. Missing, inaccessible, ambiguous, or locally
-unavailable upstream evidence remains unknown. An invalid or ambiguous base
-also remains unknown.
+unavailable upstream evidence remains unknown. An invalid or ambiguous configured/default
+base also remains unknown. An invalid explicit `CleanupOptions.base` is an error
+before mutation, even when live publication could otherwise permit cleanup.
 
 Mutation obtains new evidence, then rechecks target identity, status, lock,
 branch/head, and validated-base ref/commit immediately before removal. When
@@ -428,3 +429,16 @@ signals. Source fetch can update cached refs only after confirmation; creation/s
 launch failures retain completed work. Exact precedence, collision limits, privacy,
 flags and recovery live in [arena creation](cli-contract.md#arena-creation-post-10-tim-20).
 TIM-21/TIM-22 must review these shared v1/v2 contracts before consuming them.
+
+## TIM-30 cleanup base override
+
+`CleanupOptions.base?: string` is an invocation-local branch/ref selector passed
+unchanged from Commander through the done handler to cleanup. It overrides the
+configured/default base for initial evidence, final safety reads and post-removal
+branch-deletion validation without modifying config. Cleanup evidence readers
+accept an optional explicit selector; invalid explicit selection propagates as
+an error, while omitted selection retains explanatory unknown-base evidence.
+An explicit target-local-branch base always rejects, including with keep-branch
+or verified live publication. Hook retries retain a safely quoted explicit base.
+Existing service signatures remain compatible; inspection without an override
+and all publication, file-preservation and ignored-file policies are unchanged.

@@ -543,3 +543,128 @@ test("done retains a detached squash-equivalent commit without ancestry", async 
     expect(await readFile(join(path, "feature.txt"), "utf8")).toBe("feature bytes\n");
   });
 });
+
+async function mergedIntoParent(primary: string, directory: string, squash = false, rebase = false) {
+  await git(primary, "checkout", "-b", "feature/parent");
+  await commit(primary, "parent.txt", "parent work absent from trunk");
+  const path = await target(primary, directory);
+  const child = await commit(path);
+  if (rebase) {
+    await commit(primary, "parent-next.txt", "advance parent");
+    await git(primary, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "cherry-pick", child);
+  } else {
+    await git(primary, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid",
+      "merge", squash ? "--squash" : "--ff-only", "feature/one");
+  }
+  if (squash) await git(primary, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "-m", "integrate child");
+  return { path, child };
+}
+
+test.each(["merge", "squash", "rebase", "keep-branch", "remote"])("done uses an explicit non-default base without changing TOML: %s", async scenario => {
+  await withRepository(async (primary, directory) => {
+    const { path, child } = await mergedIntoParent(primary, directory, scenario === "squash", scenario === "rebase");
+    const config = await readFile(join(primary, ".timber.toml"));
+    const parent = await git(primary, "rev-parse", "feature/parent");
+    const trunk = await git(primary, "rev-parse", "trunk");
+    const before = await snapshot(primary);
+    const refused = await cli(primary, path);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toContain("--base");
+    await retained(primary, path, before);
+    let base = "feature/parent";
+    if (scenario === "remote") {
+      await git(directory, "init", "--bare", join(directory, "remote.git"));
+      await git(primary, "remote", "add", "backup", join(directory, "remote.git"));
+      await git(primary, "push", "backup", "feature/parent");
+      base = "backup/feature/parent";
+    }
+    const result = await cli(primary, path, "--base", base, ...(scenario === "keep-branch" ? ["--keep-branch"] : []));
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    await removed(primary, path, "feature/one", scenario !== "keep-branch");
+    if (scenario === "keep-branch") expect(await git(primary, "rev-parse", "feature/one")).toBe(child);
+    expect(await git(primary, "rev-parse", "feature/parent")).toBe(parent);
+    expect(await git(primary, "rev-parse", "trunk")).toBe(trunk);
+    expect(await readFile(join(primary, ".timber.toml"))).toEqual(config);
+  });
+});
+
+test.each(["absent", "--bad", "feature/one", "refs/heads/feature/one", "ambiguous"])("done rejects explicit invalid/self base even with published work: %s", async base => {
+  await withRepository(async (primary, directory) => {
+    const path = await target(primary, directory);
+    await commit(path);
+    await upstream(primary, directory, path);
+    if (base === "ambiguous") {
+      await git(primary, "remote", "add", "second", join(directory, "upstream.git"));
+      await git(primary, "update-ref", "refs/remotes/second/ambiguous", "HEAD");
+      await git(primary, "update-ref", "refs/remotes/backup/ambiguous", "HEAD");
+    }
+    const before = await snapshot(primary);
+    const result = await cli(primary, path, "--keep-branch", "--base=" + base);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/base/i);
+    await retained(primary, path, before);
+    expect(await readFile(join(path, "feature.txt"), "utf8")).toBe("feature bytes\n");
+  });
+});
+
+test.each(["wrong-base", "dirty", "untracked", "keep-ignored"])("done explicit base preserves unsafe work: %s", async scenario => {
+  await withRepository(async (primary, directory) => {
+    const { path } = await mergedIntoParent(primary, directory);
+    const name = scenario === "dirty" ? "tracked.txt" : scenario === "untracked" ? "untracked.txt" : ".env";
+    await writeFile(join(path, name), "preserve bytes\n");
+    const before = await snapshot(primary);
+    const result = await cli(primary, path, "--base", scenario === "wrong-base" ? "trunk" : "feature/parent",
+      ...(scenario === "keep-ignored" ? ["--keep-ignored"] : []));
+    expect(result.exitCode).toBe(1);
+    await retained(primary, path, before);
+    expect(await readFile(join(path, name), "utf8")).toBe("preserve bytes\n");
+  });
+});
+
+// A moving explicit base must be caught even if publication independently permits cleanup.
+test.each(["hook", "after-remove"])("done revalidates explicit base at %s and preserves the branch", async phase => {
+  await withRepository(async (primary, directory) => {
+    const { path, child } = await mergedIntoParent(primary, directory);
+    await upstream(primary, directory, path);
+    const trunk = await git(primary, "rev-parse", "trunk");
+    const before = await snapshot(primary);
+    let result;
+    if (phase === "hook") {
+      await writeFile(join(primary, ".timber.toml"), `base_branch = "trunk"\n[hooks]\npre_delete = ['git update-ref refs/heads/feature/parent refs/heads/trunk']\n`);
+      result = await cli(primary, path, "--base", "feature/parent");
+    } else {
+      const wrapperDir = join(directory, "base race git");
+      await mkdir(wrapperDir);
+      const realGit = (await execa("which", ["git"])).stdout;
+      await writeFile(join(wrapperDir, "git"), [
+        "#!/bin/sh",
+        'if [ "$1" = worktree ] && [ "$2" = remove ]; then',
+        '  "$TIMBER_REAL_GIT" "$@" || exit "$?"',
+        '  "$TIMBER_REAL_GIT" update-ref refs/heads/feature/parent refs/heads/trunk',
+        '  exit "$?"',
+        'fi',
+        'exec "$TIMBER_REAL_GIT" "$@"', "",
+      ].join("\n"));
+      await chmod(join(wrapperDir, "git"), 0o755);
+      result = await execa(process.execPath, [entry, "done", path, "--base", "feature/parent"], {
+        cwd: primary, reject: false, timeout: 5_000,
+        env: { CI: "true", PATH: `${wrapperDir}:${process.env.PATH}`, TIMBER_REAL_GIT: realGit },
+      });
+    }
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/base.*changed/i);
+    expect(await git(primary, "rev-parse", "feature/one")).toBe(child);
+    expect(await git(primary, "rev-parse", "feature/parent")).toBe(trunk);
+    expect(await git(primary, "rev-parse", "trunk")).toBe(trunk);
+    if (phase === "hook") {
+      expect(await absent(path)).toBe(false);
+      expect((await snapshot(primary)).trees.replace(/HEAD [0-9a-f]+/gu, "HEAD"))
+        .toBe(before.trees.replace(/HEAD [0-9a-f]+/gu, "HEAD"));
+      expect(await readFile(join(path, "feature.txt"), "utf8")).toBe("feature bytes\n");
+    } else {
+      expect(result.stderr).toContain("worktree was removed");
+      await removed(primary, path, "feature/one", false);
+    }
+  });
+});

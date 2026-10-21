@@ -44,6 +44,7 @@ test.each([
   [["--keep-branch", "--discard-ignored"], { keepBranch: true, discardIgnored: true }],
   [["--keep-ignored"], { keepBranch: false, discardIgnored: false }],
   [["--keep-branch", "--keep-ignored"], { keepBranch: true, discardIgnored: false }],
+  [["--base", "feature/parent"], { keepBranch: false, discardIgnored: true, base: "feature/parent" }],
 ] satisfies [string[], CleanupOptions][])("done passes cleanup options %j and reports the verified result", async (flags, options) => {
   const order: string[] = [];
   const result = await invoke(services({

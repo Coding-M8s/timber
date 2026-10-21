@@ -38,6 +38,8 @@ test("completion reads fresh Git targets from primary, nested and linked checkou
       expect(await candidates("timber done --typo TIM-", cwd)).toEqual(["TIM-23-one"]);
       expect(await candidates("timber new --base ori", cwd)).toEqual(["origin/shared"]);
       expect(await candidates("timber new --base=oth", cwd)).toEqual(["--base=other/shared"]);
+      expect(await candidates("timber done TIM-23-one --base ori", cwd)).toEqual(["origin/shared"]);
+      expect(await candidates("timber done --base=oth", cwd)).toEqual(["--base=other/shared"]);
     }
     expect(await git(primary, "show-ref")).toBe(beforeRefs);
     expect(await readFile(join(primary, ".git/index"))).toEqual(beforeIndex);

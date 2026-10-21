@@ -201,7 +201,7 @@ function samePath(left: string, right: string): boolean {
 /** Read fresh cleanup evidence. The selected Worktree is a lookup key, never authority. */
 async function readCleanupEvidenceImpl(
   repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
-  includePublication: boolean,
+  includePublication: boolean, explicitBase?: string,
 ): Promise<CleanupEvidence> {
   if (!isAbsolute(selected.path)) throw new Error("Cleanup requires an absolute registered worktree path.");
 
@@ -285,9 +285,13 @@ async function readCleanupEvidenceImpl(
 
   let base: ValidatedBase | null = null;
   try {
-    base = await resolveBase(freshRepository, config);
-  } catch {
+    base = await resolveBase(freshRepository, config, explicitBase);
+  } catch (error) {
+    if (explicitBase !== undefined) throw error;
     // An invalid or ambiguous base is explanatory unknown evidence, never permission.
+  }
+  if (explicitBase !== undefined && branchRef !== null && base?.ref === branchRef) {
+    throw new Error(UNKNOWN_SELF_BASE);
   }
   const [ancestryState, publicationEvidence] = await Promise.all([
     ancestry(freshRepository.primaryWorktreeRoot, headFromWorktree, base, branchRef),
@@ -315,16 +319,16 @@ async function readCleanupEvidenceImpl(
 }
 
 export async function readCleanupEvidence(
-  repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
+  repository: RepositoryContext, selected: Worktree, config: RepositoryConfig, explicitBase?: string,
 ): Promise<CleanupEvidence> {
-  return readCleanupEvidenceImpl(repository, selected, config, true);
+  return readCleanupEvidenceImpl(repository, selected, config, true, explicitBase);
 }
 
 /** Re-read local worktree, status, ref, and base facts without another slow remote query. */
 export async function readCleanupTarget(
-  repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
+  repository: RepositoryContext, selected: Worktree, config: RepositoryConfig, explicitBase?: string,
 ): Promise<CleanupEvidence> {
-  return readCleanupEvidenceImpl(repository, selected, config, false);
+  return readCleanupEvidenceImpl(repository, selected, config, false, explicitBase);
 }
 
 /** Recheck live upstream publication after final local safety reads, before removal. */

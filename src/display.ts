@@ -54,6 +54,11 @@ function bashAnsiCQuote(value: string): string {
   return `$'${contents}'`;
 }
 
+/** Quote one retry argument without exposing terminal controls or evaluating shell text. */
+export function shellQuoteForDisplay(value: string): string {
+  return terminalControl.test(value) ? bashAnsiCQuote(value) : "'" + value.replaceAll("'", "'\\''") + "'";
+}
+
 /** Ordinary paths keep their POSIX-quoted retry; control characters need a printable Bash command. */
 export function retryForDisplay(path: string, ordinaryRetry: string, options = "", command = "open"): string {
   return terminalControl.test(path)
