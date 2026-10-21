@@ -9,7 +9,7 @@ export function integratedBase(inspection: CleanupInspection): ValidatedBase | n
   return inspection.integration.kind === "equivalent" ? inspection.integration.base : null;
 }
 
-/** Prove squash/rebase integration without checking out, staging, or updating any ref. */
+/** Prove integration into the pinned base or its history without changing files or refs. */
 export async function hasIntegratedContent(cwd: string, base: ValidatedBase, head: string): Promise<boolean> {
   if (!HASH.test(base.commit) || !HASH.test(head)) return false;
   const options = {
@@ -29,8 +29,18 @@ export async function hasIntegratedContent(cwd: string, base: ValidatedBase, hea
       "-c", "merge.renormalize=false", "-c", "merge.renames=true", "-c", "merge.renameLimit=0",
       "merge-tree", "--write-tree", base.commit, head,
     ], options);
-    // Conflicts, unsupported Git versions, extra output, and timeouts fail closed.
-    return merged.exitCode === 0 && HASH.test(merged.stdout) && merged.stdout === tree.stdout;
+    if (merged.exitCode === 0 && HASH.test(merged.stdout) && merged.stdout === tree.stdout) return true;
+    // A squash snapshot can remain preserved in base history even after later
+    // edits or reverts conflict with the original branch. Require the full tree,
+    // not patch similarity or a matching snapshot on an unrelated ref.
+    if (merged.exitCode !== 0 && merged.exitCode !== 1) return false;
+    if (!HASH.test(merged.stdout.split("\n")[0]!)) return false;
+    const headTree = await execa("git", ["rev-parse", "--verify", "--quiet", `${head}^{tree}`], options);
+    if (headTree.exitCode !== 0 || !HASH.test(headTree.stdout)) return false;
+    const history = await execa("git", ["log", "--format=%T", base.commit, "--"], options);
+    if (history.exitCode !== 0) return false;
+    const trees = history.stdout.split("\n");
+    return trees.every(value => HASH.test(value)) && trees.includes(headTree.stdout);
   } catch {
     return false;
   }
