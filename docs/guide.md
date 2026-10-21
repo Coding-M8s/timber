@@ -315,20 +315,28 @@ By default, Timber removes the linked worktree **including ignored files and
 folders such as `.env`, `node_modules`, and build output**, then deletes its local
 branch only when Git proves every local commit is published to the live upstream,
 contained in the validated base, or integrated with that base by a successful
-virtual merge. This supports cleaning up an unmerged review checkout; no separate
-review flag is required, and the remote branch and PR stay untouched.
+virtual merge or exact historical tree match. This supports cleaning up an
+unmerged review checkout; no separate review flag is required, and the remote
+branch and PR stay untouched.
 Modified and untracked files always block cleanup. The base uses the primary
 checkout's `.timber.toml` and the normal base selection policy. Timber checks
 fresh Git state immediately before removal.
 
 Normal merges are proven by commit ancestry. For squash/rebase merges, Timber
 also accepts a successful virtual Git merge that would add no file changes to
-the validated base. This works after the feature's remote branch has been
-deleted, or while offline, when the necessary commits are available locally.
+the validated base. It also accepts an exact full-tree match between the local
+branch tip and a commit in the validated base history. This permits cleanup
+after later base edits or reverts: the complete snapshot remains recoverable
+from base history even when it differs from the current base. Matching trees
+only on unrelated branches do not qualify. These checks work after the feature's
+remote branch has been deleted, or while offline, when the necessary commits are
+available locally.
 If the base is stale, fetch it explicitly before retrying. A closed PR alone is
-not proof. Custom merge drivers, conflicting changes, unsupported Git versions,
-or an unavailable proof cannot authorize deletion through the integration path. Virtual merges may
-write unreachable Git objects; they do not change files, the index, or refs.
+not proof. Custom merge drivers, unsupported Git versions, or an unavailable
+proof cannot authorize deletion through the integration path. A virtual merge
+conflict requires the separate exact historical tree proof to permit cleanup.
+Virtual merges may write unreachable Git objects; they do not change files, the
+index, or refs.
 
 For published review work, Timber verifies every local commit is reachable from
 the live upstream, rechecks that evidence before removing the worktree, then

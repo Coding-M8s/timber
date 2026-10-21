@@ -183,7 +183,7 @@ removal. Ignored content, including `.env`, is discarded by default. `--keep-ign
 normalizes to `discardIgnored: false` and blocks removal when ignored content exists,
 leaving files in the original worktree. Unpublished or unknown publication blocks
 removal unless the target commit is contained in the validated base or a successful
-virtual merge of the local branch produces exactly the validated base tree.
+virtual merge of the local branch produces exactly the validated base tree, or its complete tip tree matches a commit reachable from the pinned validated base. Historical equality proves snapshot preservation even after later edits or reverts; matching trees only on unrelated refs do not qualify. History reads must complete successfully and contain only validated tree hashes.
 Reject custom merge-driver configuration and disable renormalization for this proof;
 unsupported or failed proof never authorizes deletion. The target branch
 must not be the validated base: self-containment against that tip is

@@ -424,6 +424,59 @@ test.each(["deleted-upstream", "offline", "no-upstream", "base-advanced", "rebas
   });
 });
 
+test.each(["integrated", "reverted", "extra-work", "unrelated-history", "history-failure", "history-malformed"])("done checks historical squash integration after a base rewrite: %s", async scenario => {
+  await withRepository(async (primary, directory) => {
+    const path = await target(primary, directory);
+    const originalBase = await git(primary, "rev-parse", "trunk");
+    await commit(path);
+    await git(primary, "merge", "--squash", "feature/one");
+    await git(primary, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "-m", "squash integration");
+    expect(await git(primary, "rev-parse", "HEAD^{tree}")).toBe(await git(path, "rev-parse", "HEAD^{tree}"));
+    if (scenario === "unrelated-history") {
+      await git(primary, "branch", "unrelated-integration");
+      await git(primary, "reset", "--hard", originalBase);
+    }
+    if (scenario === "reverted") await git(primary, "rm", "feature.txt");
+    else {
+      await writeFile(join(primary, "feature.txt"), "rewritten base content\n");
+      await git(primary, "add", "feature.txt");
+    }
+    await git(primary, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "-m", "rewrite integrated content");
+    if (scenario === "extra-work") await commit(path, "unmerged.txt");
+    const before = await snapshot(primary);
+    await writeFile(join(path, ".env"), "ignored content\n");
+
+    let result;
+    if (scenario === "history-failure" || scenario === "history-malformed") {
+      const wrapperDir = join(directory, "git wrapper");
+      await mkdir(wrapperDir);
+      const realGit = (await execa("which", ["git"])).stdout;
+      const headTree = await git(path, "rev-parse", "HEAD^{tree}");
+      const failure = scenario === "history-failure" ? "exit 1" : 'echo invalid-tree; exit 0';
+      await writeFile(join(wrapperDir, "git"), `#!/bin/sh\nif [ "$1" = log ]; then echo "$TIMBER_TEST_TREE"; ${failure}; fi\nexec "$TIMBER_REAL_GIT" "$@"\n`);
+      await chmod(join(wrapperDir, "git"), 0o755);
+      result = await execa(process.execPath, [entry, "done", path], {
+        cwd: primary, reject: false, timeout: 5_000,
+        env: { CI: "true", PATH: `${wrapperDir}:${process.env.PATH}`, TIMBER_REAL_GIT: realGit, TIMBER_TEST_TREE: headTree },
+      });
+    } else result = await cli(primary, path);
+
+    if (scenario === "integrated" || scenario === "reverted") {
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+      await removed(primary, path, "feature/one", true);
+    } else {
+      expect(result.exitCode).toBe(1);
+      await retained(primary, path, before);
+      expect(await readFile(join(path, ".env"), "utf8")).toBe("ignored content\n");
+      expect(await readFile(join(path, "feature.txt"), "utf8")).toBe("feature bytes\n");
+      if (scenario === "extra-work") expect(await readFile(join(path, "unmerged.txt"), "utf8")).toBe("feature bytes\n");
+    }
+    if (scenario === "reverted") expect(await absent(join(primary, "feature.txt"))).toBe(true);
+    else expect(await readFile(join(primary, "feature.txt"), "utf8")).toBe("rewritten base content\n");
+  });
+});
+
 test.each(["extra-commit", "conflict", "unsupported-git", "unreadable-merge-config"])("done preserves work that cannot be proven integrated: %s", async scenario => {
   await withRepository(async (primary, directory) => {
     const path = await target(primary, directory);
