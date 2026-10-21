@@ -98,6 +98,15 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       onExitCode((await handlers.open(input, normalized, context)) ?? 0);
     });
 
+  program.command("rebase <branch-or-worktree>")
+    .description("Fetch a remote base and rebase an existing worktree; leave conflicts for manual resolution")
+    .option("--base <remote/branch-or-branch>", "Override the configured remote base branch")
+    .addHelpText("after", "\nRewrites commit IDs, including published commits. No automatic stash, abort, push or tool launch.\nResolve and stage conflicts, then use native git rebase --continue or --abort in the target worktree.")
+    .action(async (input: string, options: { base?: string }) => {
+      if (!handlers.rebase) throw new Error("Rebase handler is unavailable in this embedding.");
+      onExitCode(await handlers.rebase(input, options.base === undefined ? {} : { base: options.base }, context));
+    });
+
   const arena = program.command("arena")
     .description("Prepare isolated attempts with the same task and base (Linux; sequential agents)");
   const arenaTokens: ArenaGroupToken[] = [];

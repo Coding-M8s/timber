@@ -33,6 +33,9 @@ test("completion reads fresh Git targets from primary, nested and linked checkou
     for (const cwd of [primary, nested, linked]) {
       expect(await candidates("timber open ", cwd)).toEqual(open);
       expect(await candidates("timber done ", cwd)).toEqual(done);
+      expect(await candidates("timber rebase ", cwd)).toEqual(["TIM-23-one", detached, linked, primary, "trunk"].sort());
+      expect(await candidates("timber rebase --base ", cwd)).toEqual(["origin/shared", "other/shared"]);
+      expect(await candidates("timber rebase --base=ori", cwd)).toEqual(["--base=origin/shared"]);
       expect(await candidates("timber open TIM-23", cwd)).toEqual(["TIM-23-one", "TIM-23-two"]);
       expect(await candidates("timber done --keep-branch TIM-", cwd)).toEqual(["TIM-23-one"]);
       expect(await candidates("timber done --typo TIM-", cwd)).toEqual(["TIM-23-one"]);

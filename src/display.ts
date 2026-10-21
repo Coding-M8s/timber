@@ -38,7 +38,7 @@ export function safeDiagnostic(value: string): string {
 /** A diagnostic whose newlines are intentional layout; the CLI keeps them and escapes other controls. */
 export class FormattedError extends Error {}
 
-function bashAnsiCQuote(value: string): string {
+export function bashAnsiCQuote(value: string): string {
   const contents = [...value].map(character => {
     if (character === "\\") return "\\\\";
     if (character === "'") return "\\'";

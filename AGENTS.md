@@ -2,6 +2,7 @@
 
 This is a small TypeScript CLI using Bun for development, tests, and optional standalone builds. Read docs/cli-contract.md and the assigned ticket before implementation. The initial setup is documentation only; TIM-11 establishes the scaffold, verifies dependency compatibility, and commits the lockfile.
 
+- Keep README.md short, tidy, and useful: quick start, everyday commands, and links. Put detailed explanations in focused docs and link to them instead of expanding the README.
 - Prefer small modules and plain functions. Use Commander, Execa, Zod, and smol-toml after verifying supported versions.
 - Do not use em dashes (U+2014) in code, CLI output, comments, tests, or documentation. Use plain punctuation. Check for this character in every code review.
 - Installed Git and its worktree metadata are the source of truth. Invoke Git using executable plus argument arrays; never interpolate user input into shell commands.

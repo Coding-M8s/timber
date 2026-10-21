@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from "node:path";
 import { execa } from "execa";
+import { gitOperation } from "./operations";
 import { resolveBase } from "./branches";
 import { hasIntegratedContent } from "./cleanup-integration";
 import { discoverRepository } from "./repository";
@@ -239,6 +240,8 @@ async function readCleanupEvidenceImpl(
   } catch {
     throw new Error(`Worktree identity at ${tree.path} could not be verified; restore its original metadata before cleanup.`);
   }
+  const operation = await gitOperation(tree.path);
+  if (operation !== null) throw new Error(`Cannot clean up a worktree with an in-progress ${operation}; finish or abort it explicitly first.`);
   if (tree.head === null) {
     throw new Error(`Worktree at ${tree.path} has an unborn or unproven HEAD; create a commit before cleanup.`);
   }

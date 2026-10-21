@@ -66,6 +66,7 @@ Timber prints its absolute path. It doesn't change your shell's directory:
 | `timber open origin/some-feature` | Check out a remote branch in its own worktree |
 | `timber open my-feature --editor` | Open the worktree in your configured editor |
 | `timber open my-feature --agent` | Start your configured assistant in the worktree |
+| `timber rebase my-feature` | Fetch the remote base and rebase; [resolve conflicts manually](docs/cli-contract.md#rebase-an-existing-worktree-tim-28) |
 | `timber ls` | List this repository's worktrees and their status |
 | `timber done my-feature --base parent-feature` | Choose a one-off cleanup merge target |
 | `timber done my-feature` | Remove a finished worktree and its local branch when safe |

@@ -15,6 +15,8 @@ import { inspectSetupTarget, saveSetupConfig } from "./setup/storage";
 import { createJiraSetupSession } from "./setup/jira";
 import { launchAgent } from "./agent";
 import { placeholderHandlers, runCli } from "./cli";
+import { createRebaseHandler } from "./commands/rebase";
+import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
 import { createDoneHandler } from "./commands/done";
 import { createListHandler } from "./commands/list";
 import { createNewHandler } from "./commands/new";
@@ -84,6 +86,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
     }),
     list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig,
       readWorkflowAssociation }),
+    rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
     done: createDoneHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,
     }),
