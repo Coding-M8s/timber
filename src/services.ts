@@ -38,6 +38,9 @@ export interface CommandServices {
   createWorktree(repository: RepositoryContext, request: CreateWorktreeRequest, config: RepositoryConfig): Promise<Worktree>;
   readWorkflowAssociation(repository: RepositoryContext, worktree: Worktree): Promise<WorkflowAssociationRead>;
   writeWorkflowAssociation(repository: RepositoryContext, worktree: Worktree, name: string): Promise<void>;
+  /** TIM-28: fetch a remote base and rebase only a verified, clean registered worktree. */
+  rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
+    explicitBase: string | undefined, io: CommandIO): Promise<number>;
   /** TIM-5: inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
   /**
@@ -105,6 +108,7 @@ export interface OpenOptions {
 }
 
 export interface CommandHandlers {
+  rebase?(input: string, options: { base?: string }, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires arena creation. */
   arenaNew?(name: string, options: ArenaNewOptions, context: CommandContext): Promise<number>;
   setup(options: { global: boolean }, context: CommandContext): Promise<void>;

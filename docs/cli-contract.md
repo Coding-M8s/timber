@@ -17,6 +17,54 @@
 15. CLI success means required Git/setup work completed. If editor/agent startup fails after creation, retain the workspace and explain how to retry. Editor launch success is process startup only: Timber returns promptly and does not report a later nonzero editor exit, even when editor args include `--wait`.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
 
+## Rebase an existing worktree (TIM-28)
+
+`timber rebase <branch-or-worktree> [--base <remote/branch-or-branch>]` requires
+an existing Git-registered worktree, selected by exact branch, absolute path, or
+existing delimiter-boundary ticket matching. Filter ambiguous matches to registered
+worktrees, use the existing chooser/capped diagnostic, and cancel without mutation.
+Never create a worktree or branch. Reject detached, missing, stale, locked, or
+unverifiable targets, and branches checked out in multiple worktrees. Primary
+worktrees are eligible when explicitly selected.
+
+Use explicit base, effective configured base, selected remote default, then an
+unambiguous remote main/master. A remote-qualified base selects that remote;
+otherwise require configured or sole remote. Plain names always mean remote
+branches here, even when a same-named local branch exists. Discover live remote
+heads to validate defaults/fallbacks. Fetch only the selected branch without
+pruning or modifying branch refs: fetch into FETCH_HEAD with an empty refmap,
+without a destination ref. This also avoids symbolic cached refs redirecting writes
+into local branches. Pin/verify FETCH_HEAD against the advertised commit; a moved
+base requires a retry. Never fall back to cached refs after discovery/fetch failure.
+Fetch metadata may change even if later preflight fails; cached refs stay untouched.
+
+Revalidate the selected absolute path, reciprocal Git identity, Git administrative
+directory, checked-out branch and original tip before and after network operations
+and immediately before rebase. Refuse staged/unstaged/untracked/unmerged files and
+existing rebase/am/merge/cherry-pick/revert/sequencer state. Preserve ignored content;
+refuse path collisions with the incoming base or commits that may be replayed,
+including directory/file prefix collisions. Safety reads cannot lock out unrelated
+concurrent writers; users must not edit the target during the operation.
+
+An already integrated base is a no-op and leaves ignored content untouched.
+Run Git in the target cwd with literal argument arrays, closed stdin and disabled
+editors, autostash, automatic unrelated-ref updates, interactive rebase and autosquash.
+Await one owned noninteractive Git process group; cancellation signals that group,
+including Git hook descendants. Never run Timber setup hooks, editors or agents;
+ordinary Git hooks remain Git's responsibility. Do not stash, clean, reset, skip, abort, push or force-push automatically.
+Report worktree, branch, selected remote base, fetched commit and original tip.
+Rebase can rewrite published commit IDs; publishing remains a separate user action.
+
+Completed/up-to-date returns zero. Conflicts return nonzero, keep Git's paused state,
+and list every unmerged path from NUL-delimited Git output with safe filename
+rendering, including binary and add/delete conflicts. Distinguish conflicts from
+fetch, startup, hook rejection, interruption and other failures. Report preserved
+state and safely quoted `git -C '<path>' rebase --continue` / `--abort` guidance;
+resolve and stage before continuing, which may expose later conflicts. Rerunning
+Timber refuses an existing operation. Cleanup refuses in-progress Git operations,
+even when conflicts are staged and the index has no unmerged paths. Native Git
+continuation/abort suffice; no Timber continuation flags or AI resolution.
+
 ## `new` branch input
 
 Quoted and unquoted sentence arguments are joined into the same raw input by the

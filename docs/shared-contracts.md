@@ -442,3 +442,19 @@ An explicit target-local-branch base always rejects, including with keep-branch
 or verified live publication. Hook retries retain a safely quoted explicit base.
 Existing service signatures remain compatible; inspection without an override
 and all publication, file-preservation and ignored-file policies are unchanged.
+
+## TIM-28 remote rebase
+
+`CommandHandlers.rebase` is optional for existing embedders and returns a numeric
+status. `createRebaseHandler` uses discovery, config, existing target resolution
+and a narrow `rebaseWorktree(repository, worktree, config, explicitBase, io)` seam.
+The Git service owns preflight, live remote selection, FETCH_HEAD-only fetch with
+no destination ref/empty refmap, advertisement verification, pinning, revalidation,
+execution and safe result/recovery reporting; `resolveRebaseTarget` reuses ordinary
+selection and maps a detached paused rebase through Git's saved head-name solely
+for recovery lookup. Ordinary open/done selection is unchanged. Operational
+failures reject; actual rebase results return numeric status. It never invokes launch/setup seams.
+Existing shared base resolution retains its local semantics; rebase resolves only
+remote branches. Git-operation detection is shared with cleanup's initial/final
+checks, preserving staged paused operations. No existing service signature changes.
+See [rebase behavior](cli-contract.md#rebase-an-existing-worktree-tim-28).
