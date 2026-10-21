@@ -329,11 +329,15 @@ branch tip and a commit in the validated base history. This permits cleanup
 after later base edits or reverts: the complete snapshot remains recoverable
 from base history even when it differs from the current base. Matching trees
 only on unrelated branches do not qualify. These checks work after the feature's
-remote branch has been deleted, or while offline, when the necessary commits are
-available locally.
-If the base is stale, fetch it explicitly before retrying. A closed PR alone is
-not proof. Custom merge drivers, unsupported Git versions, or an unavailable
-proof cannot authorize deletion through the integration path. A virtual merge
+remote branch has been deleted. When the selected base is a remote branch such
+as `origin/main`, `done` automatically fetches that branch and updates its cached
+remote-tracking ref before checking integration. This applies to `--base`, the
+configured base and the default remote base. No separate `git fetch` is needed.
+Fetch failure stops cleanup and preserves the worktree and local branch. Local
+base branches remain unchanged and can be used offline when the necessary
+commits are available locally. A closed PR alone is not proof. Custom merge
+drivers, unsupported Git versions, or an unavailable proof cannot authorize
+deletion through the integration path. A virtual merge
 conflict requires the separate exact historical tree proof to permit cleanup.
 Virtual merges may write unreachable Git objects; they do not change files, the
 index, or refs.

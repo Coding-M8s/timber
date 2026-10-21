@@ -442,6 +442,13 @@ An explicit target-local-branch base always rejects, including with keep-branch
 or verified live publication. Hook retries retain a safely quoted explicit base.
 Existing service signatures remain compatible; inspection without an override
 and all publication, file-preservation and ignored-file policies are unchanged.
+Actual cleanup refreshes a selected remote base before hooks or removal, including
+explicit, configured and default selections. It fetches the advertised exact branch
+with no destination ref or implicit refmap, verifies FETCH_HEAD, and conditionally
+updates only the selected remote-tracking ref with no symbolic-ref dereference.
+Failures stop cleanup without cached fallback. Evidence is reread after refresh;
+the selected ref and fetched commit must still match. Local bases remain local;
+read-only inspection and unresolved implicit-base behavior remain unchanged.
 
 ## TIM-28 remote rebase
 
