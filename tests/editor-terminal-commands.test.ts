@@ -126,6 +126,39 @@ test("handoff failures propagate without calling a foreground launcher", async (
   expect(h.calls).toEqual(["create"]);
 });
 
+test.each(["new", "open"] as const)(
+  "%s with enabled VS Code uses generic window open, not editor terminals",
+  async command => {
+    const loaded: RepositoryConfig = {
+      ...ordinaryConfig,
+      editor: { command: "code", args: ["--new-window"], enabled: true },
+      agent: { command: "claude", args: [], enabled: true },
+    };
+    const h = harness(false, loaded);
+    const handler = command === "new" ? createNewHandler(h.services) : createOpenHandler(h.services);
+    await handler("feature", {}, ctx);
+    expect(h.calls).toEqual(["create", "foreground-setup", "generic-editor", "foreground-agent"]);
+    expect(h.launches).toHaveLength(0);
+  },
+);
+
+test.each(["new", "open"] as const)(
+  "%s noninteractive VS Code never hosts an agent in editor terminals",
+  async command => {
+    const loaded: RepositoryConfig = {
+      ...ordinaryConfig,
+      editor: { command: "code", args: ["--new-window"], enabled: true },
+      agent: { command: "claude", args: [], enabled: true },
+    };
+    const h = harness(false, loaded);
+    const handler = command === "new" ? createNewHandler(h.services) : createOpenHandler(h.services);
+    await expect(handler("feature", { agent: true }, { ...ctx, interactive: false }))
+      .rejects.toThrow(/interactive/);
+    expect(h.calls).toEqual([]);
+    expect(h.launches).toHaveLength(0);
+  },
+);
+
 
 test("noninteractive open uses the saved workflow editor and agent", async () => {
   const loaded: RepositoryConfig = { ...config, editor: { command: "zed", args: [], enabled: true },

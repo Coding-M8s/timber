@@ -10,9 +10,10 @@ foreground behavior applies: setup, then the generic editor launcher, then an
 agent in the invoking terminal.
 
 **Support note:** Editor-owned setup and agent terminals currently support only
-`orca-ide` (Orca 1.4.224, tested on Linux x86_64). Zed and VS Code (`code`)
-terminal integrations are not supported yet. Their generic editor-opening
-behavior remains available; see [Zed](#zed) and [VS Code](#vs-code) below.
+`orca-ide` (Orca 1.4.224, tested on Linux x86_64). Zed and VS Code (`code`) use
+the generic editor launcher (window open only). In-panel setup and agent
+terminals for those editors are not claimed; see [Zed](#zed) and
+[VS Code](#vs-code) below.
 
 ## Prerequisites
 
@@ -230,12 +231,17 @@ A separate ticket should add Zed terminals only once these are met:
 
 ## VS Code
 
-Tracked in [VS Code terminal integration #61](https://github.com/Coding-M8s/timber/issues/61).
+Decision recorded in [#61](https://github.com/Coding-M8s/timber/issues/61).
 
-VS Code (`code`) currently uses only the generic editor launcher. Running setup
-and agents inside VS Code terminals requires a separate integration, with a
-demonstrated automation route for exact workspace/cwd selection, literal
-arguments and context, process startup acknowledgement, and setup completion.
-Preserve user settings and task files. Apply the same lifecycle, dependency,
-failure-preservation and Linux smoke-test requirements as the Orca integration
-before accepting a VS Code integration setting or claiming support.
+VS Code (`code`) uses only the generic editor launcher: `timber new` / `open`
+opens the worktree window (`command = "code"`, typical `args = ["--new-window"]`).
+Setup and the assistant stay on the non-Orca path (invoking terminal or skip).
+Timber does not create VS Code integrated terminals, does not accept
+`integration = "vscode"` / `integration = "code"`, and does not modify user
+settings or task files.
+
+Stock `code` (checked at 1.142.0 on Linux x86_64) has no CLI to create an
+integrated terminal with literal argv or to acknowledge setup/agent handoff.
+In-panel terminals need a future Timber VS Code extension (or equivalent
+external bridge), tracked in [#75](https://github.com/Coding-M8s/timber/issues/75).
+Until that bridge exists, do not claim VS Code terminal support.

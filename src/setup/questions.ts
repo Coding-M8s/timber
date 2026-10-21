@@ -72,8 +72,12 @@ async function launcher(
     ? { code: { command: "code", args: ["--new-window"] }, zed: { command: "zed", args: ["--new"] },
       orca: { command: "orca-ide", args: [], integration: "orca" } }
     : { claude: { command: "claude", args: [] }, codex: { command: "codex", args: [] } };
-  const labels: Record<string, string> = { code: "VS Code", zed: "Zed", orca: "Orca terminals (setup and assistant in the Orca window)",
-    claude: "Claude", codex: "Codex" };
+  const labels: Record<string, string> = {
+    code: "VS Code (opens the window; setup and assistant stay in this terminal)",
+    zed: "Zed (opens the window; setup and assistant stay in this terminal)",
+    orca: "Orca terminals (setup and assistant in the Orca window)",
+    claude: "Claude", codex: "Codex",
+  };
   const orca = key === "agent" && effectiveEditor(file, target)?.integration === "orca";
   const choices = integrationChoices(key, file, target, [
     ...Object.keys(presets).map(name => option(name, labels[name]!)),
