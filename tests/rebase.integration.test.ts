@@ -215,7 +215,9 @@ test("explicit remote base overrides configured remote and base; Git hook failur
     await writeFile(hook, "#!/bin/sh\nprintf 'RAW_PRIVATE_HOOK' >&2\nexit 1\n"); await chmod(hook, 0o755);
     const original = await git(target, "rev-parse", "HEAD");
     const result = await cli(primary, "rebase", target, "--base", "backup/main");
-    expect(result.exitCode).toBe(128);
+    // Git versions return different statuses when a pre-rebase hook rejects.
+    expect(result.exitCode).toBeGreaterThan(0);
+    expect(result.stderr).toContain("Git rebase failed");
     expect(result.stdout).toContain(incoming);
     expect(result.stderr).not.toContain("paused with conflicts");
     expect(result.stderr).not.toContain("RAW_PRIVATE_HOOK");
