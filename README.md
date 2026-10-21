@@ -1,1096 +1,123 @@
-# Timber CLI
+# Timber
 
-A small CLI for creating, opening, listing, and safely cleaning up Git worktrees.
+Work on several Git branches at once, each in its own folder.
 
-`new` creates a branch and linked worktree, `ls` lists the repository's worktrees,
-and `open` reuses an existing worktree or creates one for a resolved existing
-branch. `done` safely removes a linked worktree and deletes its local branch
-only when Git proves its commits are published to the live upstream or
-integrated into the validated base.
+Timber manages **Git worktrees**: create a workspace for a feature, open a branch
+for review, and clean up when you're done. It can also run setup scripts and
+launch your editor or coding assistant in the right folder.
 
-## Install the standalone CLI
+## Quick start
 
-Release assets run without Bun or Node. Git must be installed and available on
-`PATH`; configured editors, agents, and hook tools must be installed separately.
-Only Linux x86_64 is packaged. The verified standalone environment is Ubuntu
-24.04 with glibc 2.39 and Git 2.43.0; other distributions, architectures, macOS,
-Windows, and musl/Alpine are not verified.
+You need **Git** and **Bun 1.4.2**. Linux x86_64 is the verified platform.
+Install your editor or coding assistant separately if you want Timber to launch it.
 
-Tagged downloads become available after the release owner publishes a verified
-release. Until then, use the source checkout below. This repository is private:
-authenticate [GitHub CLI](https://cli.github.com/) with repository read access,
-or download the three assets from the authenticated GitHub Releases page.
-GitHub CLI is a download tool, not a Timber runtime dependency.
+### 1. Install from source
 
-Choose a published tag in place of `vX.Y.Z`. Run the download, verification, and
-installation chain together; installation runs only when all checks pass:
+With repository read access:
 
 ```bash
-TIMBER_TAG=vX.Y.Z
-DOWNLOAD_DIR="$(mktemp -d "timber-download.XXXXXX")"
-gh release download "$TIMBER_TAG" --repo Coding-M8s/timber \
-  --dir "$DOWNLOAD_DIR" \
-  --pattern "timber-$TIMBER_TAG-linux-x64" \
-  --pattern build-info.json --pattern SHA256SUMS \
-  && (cd "$DOWNLOAD_DIR" && sha256sum -c SHA256SUMS) \
-  && install -Dm755 "$DOWNLOAD_DIR/timber-$TIMBER_TAG-linux-x64" "$HOME/.local/bin/timber" \
-  && "$HOME/.local/bin/timber" --version
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Add that PATH export to your shell's startup file if needed. Keep the downloaded
-`build-info.json` and checksum result when reporting a release problem. Checksums
-detect altered downloads; they are not an independent signature. Update by
-repeating the same steps with another verified tag. Installation does not create
-repository defaults. Before using Timber, run `timber setup` inside your repository,
-or `timber setup --global` to configure defaults for this machine. The first CLI
-invocation prints this guidance when the installation path has no installer message.
-
-See [release verification and acceptance](docs/releases.md) for source builds,
-isolated checks, and the maintainer release process.
-
-## Development
-
-Each developer needs Bun **1.4.2** (pinned in `.bun-version` and `package.json`)
-and Git on their `PATH`. Python 3 is needed for the Linux PTY integration tests. The version declarations do not install Bun. Linux
-x86_64 is the verified development target; Node is not required. Docker is
-needed only for isolated standalone verification, not the ordinary source suite.
-
-### Install prerequisites
-
-On Ubuntu/Debian, install Git and the utilities needed by Bun's installer:
-
-```bash
-sudo apt update
-sudo apt install git curl unzip
-```
-
-On other Linux distributions, install those packages with your distribution's
-package manager. Install the pinned Bun version using the
-[official Bun installer](https://bun.com/docs/installation):
-
-```bash
-curl -fsSL https://bun.com/install | bash -s "bun-v1.4.2"
-export PATH="$HOME/.bun/bin:$PATH"
-bun --version # expected: 1.4.2
-git --version
-```
-
-For Bash, add `export PATH="$HOME/.bun/bin:$PATH"` to `~/.bashrc` so new terminals
-can find Bun; use the equivalent startup file for your shell. Restart any running
-development or agent terminal after changing its environment.
-
-### Install dependencies and verify
-
-From the repository root:
-
-```bash
+git clone https://github.com/Coding-M8s/timber.git
+cd timber
 bun install --frozen-lockfile
+bun link
+timber --help
+```
+
+Already have the checkout? Start at `bun install`. Keep Bun installed and the
+checkout in place: `bun link` makes `timber` run from this source directory.
+If `timber` isn't found, add Bun's bin directory to your `PATH`
+(normally `export PATH="$HOME/.bun/bin:$PATH"`).
+
+Prefer an executable without Bun? See [standalone installation](docs/guide.md#install-the-standalone-cli)
+for published Linux x86_64 releases, or [build your own](docs/local-install.md).
+
+### 2. Choose your defaults
+
+Run this in an interactive terminal:
+
+```bash
+timber setup --global
+```
+
+Choose your editor, assistant, and whether they launch automatically, then save.
+Skip anything you don't need, including Jira. Use `timber setup` inside a
+repository to override machine defaults for that project.
+
+### 3. Start working
+
+Run these inside the Git repository you want to work on:
+
+```bash
+timber new my-feature     # Create a branch and its workspace
+timber ls                 # See workspace paths and file status
+timber open my-feature    # Return to the same workspace
+```
+
+The new folder is normally `../<repository-name>-worktrees/my-feature`.
+Timber prints its absolute path. It doesn't change your shell's directory:
+`cd` into that folder, or use your configured editor or assistant there.
+
+## Everyday commands
+
+| Command | What it does |
+| --- | --- |
+| `timber new "Fix login bug"` | Create branch `fix-login-bug` and a worktree |
+| `timber new my-feature --base main` | Choose the starting branch explicitly |
+| `timber open origin/some-feature` | Check out a remote branch in its own worktree |
+| `timber open my-feature --editor` | Open the worktree in your configured editor |
+| `timber open my-feature --agent` | Start your configured assistant in the worktree |
+| `timber ls` | List this repository's worktrees and their status |
+| `timber done my-feature` | Remove a finished worktree and its local branch when safe |
+
+Editors and assistants are off by default. Configure them in setup, then enable
+automatic launch or pass `--editor` / `--agent` for one command. Use `--no-editor`
+or `--no-agent` to skip a configured launch. Assistants normally run in your
+current terminal.
+
+`open` reuses existing worktrees. It creates one if the branch exists without a
+worktree. It doesn't rerun setup scripts unless you pass `--setup`.
+
+### Cleaning up
+
+`done` refuses to remove modified or untracked files, protects the primary
+checkout, and requires proof that commits are published or integrated.
+
+**It deletes ignored files by default, including `.env` and `node_modules`.**
+To refuse cleanup when ignored files exist:
+
+```bash
+timber done my-feature --keep-ignored
+```
+
+Add `--keep-branch` to retain the local branch. Remote branches stay untouched.
+
+## Optional tools
+
+- **Jira:** configure it in setup, then `timber new TIM-42` names the branch from
+  the ticket. Use `timber open TIM-42` to resume it. Keep credentials out of TOML.
+- **Named workflows:** `timber new my-feature --workflow review` uses a workflow
+  you've defined with its own setup scripts, editor, and assistant.
+- **Arena:** `timber arena new my-task` guides you through creating multiple
+  isolated attempts with the same task and starting commit. Agents run one at a
+  time. Resume and winner selection commands are still planned.
+- **Bash completion:** run `source <(timber completion bash)` in your terminal.
+
+## More help
+
+Use `timber <command> --help` for flags and [the user guide](docs/guide.md)
+for configuration examples, Jira, hooks, workflows, Arena, and troubleshooting.
+Configured hooks run shell commands with your permissions; review them before use.
+If setup or a launch fails, Timber keeps the workspace and prints retry guidance.
+
+- [Orca editor terminals](docs/editor-terminals.md)
+- [Standalone builds and release verification](docs/releases.md)
+- [Development guidance](AGENTS.md) and [CLI behavior contract](docs/cli-contract.md)
+
+For development, run these from the Timber checkout (Python 3 is needed for PTY tests):
+
+```bash
 bun run dev --help
 bun run typecheck
 bun test
 bun run build
-bun dist/index.js --help
 ```
-
-`build` creates a Bun JavaScript bundle in `dist/index.js`; it is not a standalone
-release binary. `bun run build:release` additionally creates
-`dist/release/timber-v0.1.0-dev.0-linux-x64`, `build-info.json`, and `SHA256SUMS`.
-The binary name follows the version in `package.json`; `timber --version` reports
-that same version. `src/index.ts` also has a
-Bun shebang and is the package's `timber` bin entry. No global installation is
-needed for development. GitHub CI runs locked installation, typecheck, tests, build
-and bundled help on Ubuntu x86_64, then compiles and verifies the standalone
-executable in a container without Bun or Node. Other platforms are not verified.
-
-## Commands
-
-```bash
-timber setup
-timber setup --global
-timber new my-feature
-timber new my-feature --workflow review
-timber new Investigate slow API usage page
-timber new "Investigate slow API usage page" --no-editor
-timber open my-feature
-timber open my-feature -w review
-timber open origin/my-feature
-timber open TIM-42
-timber open "/absolute/path/to/my-feature-worktree"
-timber open my-feature --no-editor
-timber open my-feature --setup
-timber ls
-timber done my-feature
-timber done my-feature --keep-branch
-timber done "/absolute/path/to/my-feature-worktree" --keep-ignored
-```
-
-### Create a worktree
-
-Run `timber new <branch...>` (or `bun run dev new <branch...>`) from the primary
-checkout, a nested directory, or a linked worktree. Timber creates a new local
-branch from `--base <ref>` when supplied, then `base_branch` in the primary
-checkout's `.timber.toml`, then the selected remote's default branch, then a
-single existing local `main` or `master`. Missing or ambiguous bases fail
-without guessing. Git validates the branch name before creation.
-
-Pass a sentence as one quoted argument or as unquoted words; both forms produce
-the same input to `new`. When that input contains literal spaces, Timber trims
-surrounding spaces, lowercases it, and changes each run of spaces to one hyphen.
-For example, `Investigate slow API usage page` becomes
-`investigate-slow-api-usage-page`. A name without spaces, such as
-`feature/API-fix` or `TIM-19`, keeps its exact spelling and existing Jira
-behavior. Blank names and control characters fail before worktree creation;
-other characters are passed to Git for validation. Put options before or after
-the words. `--` ends option parsing; Git still validates the resulting branch
-name.
-
-By default, Timber places the linked worktree at
-`../<repository-name>-worktrees/<safe-branch-slug>` beside the primary checkout.
-Set `worktree_dir` in `.timber.toml` to choose another root; relative paths
-resolve from the primary checkout. No CLI path override exists. An existing
-branch suggests `timber open`; an occupied destination fails without replacing
-files or refs.
-
-`--editor` starts a configured editor for this command; `--no-editor` skips it.
-Without either flag, `[editor].enabled` controls launch and defaults to `false`.
-Timber starts the editor after Git creates the worktree and setup completes.
-Success prints the branch and absolute worktree path. If
-editor startup fails, Timber reports the retained workspace and a
-`timber open --editor -- '<absolute-worktree-path>'` retry command, and exits nonzero.
-
-### Create a worktree from Jira
-
-Configure one Jira Cloud site in the primary repository's `.timber.toml`:
-
-```toml
-[jira]
-site_url = "https://example.atlassian.net"
-# Set this for an Atlassian scoped API token:
-# cloud_id = "00000000-0000-0000-0000-000000000000"
-```
-
-Run `timber setup` or `timber setup --global` to enter your Atlassian email and
-API token. Token entry is hidden, including pasted input. Both scopes share a
-personal credential store at
-`${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/jira.json` (XDG must be
-absolute), outside Git repositories. The file is plaintext, **not encrypted**:
-a user-owned 0700 directory and 0600 regular file protect access. Credentials are
-matched to the normalized site and optional cloud UUID; a different site or
-scoped/unscoped token mode needs its own pair. No credentials go in ordinary TOML.
-Paste one token on one line and wait for each prompt; buffered extra lines from
-an unbracketed paste are discarded so they cannot appear at a later visible prompt.
-
-A complete nonblank `JIRA_EMAIL` and `JIRA_API_TOKEN` environment pair overrides
-the matching saved pair. If either variable is supplied alone or blank, Timber
-fails with guidance; it never mixes an environment value with a saved value.
-Unset both variables to use saved credentials. Credentials are loaded only when
-Jira is actually used, so `open`, `ls`, `done`, literal branch creation, and
-`jira = false` work without them.
-
-Standalone releases disable automatic loading of `.env` and `bunfig.toml`.
-Saved credentials work directly in the installed executable. Bun's source runner
-may populate the process environment from `.env` before Timber starts, making a
-source checkout behave differently. Use
-`bun --no-env-file src/index.ts new ABU-834` to disable that Bun behavior;
-Timber adds no `.env` loader.
-Without `cloud_id`, Timber calls the configured site for an unscoped token. With
-`cloud_id`, it uses Atlassian's fixed Jira Cloud gateway for a scoped token.
-Requests do not follow redirects or retry. Each exact lookup has a 10-second
-deadline; a suggestions search shares one 10-second deadline across every page and
-response body.
-
-Only a complete uppercase key such as `ABU-834` is looked up, and only when
-`[jira]` is configured. `timber new ABU-834` looks up the issue and creates a
-branch from its canonical key and summary. For example, `Fix café / login!`
-becomes `ABU-834-fix-cafe-login`. Timber normalizes the summary into an ASCII
-slug and caps the whole branch name at 120 characters. A non-Latin or
-punctuation-only summary uses `issue` as its suffix.
-
-Timber checks the Jira status category before creating a branch. It accepts only
-known category keys `new` and `indeterminate`; missing, null, or unrecognized
-categories fail closed. Timber reads the category key rather than the visible
-status name, which may be localized or customized, and it does not infer
-completion from resolution fields.
-
-When an exact ticket is unavailable (404) or complete, Timber searches that
-project for unfinished issues whose full key starts with the requested key. For
-example, `ABU-4` can suggest `ABU-40` and `ABU-41`. Timber uses a fixed read-only
-JQL query, filters candidates again by full key prefix, and offers only issues
-whose category is `new` or `indeterminate`. Authentication, permission, network,
-rate-limit, malformed-response, and unknown-status failures do not start a search.
-The search must finish all pages successfully before Timber presents a count or
-choice. Jira's [enhanced JQL search API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/)
-supports the paginated endpoint used here.
-
-In an interactive terminal, choose a candidate explicitly, even when there is
-only one; canceling prints `Cancelled.`, exits successfully, and leaves Git untouched.
-This also applies to the `open` chooser. The initial menu shows five choices,
-and displaying more asks for confirmation first. Without an interactive chooser,
-Timber prints at most five candidate keys and titles plus the total count, then
-shows how to run a candidate key explicitly or retry in a terminal. After a
-choice, Timber fetches that exact issue again and checks its current status and
-summary before creating anything. If it has become missing or complete, the
-command stops without searching again. Literal branch inputs continue through
-the ordinary branch creation flow.
-
-The summary becomes part of a Git branch name, which may later be published.
-Choose a literal branch such as `feature/ABU-834` when a title would expose
-sensitive information. Inputs such as `ABU-834-fix`, lowercase `abu-834`, and
-`feature/ABU-834` are always treated as literal branch names.
-
-If a title changes, a later `new ABU-834` can produce a different branch. Use
-`timber open ABU-834` to resume existing work. `open` does not need Jira
-credentials. If several branches match, Timber reports the candidates and asks
-for an exact branch or worktree path. An interactive chooser starts with five
-entries and offers the full candidate list only after confirmation; entries that
-need manual path selection are labeled and never trigger mutations. Without a
-chooser, Timber shows at most five candidates and the total count with exact
-selection guidance. Jira URL input and OAuth sign-in are not supported.
-
-When lookup fails, Timber stops before creating a branch or worktree. For a 401,
-check the email, token expiry, and whether the token type matches the configured
-API root. A 403 means the account or token lacks access; a 404 means the issue
-is unavailable or not visible to that account. A 429 or 5xx response can be
-retried later. Network and redirect failures need connectivity or site/token
-configuration checks.
-
-### Open a branch or worktree
-
-`timber open <input>` opens a registered worktree when the input identifies one.
-Otherwise it resolves an exact local branch, then an exact remote branch, and
-then a unique ticket prefix at a delimiter boundary such as `TIM-42-...` or
-`TIM-42_...`. An absolute path must identify a registered worktree. If a ticket
-prefix matches multiple branches or worktrees, Timber uses the five-option
-chooser; without a terminal it shows five candidates and the total with exact
-selection guidance. An unknown input
-returns an error; `open` never invents a branch.
-
-An explicit remote such as `origin/my-feature` selects that remote even when a
-local branch has the same name. Unqualified remote branches use `remote` from
-`.timber.toml`, or the only configured Git remote when there is exactly one.
-Otherwise Timber checks all remotes and asks when matches are ambiguous.
-When cached refs cannot identify one local branch or worktree, `open` checks live
-remote heads automatically, including branches not fetched locally yet. Discovery
-is read-only; only the selected remote branch is fetched. Remote discovery failure
-stops before creating a worktree. Existing local targets remain usable offline. When Timber
-creates a worktree from a remote branch, it refreshes only that selected remote
-branch first. Refresh failures remain errors and leave the selected branch
-uncreated. An already registered worktree opens offline, including a dirty or
-locked worktree; Timber preserves its contents and Git state.
-
-When an existing local or remote branch has no worktree, `open` creates one at
-the configured `worktree_dir` or at the default sibling path
-`../<repository-name>-worktrees/<safe-branch-slug>`. Relative
-`worktree_dir` values resolve from the primary repository root, even when
-`open` runs from a nested directory or linked worktree.
-
-### Finish a worktree
-
-Run `timber done <branch-or-worktree>` (or `bun run dev done <branch-or-worktree>`)
-with an exact branch name, an absolute registered worktree path, or a unique
-ticket prefix such as `TIM-42`. Target resolution follows `open`, including
-explicit remote selectors that identify a local worktree tracking that remote
-branch. Branches without registered worktrees are excluded from ambiguous ticket
-matches, so a remote-only branch does not block cleanup of the sole matching
-worktree. Multiple worktrees use the same five-option chooser and confirmed
-expansion; `q` cancels successfully. Without a terminal, Timber shows five matches
-and the total, requiring an exact branch or path. A direct branch selection without
-a worktree is refused. Selected worktrees are revalidated before cleanup.
-The primary worktree is always protected.
-
-By default, Timber removes the linked worktree **including ignored files and
-folders such as `.env`, `node_modules`, and build output**, then deletes its local
-branch only when Git proves every local commit is published to the live upstream,
-contained in the validated base, or integrated with that base by a successful
-virtual merge. This supports cleaning up an unmerged review checkout; no separate
-review flag is required, and the remote branch and PR stay untouched.
-Modified and untracked files always block cleanup. The base uses the primary
-checkout's `.timber.toml` and the normal base selection policy. Timber checks
-fresh Git state immediately before removal.
-
-Normal merges are proven by commit ancestry. For squash/rebase merges, Timber
-also accepts a successful virtual Git merge that would add no file changes to
-the validated base. This works after the feature's remote branch has been
-deleted, or while offline, when the necessary commits are available locally.
-If the base is stale, fetch it explicitly before retrying. A closed PR alone is
-not proof. Custom merge drivers, conflicting changes, unsupported Git versions,
-or an unavailable proof cannot authorize deletion through the integration path. Virtual merges may
-write unreachable Git objects; they do not change files, the index, or refs.
-
-For published review work, Timber verifies every local commit is reachable from
-the live upstream, rechecks that evidence before removing the worktree, then
-checks again before deleting the local branch. A deleted or unreachable upstream,
-or a rewrite that no longer preserves all local commits, blocks this path.
-Unverifiable publication also blocks cleanup. If publication becomes unproven after
-worktree removal, Timber retains the local branch and reports the partial result.
-A missing creation base does not block cleanup when publication is proven.
-
-`--keep-branch` retains the local branch. Cached remote-tracking refs alone do not
-prove publication. A detached worktree
-can be removed by absolute path only when its commit is contained in the base.
-
-`--keep-ignored` refuses cleanup when ignored files exist. The worktree, branch,
-and ignored files remain in their original locations; nothing is copied to a
-backup folder. Move those files yourself or retry without the flag to discard
-them. `--discard-ignored` remains supported for compatibility and expresses the
-default; combining it with `--keep-ignored` is an error. Refusals name affected
-paths or commits without printing file contents. Locks, stale metadata, and
-identity checks remain enforced. There is no `--force`, automatic stash, remote
-branch deletion, or process killing.
-
-Success names the removed path and the deleted or retained local branch.
-Optional `[hooks].pre_delete` commands run after the initial safety checks and
-before removal, including with `--keep-branch`. A failure retains the worktree
-and branch. Timber rechecks safety after hooks and refuses removal if they leave
-protected files or change the selected refs. See [pre-deletion hooks](#pre-deletion-hooks).
-If removal succeeds but branch deletion fails, Timber exits nonzero, reports
-the observed partial result on stderr, and does not claim completion. Inspect
-the reported Git state before retrying. Remote branches, the primary checkout,
-and unrelated worktrees stay intact.
-
-### List worktrees
-
-Run `timber ls` (or `bun run dev ls`) from any nested directory in the primary
-or a linked worktree. Timber reads Git's inventory, including worktrees created
-manually and outside the default Timber directory. It prints a space-aligned
-table with `WORKTREE`, `BRANCH`, `WORKFLOW`, `STATUS`, and absolute `PATH` columns, primary
-first and linked paths sorted deterministically.
-
-The primary worktree is marked `primary`; detached HEAD shows `(detached HEAD)`.
-Dirty status includes modified and untracked file counts. Staged and unstaged
-changes to the same file count once; a rename counts as one modified file.
-Ignored content is reported separately and does not by itself make Git status
-dirty. Missing or inaccessible worktrees stay visible with `unknown` status;
-`missing`, `locked`, and `prunable` markers describe their state. Control
-characters in paths are escaped so each worktree occupies one row.
-`WORKFLOW` shows the saved name, `-` when unassigned, and `?` when local
-workflow metadata cannot be trusted. A narrow terminal may wrap a complete row.
-
-Listing works offline and requires no `.timber.toml`. It does not fetch, prune,
-refresh the index, open an editor, launch an agent, or change files or refs.
-
-## Bash tab completion
-
-Activate command, flag, and worktree completion in the current Bash session:
-
-```bash
-source <(timber completion bash)
-```
-
-`open` suggests worktrees and local/cached remote branches; `done` suggests
-linked worktrees, including detached paths. Completion stays offline and reads
-fresh Git metadata on every Tab. Dirty targets remain visible, and normal
-cleanup checks still apply when you execute `done`. Timber does not edit shell
-startup files. See [activation, installation, and verified environment](docs/completion.md).
-
-## Repository configuration
-
-Timber reads `.timber.toml` from the primary worktree root and machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml` on Linux. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent configuration from 0.1 also supports opt-in foreground launching in 0.2; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](docs/cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
-
-Editor opening stays off by default, even with a configured `[editor]` command. Set `enabled = true` in that table to open it automatically, or use `--editor` on `new` or `open` for one command. `--no-editor` suppresses launch. Both flags together are an error. An explicit `--editor` requires a configured command; a repository-level `editor = false` removes an inherited command. Timber starts the editor after required Git and setup work. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
-
-### Named worktree workflows
-
-Use `--workflow review`, `-w review`, or `--w review` with `new` or `open`.
-Each spelling selects the same named workflow; using more than one in a command
-is an error. Names use lowercase letters, digits, hyphens, and underscores,
-starting with a letter. Define as many names as needed in repository or machine
-TOML:
-
-```toml
-[workflows.review]
-description = "Review someone else's branch"
-post_create = ["bun install --frozen-lockfile"]
-
-[workflows.review.editor]
-command = "code"
-args = ["--new-window"]
-
-[workflows.review.agent]
-command = "/absolute/path/to/review-wrapper"
-args = ["--initial-review"]
-```
-
-The workflow editor and agent may be omitted to inherit ordinary defaults, or
-set to `false` to disable them. A workflow editor table requests launch when
-that workflow is selected; an inherited editor still follows `[editor].enabled`.
-Explicit `--editor` can use the ordinary editor even when the workflow sets
-`editor = false`. `post_create` defaults to an empty list. A
-repository workflow replaces the same global workflow as a whole; lists and
-command arguments do not merge. Set `review = false` inside a repository
-`[workflows]` table to remove an inherited name, or root `workflows = false`
-to remove all inherited names. Both config scopes are validated even when one
-overrides the other. `timber setup` preserves existing workflow values and shows
-the effective count; edit workflow definitions directly in TOML.
-
-Outside enabled Orca integration, on creation Timber saves the selected workflow, runs ordinary setup scripts,
-then workflow setup scripts, opens the selected editor, then starts its optional
-initial agent in the invoking terminal. `open` creating a worktree for an
-existing branch counts as creation. The scripts receive `TIMBER_WORKFLOW` as an
-environment variable; Timber never substitutes it into shell source. A custom
-agent wrapper can supply its prompt and open a separate window if desired.
-Timber passes executable arguments literally. With [Orca integration](docs/editor-terminals.md), setup and agents use separate editor terminals instead.
-
-Later `open` commands remember the workflow and use its current editor settings.
-They do not rerun setup or launch an implicit agent, including when ordinary
-agent defaults are enabled. Repeating `open -w review` on the same worktree also
-skips those creation actions. Assigning another workflow to an existing
-worktree changes its editor without replaying creation actions. `open --setup`
-deliberately reruns ordinary and workflow scripts once; `open --agent` deliberately
-starts the selected agent again. `--editor` explicitly starts the selected editor;
-`--no-editor` and `--no-agent` suppress their
-respective launches. Explicit `--agent` requires an interactive terminal with CI
-off or an enabled, selected Orca editor integration. A normal reopen never retries
-a failed setup or initial prompt.
-
-The selected name is saved only in that worktree's private Git administrative
-metadata, with identity checks; it is not a committed file or branch tag. Git
-worktree removal removes the association. If a saved definition is deleted,
-restore it or run `open --workflow <valid-name>` to reassign the worktree.
-Creation-stage failures retain the worktree and refs. After fixing a failed
-script, run `timber open --setup -- '<absolute-worktree-path>'`; for editor
-startup, run `timber open --editor -- '<absolute-worktree-path>'`; for an initial
-agent retry, run `timber open --agent --no-editor -- '<absolute-worktree-path>'`.
-Explicit script retries start from the first step; make scripts safe to rerun.
-No exactly-once guarantee is made across crashes. Keep secrets out of TOML,
-scripts, and diagnostics.
-
-### Zed
-
-```toml
-base_branch = "main"
-worktree_dir = "../timber-worktrees"
-
-[editor]
-command = "zed"
-args = ["--new"]
-enabled = false
-
-[agent]
-enabled = false
-command = "claude"
-args = []
-```
-
-### Visual Studio Code
-
-Use this `[editor]` table instead when you want Visual Studio Code:
-
-```toml
-[editor]
-command = "code"
-args = ["--new-window"]
-enabled = false
-```
-
-Set `enabled = true` to launch automatically after `new` or `open`, or leave it false and pass `--editor` when needed. Timber preserves configured flags such as `--wait`, but returns as soon as the editor process starts. It does not wait for the editor window to close or report a nonzero exit that happens after startup. If startup fails, Timber keeps the worktree and prints a safe retry command such as `timber open --editor -- '<worktree path>'`. `new` reports the failure and exits nonzero. `open` reports it on stderr but exits successfully after the required Git and setup work is complete. Both commands suppress agent startup after editor failure. Fix the editor command or `PATH`, then run the retry to reopen the existing worktree; it does not create another one.
-
-### Setup hooks (0.2)
-
-Add trusted shell commands to repository settings or machine defaults:
-
-```toml
-[hooks]
-post_create = [
-  "bun install --frozen-lockfile",
-  './scripts/setup.sh',
-]
-```
-
-`new` runs these steps after creating the branch/worktree. `open` runs them when
-it creates a worktree for an existing local or remote branch. Reopening an
-existing worktree skips setup unless you explicitly pass `--setup`. Missing effective
-hooks, an empty replacement table/list, or local `hooks = false` perform no setup.
-The table also accepts `pre_delete` for cleanup; invalid values and unknown keys
-are rejected before Git creation.
-`--no-editor` skips the editor while still allowing setup.
-
-On the initial Linux target, each step runs sequentially in a fresh
-`/bin/sh -c` process with the selected worktree as its working directory.
-The shell receives the configured source unchanged; Timber never inserts
-branch names, paths, or ticket text into that source. Use POSIX shell syntax
-or explicitly invoke another installed shell in a hook. Variables exported
-by one step do not persist into the next. There is no implicit `set -e`:
-each step succeeds or fails according to its shell exit status. Use `&&`
-or a script that returns a nonzero status when required work fails.
-
-Hooks inherit Timber's environment and receive these overrides:
-
-| Variable | Value |
-| --- | --- |
-| `TIMBER_REPO` | Absolute primary repository root |
-| `TIMBER_WORKTREE` | Absolute selected worktree path |
-| `TIMBER_BRANCH` | Selected local branch name, or empty for detached HEAD |
-| `TIMBER_TASK_ID` | Leading ticket ID such as `TIM-7` in `TIM-7-setup`, `TIM-7/setup`, or `TIM-7`; absent otherwise |
-
-Ticket recognition uses uppercase project letters/digits followed by `-` and
-digits, with an end or `-`, `_`, `.`, `/` boundary. An inherited task ID is
-removed when the selected branch has none. Quote context variables in hooks,
-for example `printf '%s\n' "$TIMBER_BRANCH"`. Standard input is closed so setup
-does not wait for interactive answers; configure unattended installation.
-Hook stdout and stderr stream to the corresponding invoking streams.
-
-This configuration executes code with your permissions. Trust and review the
-primary config and any scripts in the selected branch before running setup.
-There is no approval prompt. Keep credentials out of config and shell source;
-use environment variables or a secret store, and avoid printing secrets in
-hook output. Timber's failure diagnostic identifies the numbered step and
-exit status without printing its shell source.
-
-The first failed step stops later hooks and editor startup. Timber exits
-nonzero and retains the branch, worktree, and files left by setup, including
-modified, untracked, and ignored content. It does not undo changes made by
-the hook itself. Fix the hook or its prerequisites, then use the printed
-retry command, such as `timber open --setup -- '<absolute-worktree-path>'`.
-Retries run **all steps from the beginning**; make hooks safe to rerun.
-Normal `open` can reopen the retained workspace without retrying setup.
-Agent launching starts only after setup succeeds.
-
-### Pre-deletion hooks
-
-Add trusted cleanup commands to the same hooks table:
-
-```toml
-[hooks]
-post_create = ["bun install --frozen-lockfile"]
-pre_delete = ['./scripts/stop-worktree-services.sh']
-```
-
-`done` first checks that cleanup is safe, then runs `pre_delete` sequentially in
-the selected worktree, even with `--keep-branch`. It uses the setup hook shell,
-environment variables and output streams, with closed stdin. No workflow is
-selected and inherited `TIMBER_WORKFLOW` is cleared. Cancellation or an initial
-safety refusal runs no commands. In `timber setup`, choose **Pre-done scripts**
-or use the guided advanced settings to configure these commands. Editing or
-disabling either script list preserves the other effective list. Each script step
-offers None or Add/Edit scripts; empty lists default to None, and existing
-commands are prefilled for editing.
-Choose Done while editing to remove the remaining commands from that list.
-
-A failed step stops cleanup before Timber removes the worktree or branch. Its
-diagnostic names the step and gives a `timber done` retry retaining
-`--keep-branch`/`--keep-ignored` when selected. Hook side effects remain; Timber
-does not roll them back. Explicit retries run all steps from the beginning, so
-make them safe to rerun. Commands are trusted code with your permissions.
-
-After hooks succeed, Timber rechecks identity, files, refs and preservation
-evidence. New modified/untracked files or changed target/base refs refuse
-cleanup. `--keep-ignored` still protects ignored files; otherwise ignored content
-is discarded as usual. A repository hooks table replaces the entire global
-table, and `hooks = false` disables both hook lists.
-
-### Optional interactive agents (0.2)
-
-Configure the installed tool through `timber setup`, repository TOML, or machine defaults:
-
-```toml
-[agent]
-enabled = false
-command = "claude"
-args = []
-```
-
-For guided first-time setup, run `timber setup` or `timber setup --global`. To edit repository settings manually, locate the primary checkout:
-
-```bash
-git worktree list
-```
-
-The first listed worktree is the primary checkout. Create or edit
-`.timber.toml` there, even when running Timber from a linked worktree.
-Merge the agent table into any existing configuration; do not replace other
-settings. Guided setup creates this file after explicit confirmation.
-
-Install your preferred agent separately and make its executable available on
-`PATH`. For a development smoke test, run this from the checkout containing
-the agent-launch implementation, in a normal terminal with CI off:
-
-```bash
-bun run dev new agent-smoke-test --base main --agent --no-editor
-```
-
-Use an existing exact base branch in your repository instead of `main` when
-needed. `--base` accepts branch names, not `HEAD` or commit IDs. The command
-creates the workspace, prints its path, then starts the agent there. After
-exiting the agent, reopen that same workspace with:
-
-```bash
-bun run dev open agent-smoke-test --agent --no-editor
-```
-
-Repository defaults are separate from installing Timber. `timber setup` asks
-which editor/agent to use and whether agent launching should be enabled, while
-preserving existing values you keep. `timber setup --global` configures defaults
-for all repositories.
-
-For Codex, use `command = "codex"` instead. Executable names on `PATH` and
-absolute executable paths are supported. Each argument is passed literally;
-Timber sets the selected worktree as cwd and does not append its path to args.
-Keep credentials outside repository configuration.
-
-`new` and `open` accept `--agent` to enable the configured command for that
-invocation and `--no-agent` to suppress it. Omission defers to `enabled`, which
-defaults to false; existing-worktree opens with an enabled editor require explicit `--agent`. Using both flags is an error. Explicit enable requires an
-`[agent]` table; Timber does not assume a default tool. Editor and agent choices
-are independent:
-
-```bash
-timber new my-feature --agent
-timber open my-feature --agent --no-editor
-timber open my-feature --no-agent
-```
-
-Outside enabled [Orca integration](docs/editor-terminals.md), Timber completes required Git work and starts the editor before running the
-agent. An editor startup failure prevents agent launch. The agent inherits the
-invoking terminal's stdin/stdout/stderr and runs in the foreground; Timber waits
-for it to finish. Agent exit status becomes Timber's exit status, including
-nonzero statuses and signal exits such as 130 for SIGINT and 143 for SIGTERM.
-Terminal Ctrl-C reaches the foreground agent directly, without a duplicate
-interrupt from Timber. An agent that handles it and continues keeps its eventual
-exit status. For process-directed shutdown with a terminal, send SIGINT to the
-foreground process group or SIGTERM to Timber. No background agent or session
-manager is started.
-
-For foreground agents, both stdin and stdout must be terminals, and CI must be off. An absent or empty
-`CI`, `CI=0`, and `CI=false` (case insensitive) mean CI is off; other values
-mean CI is on. In CI or with redirected stdin/stdout, config-driven launch
-skips automatically. Explicit `--agent` fails before worktree creation instead
-of waiting for interactive input. With an enabled, selected Orca integration,
-explicit and config-driven initial agents instead use Orca terminals and can
-launch from a noninteractive caller, including with CI on. A generic editor,
-disabled Orca integration or `--no-editor` retains the foreground restrictions.
-
-Startup failures report the retained workspace and exit 1. Fix configuration
-or `PATH`, then retry with
-`timber open --agent --no-editor -- '<absolute-worktree-path>'`; this reuses the
-workspace. Nonzero exits and interrupts also retain the branch, worktree,
-and its files. Agent output goes directly to the terminal; Timber does not
-capture or log command arguments.
-
-## Troubleshooting
-
-| Symptom | Next step |
-| --- | --- |
-| Release download says unavailable/404 | Confirm the exact published tag and authenticate GitHub CLI with read access to this private repository. |
-| Checksum mismatch | Stop installation. Download all assets again into a new directory; report a repeated mismatch to the release owner. |
-| `timber` not found or permission denied | Check `command -v timber`, your PATH, and executable permissions. The install command above sets mode 755. |
-| Wrong executable format, missing loader, or incompatible libc | Use the verified Linux x86_64/glibc environment; other platforms are not supported by this asset. |
-| Git/editor/agent executable missing | Install the required tool or correct its executable/PATH. Configure literal argument arrays; skip optional launches with `--no-editor`/`--no-agent`. |
-| Setup or launch failed after creation | Workspace remains. Fix the prerequisite, then use the printed `open` retry; `--setup` reruns every hook. |
-| Jira authorization/network failure | Run setup to check/replace the saved pair; check complete environment overrides, token type/site/cloud ID, permissions, and connectivity. Never paste tokens into config or bug reports. |
-| Remote unavailable | Existing local worktrees can open offline; remote materialization needs a successful refresh. |
-| Cleanup refused | Read the named files/commits and preservation evidence. Commit or move your work deliberately; `--keep-branch` does not bypass safety. `--keep-ignored` preserves ignored content in place. |
-
-`done` discards ignored files by default, including `.env` and `node_modules`.
-Use `--keep-ignored` to refuse that removal. Partial cleanup can leave the worktree
-removed and branch retained; inspect the reported state before retrying.
-
-## Release scope
-
-- **0.1 - Worktree CLI:** repository discovery, local/remote branch resolution, four commands, repository configuration, optional editor opening, conservative cleanup.
-- **0.2 - Integrations:** trusted setup hooks, optional interactive Claude/Codex launching, Jira lookup. The CLI remains usable without Jira credentials or an AI subscription.
-- **1.0 - Stable CLI:** real-repository dogfooding, errors, safety validation, documentation, verified Linux x86_64 packages.
-
-TypeScript and Bun are the development direction, with Commander, Execa, Zod, and smol-toml. Exact dependency versions are pinned in `package.json` and `bun.lock`; compatibility tests exercise them under Bun. No GUI/IDE, Rust rewrite, database, daemon, or plugin framework is included.
-
-## Planning and contribution
-
-- [Implementation tickets](https://github.com/Coding-M8s/timber/issues)
-- [Real workflow dogfooding checklist](docs/dogfooding.md)
-- [Release build, installation verification, and acceptance](docs/releases.md)
-- [Delivery board](https://github.com/orgs/Coding-M8s/projects/2/views/2) · [Timber CLI Project](https://github.com/orgs/Coding-M8s/projects/2)
-- [Behavioral contract](docs/cli-contract.md)
-- [Shared TypeScript contracts and service seams](docs/shared-contracts.md)
-- [Full handoff and scheduling](docs/timber-github-handoff.md)
-- [Setup mapping and remaining actions](docs/github-project-setup.json)
-- [Development guidance](AGENTS.md)
-
-TIM-11 provides the scaffold and shared contracts. TIM-1 provides Git discovery,
-TIM-6 provides configuration, and TIM-14 implements the list command against
-those service seams. Use independent ticket branches and PRs with one implementer
-and one reviewer.
-
-## Guided setup and machine defaults
-
-Before using Timber, run `timber setup` inside your repository, or
-`timber setup --global` to configure defaults for this machine. From a source
-checkout, use `bun run dev setup` or `bun run dev setup --global`. The first CLI
-invocation also prints this hint, including for the standalone executable.
-
-Setup opens a settings menu with an optional guided walkthrough. Edit editors,
-coding assistants, Jira ticket naming, creation scripts, pre-done scripts, Git,
-and workspace folders individually. Setup opens directly on the menu and returns
-there immediately after each edit. Save and exit is the default. Relevant help,
-errors, and pending credential changes appear inline; PgUp/PgDn scroll long
-details without leaving the active question. With Orca terminals selected, or inherited from machine
-defaults, it also asks whether the assistant waits for setup scripts. Use Up/Down arrows and Enter, or press a numbered shortcut to choose
-immediately. Shortcuts cover the first nine options; use arrows for additional
-entries in long branch lists; the menu scrolls to keep your selection visible.
-None is the default for unconfigured tools and scripts. Existing settings stay
-selected by default; guided advanced settings are optional. Each question starts
-after a blank line. Editor and agent launch
-default to off; setup asks whether each configured tool should launch automatically.
-Configure Jira with its site origin, token mode, Atlassian email, and hidden API
-token, with asterisks showing typing and paste feedback. [Create a token](https://id.atlassian.com/manage-profile/security/api-tokens)
-using Atlassian's [token instructions](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
-Scoped tokens require the cloud UUID and use the Atlassian gateway; unscoped
-tokens use the tenant origin. Find the cloud UUID at
-`https://<your-site>.atlassian.net/_edge/tenant_info`, as described in
-[Atlassian's cloud-ID guidance](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/).
-
-You can keep, replace, remove, or skip personal credentials for the selected site
-and token mode. Disabling Jira in one repository retains shared credentials;
-explicit removal deletes that identity's pair for all repositories using it.
-Setup shows the private plaintext credential destination and pending actions
-before Save, with no token in review. An optional read-only connection check uses
-the draft pair, even if environment overrides are present. It calls Jira's
-[current-user endpoint](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/):
-success does not guarantee access to every project or issue. Scoped tokens may
-need current-user read scopes for this optional check. A failed check reports a
-safe authentication/permission/network diagnostic and lets you edit or cancel.
-Setup requires an interactive terminal with CI off. The final review shows the absolute destination and summary, with choices
-to save, edit any individual section, or cancel. Editing retains the other answers
-and returns to review; nothing is written until you choose Save. Replacing
-existing settings requires that explicit save choice. Cancelling publishes
-neither configuration nor credentials. Failed configuration saves restore owned
-credential updates; concurrent edits survive with recovery guidance. Publication
-is atomic per file, not across files: an uncatchable crash can leave credentials
-updated before config, plus a stale `.jira.lock`. Inspect private storage and
-configuration, restore a private backup if needed, remove only a confirmed stale
-lock, then rerun setup. Never paste store contents into a report. Unsafe file
-ownership, permissions, links, malformed data, and store locations inside Git
-repositories are refused; choose a private user configuration directory.
-
-Precedence is CLI options > repository TOML > global TOML > built-in defaults.
-Absent keys inherit; a local optional table replaces the whole global table,
-including arguments and hook lists. Relative worktree directories in either
-scope resolve from the current repository's primary checkout. To disable
-inherited features locally, use these root-level values instead of their tables:
-
-```toml
-editor = false
-agent = false
-hooks = false
-jira = false
-```
-
-`[editor]` or `[agent]` with a command and `enabled = false` disables automatic launch but
-keeps `--editor` or `--agent` available. Root-level `editor = false` or `agent = false` removes the inherited command. Both
-files must be valid, including values overridden by the other scope. Missing
-settings use built-in defaults. The first-use setup hint appears once; normal
-commands do not repeat it. Explicit `--agent` without an agent configured explains
-how to run setup before creating or opening a workspace.
-
-Local setup writes the primary checkout's `.timber.toml`, including from linked
-worktrees, and excludes it through Git-local `info/exclude`. It preserves shared
-`.gitignore` and the index. If project ignore rules override that exclusion,
-choose global settings or cancel. If config is already tracked, explicitly choose
-whether to edit it or use global defaults; ignore rules cannot hide tracked
-changes. A hidden/excluded dotfile is not encrypted and can still be force-added.
-Edit the printed config path directly later; keep secrets out of both scopes.
-Setup never launches tools, executes hooks, creates worktrees, or changes refs.
-
-Saves publish validated TOML atomically and detect concurrent changes. New files
-use no-clobber creation; existing replacements cannot guarantee protection against
-an unrelated editor changing the file between the final check and rename.
-Cancellation before publication preserves settings and restores owned exclusion
-changes when safe; after publication setup reports saved state. A hard crash can
-leave an extra ignore entry. External ignore-rule edits can change visibility
-after setup's check. First-use markers live under
-`${XDG_STATE_HOME:-$HOME/.local/state}/timber/`, outside repositories.
-
-To replace a development `bun link` with this branch's standalone executable,
-follow the [local installation and smoke-test guide](docs/local-install.md).
-
-## Orca editor terminals
-
-**Support note:** Editor-owned setup and agent terminals currently support only
-`orca-ide`. Zed and VS Code (`code`) terminal integrations are not supported yet;
-their existing generic editor-opening behavior remains available.
-
-Opt into separate setup and agent terminals in the existing local Orca window.
-Run `timber setup` (or `timber setup --global`), choose "Orca terminals" as the
-editor, enable it, and answer whether the assistant waits for setup. The saved
-tables look like this:
-
-```toml
-[editor]
-command = "orca-ide"
-args = []
-enabled = true
-integration = "orca"
-
-[agent]
-command = "claude"
-args = []
-enabled = true
-wait_for_setup = false
-```
-
-Agents start in parallel with setup by default. Set `wait_for_setup = true` to
-require successful setup first. `--no-editor` preserves foreground behavior.
-See [prerequisites, workflows and recovery](docs/editor-terminals.md). Zed terminal
-automation is tracked in [#60](https://github.com/Coding-M8s/timber/issues/60),
-and VS Code terminals in [#61](https://github.com/Coding-M8s/timber/issues/61).
-Their generic workspace opening remains available.
-
-This integration applies to ordinary `new` and `open`; Arena keeps its sequential
-foreground launches in the invoking terminal.
-
-## Arena: multiple isolated attempts
-
-`timber arena new <name-or-ticket>` gives at least two attempts the same task and starting
-commit. Select an **agent tool**, optional **model** and **effort**, and **number of runs**.
-Arena displays source details, numbered runs, setup progress, and recovery commands
-in separate blocks. Terminal output uses color; `NO_COLOR=1` disables it. Redirected
-output is plain unless color is explicitly forced with `FORCE_COLOR=1`.
-Agents run one at a time in your foreground terminal; exit one before the next
-starts. Manual worktrees need no agent configuration or AI subscription.
-
-### Arena lifecycle
-
-An existing local or remote branch can supply the starting commit, even without
-its own worktree. `arena new` creates fresh attempt branches/worktrees from that
-commit. The source branch remains intact. Existing arena names or attempt
-destinations are refused; continuing an existing attempt belongs to resume.
-
-| Command | Responsibility | Availability |
-| --- | --- | --- |
-| `arena new` | Create isolated attempts, prepare them, and launch agents sequentially in the invoking terminal | Implemented in [TIM-20](https://github.com/Coding-M8s/timber/issues/40) |
-| `arena resume` | Select and revisit an existing attempt, preserving its current work; explicitly retry setup when needed | Planned in [TIM-21](https://github.com/Coding-M8s/timber/issues/41) |
-| `arena pick` | Show grouped attempt state and changes, let the user choose a winner, and clean up only eligible losers | Planned in [TIM-22](https://github.com/Coding-M8s/timber/issues/42) |
-
-Creation displays attempt paths, live foreground agent output, and completion or
-failure status. Grouped comparison belongs to `pick`: committed and uncommitted
-tracked changes against the common base, plus separate untracked-file indicators.
-These tickets keep winner selection with the user and preserve unsafe losing work.
-They do not introduce parallel/background agent management, a collected final-answer
-report, automatic quality scoring, or automatic merging/publishing.
-
-The ticket-key shortcut below selects source context for a new arena; it follows
-the same fresh-attempt lifecycle. Task instructions remain explicit.
-
-```bash
-# Guided tool → model → effort → runs, plus task entry (/done finishes):
-timber arena new search-fix
-
-# Two independent runs of one model; omit --model for tool default:
-timber arena new search-fix --prompt-file task.md \
-  --tool codex --model your-model-id --runs 2
-
-# Compare tool/model combinations. Each --tool starts another group:
-timber arena new compare --prompt-file task.md \
-  --tool codex --model your-codex-model --runs 1 \
-  --tool claude --model your-claude-model --runs 1
-
-# Compare Cursor CLI with Codex, using each tool's default model:
-timber arena new cursor-compare --prompt-file task.md \
-  --tool cursor --tool codex
-
-# Start from existing ticket progress; source worktree is not required:
-timber arena new TIM-123 --name api-slice --prompt-file remaining-api-work.md \
-  --tool codex --runs 2
-
-# Explicit remote-only starting point, including a branch not fetched yet:
-timber arena new api-slice --base origin/feature/TIM-123 \
-  --prompt-file remaining-api-work.md --tool codex --runs 2
-
-# Prepare unattended without starting agents:
-timber arena new prepared --prompt-file task.md \
-  --tool codex --runs 2 --no-agent --no-editor
-
-# Manual attempts:
-timber arena new manual-review --prompt-file task.md \
-  --tool manual --runs 2 --no-editor
-```
-
-`--tool` starts a group. Its `--model` and `--effort` are optional; `--runs`
-defaults to one. Model must precede effort when both are supplied. Repeat `--tool`
-or `--preset` for another group. At least two runs are required overall; no fixed
-upper count cap. Counts and their total must be positive safe whole numbers.
-`--base` remains optional and selects starting code, not an existing attempt.
-
-Tool, model, and preset choices support fuzzy search, including flag values:
-
-```bash
-# Partial tool/model names resolve after Enter; ambiguity opens a searchable list:
-timber arena new compare --prompt-file task.md \
-  --tool cur --model sonnet --tool cod --model sol
-
-# Task already supplied; guided selection asks tool → model → effort → runs:
-timber arena new compare --prompt "write hello world"
-```
-
-Exact values win, then canonical prefixes, then fuzzy matches. A unique match
-resolves automatically; multiple matches require explicit selection. Type to filter,
-use arrows and Enter, or Escape/Ctrl-C to cancel. Scripts never prompt: ambiguity
-reports exact matching values before creation. Unknown custom model IDs remain
-literal for the native tool to validate. IDs entered through the wizard's custom
-model option always remain literal, even when they resemble catalog entries.
-Resolved flag choices and preset keys remain exact in records;
-there are no extra preset aliases. Search does not rewrite prompt text or base refs.
-
-Model choices come from Cursor's `cursor-agent models`, Codex's local model cache,
-and Claude's documented native aliases, supplemented by saved presets. Discovery
-runs at most once per tool per invocation; native commands have closed stdin and
-bounded runtime/output. Failed discovery is reported; native default, presets,
-and exact custom IDs remain usable. Cached choices and aliases do not guarantee
-account availability; native tools still enforce policy. Model defaults are never
-guessed or copied from another active agent session.
-
-`--default-effort <level>` supplies an arena-wide fallback. Each tool group's
-`--effort <level>` overrides it; `--effort default` keeps that group's native
-setting. Saved preset effort wins over the fallback; a native preset without
-effort inherits it. Manual runs and opaque wrappers do not inherit native effort.
-Every resulting native tool/model combination is validated before creation:
-unsupported or unknown support is an error, never silently skipped. Use an explicit
-model with capability data, or opt that tool group out with `--effort default`.
-
-```bash
-# Low for first Codex group, medium for second, native effort for Cursor:
-timber arena new compare --prompt "Check whether 0.1 + 0.2 equals 0.3; explain briefly." \
-  --default-effort low \
-  --tool codex --model gpt-6-luna \
-  --tool codex --model gpt-6-luna --effort medium \
-  --tool cursor --model composer-2.5 --effort default
-```
-
-Effort appears after model selection when capability data supplies supported levels,
-plus “Use tool/model effort default.” With an arena default, the wizard also offers
-inheritance and native opt-out, including when model support is unknown. With no
-arena or per-group effort, Timber passes no native effort override. Explicit effort
-requires a known explicit model and supported level; unsupported/unknown settings
-fail before creation. Codex uses its reasoning-effort configuration override;
-Claude's general CLI help does not establish model-specific support, so its aliases
-keep native effort defaults and do not offer an effort picker or accept overrides.
-Select effort within Claude when supported. Cursor uses advertised model variants.
-An explicit Cursor model ID and conflicting `--effort` are rejected;
-in the wizard, choosing effort selects the corresponding advertised variant.
-Manual worktrees have no model/effort. Custom IDs without capability metadata retain
-native effort defaults. Tool/account policy can further restrict levels.
-
-Run summaries distinguish requested effort from native defaults and always label
-effective runtime effort as unknown. For Claude native defaults, an inherited
-`CLAUDE_CODE_EFFORT_LEVEL` is shown and recorded when present. Only recognized
-levels or `auto` are retained; other values are labeled `unrecognized`, with their
-contents omitted. Explicit validated Claude effort sets both native `--effort` and
-the child's `CLAUDE_CODE_EFFORT_LEVEL` to the same value, because that environment
-variable can override the flag. Parent environment and other tools are unchanged.
-Native settings, account policy, and in-session changes can still affect execution;
-Timber's requested value is not proof of actual runtime effort.
-
-Built-ins launch `codex`, `claude`, or `cursor-agent` on PATH. Cursor deliberately
-uses `cursor-agent`: `cursor` opens the editor, and `agent` can belong to another
-tool. Use installed, authenticated tools. Agents run sequentially in the invoking
-terminal; exit one tool to proceed to the next.
-
-Attempt count controls batch size; agents still run one at a time. Each attempt
-needs its own worktree and setup, and planning/records hold the full batch in memory.
-Available resources and runtime limits govern practical batch size. Removing the
-count cap does not provide distributed swarm execution or establish million-attempt
-scalability.
-
-Named executable/model presets remain optional shortcuts:
-
-```toml
-[arena.agents.review]
-tool = "claude"
-command = "claude"
-model = "your-model-id" # Optional; omit to use tool default.
-args = []
-
-[arena.agents.cursor-review]
-tool = "cursor"
-command = "cursor-agent"
-model = "your-cursor-model-id" # Optional; omit to use Cursor default.
-args = []
-
-[arena.agents.custom]
-tool = "wrapper"
-command = "/absolute/path/to/my-agent-wrapper"
-args = []
-```
-
-```bash
-timber arena new review --prompt-file task.md --preset review --runs 2
-timber arena new custom --prompt-file task.md --preset custom --runs 2
-```
-
-A preset saves one complete tool/model/effort/argument configuration. `--runs`
-applies to the preceding tool or preset; following model/effort overrides on a
-preset are rejected. Optional native `effort` belongs beside `model` in TOML.
-Do not duplicate fields in native arguments: Codex `-m`/`--model` and Claude
-`--model`/`--effort` remain supported when unambiguous. Cursor presets accept only
-native `--model` arguments; effort must match the explicit model variant. Wrapper
-models/effort stay in literal wrapper arguments. No native print, resume, workspace
-override, or Cursor-created nested worktree behavior is added.
-
-Presets merge by name; repository definitions replace whole same-name machine
-presets. Per-name `false` and root `arena = false` disable inheritance. Setup
-preserves these tables. `manual` and `configured` are reserved names. Interactive
-creation can reuse ordinary `[agent]` arguments after explicit handoff selection;
-ordinary agent/workflow configuration retains its behavior. Draft `--harness`,
-`--attempts`, `--task-file`, `--participant`, and `--preset name:count` spellings
-are not accepted.
-
-**Starting point:** `--base` is optional. An explicit local/remote branch wins.
-Without it, a ticket key seeks existing ticket branches: unique local progress
-works offline, including unpublished branches with no worktree. Ambiguous matches
-require selection or an exact `--base`. With no local match, live remote heads are
-checked; discovery failure blocks creation. Ticket matches respect key boundaries
-and slash-delimited branch segments (`TIM-123-work`, `feature/TIM-123`,
-`user/TIM-123-api`), excluding `TIM-1234` and arbitrary substrings.
-
-When no ticket branch exists, use configured base, selected remote default, then
-unambiguous local main/master. Normal name-only creation uses that same precedence.
-Ticket input supplies context, not task instructions: describe the remaining part
-in your task file or prompt. No Jira credentials are required for Git ticket
-matching. Exact uppercase ticket input derives a lowercase arena name; `--name`
-lets separate portions of one ticket use distinct arena identities.
-
-Remote selection is read-only before final review. Review shows source ref/commit,
-tools/models, counts and destinations. Cancellation before confirmation leaves
-refs and records untouched. After confirmation (or explicit noninteractive input),
-fetch only the selected remote branch and verify the reviewed commit. If the tip
-changed or refresh failed, stop before creating attempts and report that cached
-refs may have refreshed. Every attempt starts at the same pinned commit; no extra
-source worktree is created. Modified, untracked and ignored source files stay in
-place; they are never copied/stashed or automatically committed.
-
-Attempt branches are fresh `arena/<name>/<group-label>-<ordinal>` branches, using
-existing worktree folder rules. Local branch/path and known remote target collisions
-fail before creation; choose another arena name. Local sources use cached remote
-inventory and remain offline. Remote sources also use discovered live inventory;
-unfetched/unreachable remote name collisions cannot be ruled out offline.
-
-Task files resolve from invoking cwd and must be nonsymlink regular UTF-8 files,
-nonblank, without NUL, at most 1 MiB. Timber snapshots task bytes privately under
-common Git metadata, outside checkout files. Native tools receive an identical
-instruction to read that snapshot, separated from literal arguments with `--`.
-Wrappers receive `TIMBER_TASK_FILE`, `TIMBER_ARENA`, `TIMBER_ATTEMPT`, `TIMBER_REPO`,
-`TIMBER_WORKTREE`, and `TIMBER_BRANCH`; they read the task and keep their tool in
-foreground. Task body never enters native agent argv or Timber diagnostics. Inline `--prompt`
-text is present in Timber argv and may appear in shell history; use a file for
-private instructions. `--prompt` and `--prompt-file` are mutually exclusive. With
-neither, interactive task entry explains `/done` on each line. Tools may retain
-transcripts/output. Native model execution/file permissions are not smoke-tested;
-real terminal stubs verify argument/task transport and foreground behavior.
-
-All worktrees and ordinary setup hooks finish before per-attempt editor/agent
-startup. Editors default off; `--editor`/`--no-editor` override normal policy.
-Noninteractive creation requires explicit prompt/file and groups, plus `--no-agent`
-for native/wrapper agents. Errors or nonzero child exit stop later stages and retain
-completed workspaces/refs/files. Agent statuses propagate, including 130/143 for
-signal exits. Reciprocal UUID markers reject replaced worktrees immediately before
-setup/editor/agent actions. Private v2 manifests record source/ticket/harness/model
-context and optional requested effort; existing v1/v2 records remain readable
-without migration or guessed model/effort defaults.
-
-Inspect `timber ls`, then reopen retained work with
-`timber open --no-agent --no-editor -- '<absolute-worktree-path>'`. Deliberately retry
-all hooks with `--setup --no-agent --no-editor`; manually relaunch the assigned
-tool/preset with the recorded task snapshot. `arena resume` and `arena pick`
-remain separate follow-ups. Stale locks require inspection; crashes may leave
-uncertain state. Private records are local visibility controls, not encryption.
-Linux x86_64 remains the verified target. See [arena contract](docs/cli-contract.md#arena-creation-post-10-tim-20).

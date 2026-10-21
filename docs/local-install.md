@@ -125,7 +125,7 @@ contain an older implementation.
    Standalone builds do not load `.env`; Bun source execution may do so before
    startup unless you pass `--no-env-file`. The optional setup connection check
    tests current-user access only, not every project/issue permission. See the
-   [setup guidance](../README.md#guided-setup-and-machine-defaults) for token and
+   [setup guidance](guide.md#guided-setup-and-machine-defaults) for token and
    cloud-ID instructions, permissions and recovery.
 
    `bun test tests/release.integration.test.ts` additionally installs the compiled
