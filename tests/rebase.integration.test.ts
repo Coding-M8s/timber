@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { appendFile, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { git, withRepository } from "./helpers/git";
@@ -364,22 +365,45 @@ test("interrupting Timber stops its owned Git hook descendants without later sid
     const { publisher, target } = await fixture(primary, directory);
     const original = await commit(target, "feature.txt", "feature\n"); await advance(publisher);
     const started = join(directory, "started"), escaped = join(directory, "escaped");
+    const release = join(directory, "release");
     const hook = join(primary, ".git/hooks/pre-rebase");
-    await writeFile(hook, '#!/bin/sh\nexec >/dev/null 2>&1\n: > "$TIMBER_TEST_STARTED"\nsleep 1\n: > "$TIMBER_TEST_ESCAPED"\n');
+    await writeFile(hook, '#!/bin/sh\nexec >/dev/null 2>&1\n: > "$TIMBER_TEST_STARTED"\nwhile [ ! -e "$TIMBER_TEST_RELEASE" ]; do sleep 0.01; done\n: > "$TIMBER_TEST_ESCAPED"\n');
     await chmod(hook, 0o755);
     const child = execa(process.execPath, ["--no-env-file", entry, "rebase", target], {
-      cwd: primary, reject: false, timeout: 8_000, env: { CI: "true", TIMBER_TEST_STARTED: started, TIMBER_TEST_ESCAPED: escaped },
+      cwd: primary, reject: false, timeout: 8_000, env: { CI: "true", TIMBER_TEST_STARTED: started, TIMBER_TEST_ESCAPED: escaped, TIMBER_TEST_RELEASE: release },
     });
-    for (let i = 0; i < 200 && !await Bun.file(started).exists(); i++) await new Promise(resolve => setTimeout(resolve, 10));
-    expect(await Bun.file(started).exists()).toBe(true);
-    process.kill(child.pid!, "SIGTERM");
-    const result = await child;
-    expect(result.exitCode).toBe(143);
-    expect(result.stderr).toContain("SIGTERM");
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    expect(await Bun.file(escaped).exists()).toBe(false);
-    expect(await git(target, "rev-parse", "HEAD")).toBe(original);
-    expect(await paused(target)).toBe(false);
+    try {
+      for (let i = 0; i < 200 && !await Bun.file(started).exists(); i++) await new Promise(resolve => setTimeout(resolve, 10));
+      expect(await Bun.file(started).exists()).toBe(true);
+      // Hook startup alone does not prove native signal readiness. Wait until
+      // Linux reports a caught SIGTERM; do not rely on a fixed startup delay.
+      const deadline = Date.now() + 2_000;
+      let handlesTermination = false;
+      while (Date.now() < deadline) {
+        const status = await readFile(`/proc/${child.pid}/status`, "utf8");
+        const caught = /^SigCgt:\s*([0-9a-f]+)$/mi.exec(status)?.[1];
+        handlesTermination = caught !== undefined && (BigInt(`0x${caught}`) & (1n << BigInt(constants.signals.SIGTERM - 1))) !== 0n;
+        if (handlesTermination) break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(handlesTermination).toBe(true);
+      process.kill(child.pid!, "SIGTERM");
+      const result = await child;
+      expect(result.exitCode).toBe(143);
+      expect(result.stderr).toContain("SIGTERM");
+      // A surviving hook would now continue and write escaped. Keep it blocked
+      // until Timber exits so runner load cannot let it finish before interruption.
+      await writeFile(release, "release\n");
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      expect(await Bun.file(escaped).exists()).toBe(false);
+      expect(await git(target, "rev-parse", "HEAD")).toBe(original);
+      expect(await paused(target)).toBe(false);
+    } finally {
+      // Release a surviving hook even when a readiness or exit assertion fails.
+      await writeFile(release, "release\n");
+      child.kill("SIGTERM");
+      await child;
+    }
   });
 });
 
