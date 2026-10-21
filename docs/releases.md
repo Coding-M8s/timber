@@ -150,7 +150,7 @@ It does not create a release. Workflow syntax is checked locally with actionlint
 a local syntax pass is not an actual GitHub Actions run.
 
 For manual download verification, follow the authenticated installation chain in
-the [README](../README.md), or download into a fresh directory without installing:
+the [installation guide](guide.md#install-the-standalone-cli), or download into a fresh directory without installing:
 
 ```bash
 TIMBER_TAG=vX.Y.Z
