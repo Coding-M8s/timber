@@ -304,8 +304,9 @@ Omission keeps the generic editor launcher. The command names the local Orca CLI
 (e.g. `orca-ide`), with literal args separate from agent args. Require a running
 local Orca window, registered repository and visible external worktrees. Never
 start another window/runtime. Remote routing is unsupported. Editor-owned
-terminals currently support only `orca-ide`; Zed and VS Code (`code`) terminal
-integrations are deferred. Their generic workspace opening remains available.
+terminals currently support only `orca-ide`. Zed and VS Code (`code`) use the
+generic editor launcher (window open only); in-panel terminals for those editors
+are deferred until a demonstrated external bridge exists (see #61 for VS Code).
 
 Ordinary and workflow agent tables accept boolean `wait_for_setup`, default false.
 Whole-table replacement applies; explicit workflow agents default independently,

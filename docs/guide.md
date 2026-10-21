@@ -801,8 +801,8 @@ follow the [local installation and smoke-test guide](local-install.md).
 ## Orca editor terminals
 
 **Support note:** Editor-owned setup and agent terminals currently support only
-`orca-ide`. Zed and VS Code (`code`) terminal integrations are not supported yet;
-their existing generic editor-opening behavior remains available.
+`orca-ide`. Zed and VS Code (`code`) open the editor window only; setup and the
+assistant stay in the invoking terminal unless you use Orca.
 
 Opt into separate setup and agent terminals in the existing local Orca window.
 Run `timber setup` (or `timber setup --global`), choose "Orca terminals" as the
@@ -825,10 +825,10 @@ wait_for_setup = false
 
 Agents start in parallel with setup by default. Set `wait_for_setup = true` to
 require successful setup first. `--no-editor` preserves foreground behavior.
-See [prerequisites, workflows and recovery](editor-terminals.md). Zed terminal
-automation is tracked in [#60](https://github.com/Coding-M8s/timber/issues/60),
-and VS Code terminals in [#61](https://github.com/Coding-M8s/timber/issues/61).
-Their generic workspace opening remains available.
+See [prerequisites, workflows and recovery](editor-terminals.md). Zed remains
+tracked in [#60](https://github.com/Coding-M8s/timber/issues/60). VS Code stays
+on generic window open per [#61](https://github.com/Coding-M8s/timber/issues/61);
+in-panel terminals wait on [#75](https://github.com/Coding-M8s/timber/issues/75).
 
 This integration applies to ordinary `new` and `open`; Arena keeps its sequential
 foreground launches in the invoking terminal.

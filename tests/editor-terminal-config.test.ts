@@ -31,9 +31,25 @@ test("local tables replace integration and dependency preferences instead of mer
   expect(config(inherited, 'editor = false\nagent = false\n').agent).toBeNull();
 });
 
-test.each(['integration = "zed"', 'integration = true', 'wait_for_setup = "true"', 'wait_for_setup = 1'])(
+test.each([
+  'integration = "zed"',
+  'integration = "vscode"',
+  'integration = "code"',
+  'integration = true',
+  'wait_for_setup = "true"',
+  'wait_for_setup = 1',
+])(
   "invalid launch preference fails in either scope: %s", field => {
     const table = field.startsWith("integration") ? "editor" : "agent";
     expect(() => config(`[${table}]\ncommand = "sentinel"\n${field}\n`, `${table} = false\n`))
       .toThrow(/Invalid config \/global/);
   });
+
+test("VS Code editor tables stay on the generic launcher without an integration key", () => {
+  const source = '[editor]\ncommand = "code"\nargs = ["--new-window"]\nenabled = true\n' +
+    '[agent]\ncommand = "claude"\nenabled = true\nwait_for_setup = true\n';
+  const resolved = config(source);
+  expect(resolved.editor).toEqual({ command: "code", args: ["--new-window"], enabled: true });
+  expect(resolved.editor).not.toHaveProperty("integration");
+  expect(resolved.agent).toMatchObject({ command: "claude", enabled: true, waitForSetup: true });
+});
