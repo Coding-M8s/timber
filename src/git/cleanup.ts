@@ -4,6 +4,7 @@ import { execa } from "execa";
 import { runPreDelete } from "../hooks";
 import type { CommandIO } from "../services";
 import { resolveBase } from "./branches";
+import { refreshCleanupBase } from "./cleanup-base";
 import { hasIntegratedContent, integratedBase } from "./cleanup-integration";
 import { readCleanupEvidence, readCleanupPublication, readCleanupTarget } from "./cleanup-evidence";
 import { discoverRepository } from "./repository";
@@ -200,7 +201,14 @@ export async function cleanupWorktree(
       resolve(primaryRepository.commonGitDir) !== resolve(repository.commonGitDir)) {
     throw new Error("Repository identity changed since selection; rediscover the repository and retry cleanup.");
   }
-  const evidence = await readCleanupEvidence(primaryRepository, worktree, config, options.base);
+  let evidence = await readCleanupEvidence(primaryRepository, worktree, config, options.base);
+  const refreshedBase = await refreshCleanupBase(primaryRepository, evidence.validatedBase);
+  if (refreshedBase !== evidence.validatedBase) {
+    evidence = await readCleanupEvidence(primaryRepository, worktree, config, options.base);
+    if (evidence.validatedBase?.ref !== refreshedBase?.ref || evidence.validatedBase?.commit !== refreshedBase?.commit) {
+      throw new Error("Selected cleanup base changed during refresh; the worktree and branch are retained. Retry cleanup.");
+    }
+  }
   if (!options.keepBranch && evidence.branchRef !== null && evidence.branchRef === evidence.validatedBase?.ref) {
     throw new Error("The cleanup target branch is the validated base and cannot be deleted by cleanup.");
   }
