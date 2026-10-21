@@ -48,8 +48,8 @@ session, run `complete -r timber`.
 - `timber open <Tab>` lists registered worktrees, local branches, and cached
   remote branches. Remote selectors include the remote name, such as
   `origin/feature`. Remote symbolic HEAD entries are omitted.
-- `timber new --base <Tab>` and `timber new --base=<Tab>` suggest local and
-  cached remote branches.
+- `timber new --base <Tab>` and `timber done --base <Tab>` suggest local and
+  cached remote branches. Both commands also support the `--base=<Tab>` form.
 
 Each attempt reads fresh Git metadata, including worktrees created outside Timber.
 Completion works in the primary checkout, its nested directories, and linked

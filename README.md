@@ -67,6 +67,7 @@ Timber prints its absolute path. It doesn't change your shell's directory:
 | `timber open my-feature --editor` | Open the worktree in your configured editor |
 | `timber open my-feature --agent` | Start your configured assistant in the worktree |
 | `timber ls` | List this repository's worktrees and their status |
+| `timber done my-feature --base parent-feature` | Choose a one-off cleanup merge target |
 | `timber done my-feature` | Remove a finished worktree and its local branch when safe |
 
 Editors and assistants are off by default. Configure them in setup, then enable

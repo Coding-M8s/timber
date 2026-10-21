@@ -69,8 +69,10 @@ test.each(["exit 7", "kill -TERM $$"])("failed deletion hook stops later steps a
       'printf first >> "$TIMBER_TEST_REPORT"', `${source} # SECRET_HOOK_SOURCE`,
       'printf later >> "$TIMBER_TEST_REPORT"',
     ], "no-ticket", "linked ' $(touch injected) !\n\u001b\u009b\u2028");
+    const base = "parent-'literal;$value\u009b\u2028";
+    await git(primary, "branch", base);
     const before = await snapshot(primary);
-    const result = await cli(primary, path, ["--keep-branch", "--keep-ignored"], { TIMBER_TEST_REPORT: report });
+    const result = await cli(primary, path, ["--base", base, "--keep-branch", "--keep-ignored"], { TIMBER_TEST_REPORT: report });
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("pre_delete step 2");
@@ -83,7 +85,7 @@ test.each(["exit 7", "kill -TERM $$"])("failed deletion hook stops later steps a
     expect(retry).toBeDefined();
     expect(retry).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
     const capture = await execa("/bin/bash", ["-c", 'timber() { printf "%s\\0" "$@"; }; ' + retry], { cwd: directory });
-    expect(capture.stdout.split("\0")).toEqual(["done", "--keep-branch", "--keep-ignored", "--", path, ""]);
+    expect(capture.stdout.split("\0")).toEqual(["done", "--keep-branch", "--keep-ignored", "--base", base, "--", path, ""]);
     expect(await exists(join(directory, "injected"))).toBe(false);
     // An explicit retry begins at step one; nothing retries automatically.
     await cli(primary, path, ["--keep-branch", "--keep-ignored"], { TIMBER_TEST_REPORT: report });

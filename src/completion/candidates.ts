@@ -97,7 +97,7 @@ export async function completionCandidates(program: Command, request: Completion
   if (!endOptions && prefix.startsWith("--tool=") && command.parent?.name() === "arena") {
     return filtered(["codex", "claude", "cursor", "manual"].map(value => "--tool=" + value), prefix);
   }
-  if (!endOptions && prefix.startsWith("--base=") && command.name() === "new") {
+  if (!endOptions && prefix.startsWith("--base=") && options.some(option => option.long === "--base")) {
     return filtered((await repositoryCandidates(cwd, "base")).map(value => "--base=" + value), prefix);
   }
   if (!endOptions && prefix.startsWith("-")) {

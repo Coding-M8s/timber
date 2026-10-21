@@ -160,6 +160,7 @@ export interface CleanupInspection {
 }
 
 export interface CleanupOptions {
+  base?: string;
   keepBranch: boolean;
   discardIgnored: boolean;
 }

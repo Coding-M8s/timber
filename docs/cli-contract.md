@@ -6,7 +6,7 @@
 4. `open <input>` resolves an existing worktree, exact local branch, then exact remote branch. An explicit remote such as `origin/feature/foo` selects that remote. When cached refs cannot identify one local target, `open` discovers live remote heads without changing refs, respecting the explicit/configured remote or checking all remotes. Discovery failure blocks materialization; existing local targets remain offline.
 5. A ticket prefix such as `ABU-834` may match branch names on a delimiter boundary. Multiple matches must include every distinct candidate in one chooser when interactive; mark candidates that require manual selection, and do not mutate if one is selected. Without a chooser, show at most five sorted candidates and the total, with exact manual-selection guidance. Do not use arbitrary substring matching.
 6. Refresh the selected remote before creating from a remote branch. An existing local worktree can open offline. A failed remote refresh must not be reported as success.
-7. Base selection: `--base`, repository/global config, configured remote's default branch, then an unambiguous existing `main` or `master`. Never guess if resolution is ambiguous.
+7. Base selection: `--base`, repository/global config, configured remote's default branch, then an unambiguous existing `main` or `master`. Never guess if resolution is ambiguous. `done --base <ref>` selects an invocation-local integration target using the existing branch/ref resolver; it never writes TOML or changes a branch tip. An explicit missing, invalid, ambiguous, or target-local-branch base fails before hooks or removal, even with verified publication or `--keep-branch`. Revalidate the same selected ref/commit before removal and branch deletion. Omission preserves configured/default-base and live-publication behavior. No automatic parent-branch inference or implicit fetch.
 8. Worktree paths default to a sibling directory, `../<repository-name>-worktrees/<safe-branch-slug>`. Resolve config paths relative to the primary repository root. Reject collisions, path traversal, and attempts to target the primary repository.
 9. `ls` lists the current repository's primary and linked worktrees, including ones created outside Timber, and identifies the primary worktree.
 10. `done` resolves cleanup targets among registered worktrees; remote-only and unchecked branches do not make a single matching worktree ambiguous. Multiple worktrees use the five-option chooser (or a capped diagnostic without a terminal), and selection is revalidated by absolute path and branch before cleanup. Cancellation succeeds without mutation. `done` never removes the primary worktree. Modified or untracked files always block cleanup. Unpublished or unknown publication blocks cleanup unless commits are contained in the validated base or Git proves that merging the local branch into that base adds no file changes.
@@ -237,7 +237,7 @@ and repository/worktree/branch/ticket environment as setup. Clear any inherited
 steps and returns nonzero before Timber removes a worktree or deletes a branch.
 Report the one-based step and exit code, signal, or shell startup failure without
 echoing source. Hook side effects remain; trusted hooks are not rolled back.
-Provide a safely quoted `timber done [--keep-branch] [--keep-ignored] -- '<path>'`
+Provide a safely quoted `timber done [--base <ref>] [--keep-branch] [--keep-ignored] -- '<path>'`
 retry preserving the invocation's retention options. Retrying deliberately runs
 all steps from the beginning after safety checks; never retry automatically.
 
@@ -462,7 +462,7 @@ remotes, changing files/refs, running hooks, or launching editors/agents.
 paths. `open` also offers primary paths, local branches, and explicit
 `remote/branch` cached selectors. A branch registered in several worktrees is
 offered only by path, since its name is ambiguous at execution. Symbolic remote HEAD entries are omitted.
-`new --base` can complete local/cached branch refs.
+`new --base` and `done --base` can complete local/cached branch refs.
 
 Prefix matching is literal and results are deduplicated and sorted. Missing Git,
 inaccessible metadata, and non-repositories quietly yield no target candidates;
