@@ -481,5 +481,10 @@ base before setup/launch. `ls` renders the association without network discovery
 explicit local ref resolution, fresh remote fetch, local direct-ref/tip revalidation,
 and outcome-dependent persistence. Save only on success/no-op or verified paused
 conflicts, preserving the old record for other failures. Local bases use
-`refs/heads/<branch>`; existing plain-name remote semantics are unchanged. `done`,
+`refs/heads/<branch>`; existing plain-name remote semantics are unchanged.
+`done` selects explicit base, saved canonical ref, then configured/default base.
+Missing saved refs fail without fallback; malformed/unreadable metadata blocks
+cleanup, while an explicit override can bypass stale identity metadata. Cleanup
+never saves an override. Re-read the association before removal and carry its
+selected input past metadata removal for branch-deletion base revalidation.
 `open`, shared creation-base resolution, and arena behavior remain unchanged.

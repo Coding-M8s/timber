@@ -202,10 +202,11 @@ export async function cleanupWorktree(
     throw new Error("Repository identity changed since selection; rediscover the repository and retry cleanup.");
   }
   let evidence = await readCleanupEvidence(primaryRepository, worktree, config, options.base);
+  const selectedBaseInput = evidence.baseInput;
   const refreshedBase = await refreshCleanupBase(primaryRepository, evidence.validatedBase);
   if (refreshedBase !== evidence.validatedBase) {
     evidence = await readCleanupEvidence(primaryRepository, worktree, config, options.base);
-    if (evidence.validatedBase?.ref !== refreshedBase?.ref || evidence.validatedBase?.commit !== refreshedBase?.commit) {
+    if (evidence.baseInput !== selectedBaseInput || evidence.validatedBase?.ref !== refreshedBase?.ref || evidence.validatedBase?.commit !== refreshedBase?.commit) {
       throw new Error("Selected cleanup base changed during refresh; the worktree and branch are retained. Retry cleanup.");
     }
   }
@@ -227,7 +228,7 @@ export async function cleanupWorktree(
   }
   const initialBase = evidence.validatedBase;
   const finalBase = finalEvidence.validatedBase;
-  if ((initialBase === null) !== (finalBase === null) ||
+  if (evidence.baseInput !== finalEvidence.baseInput || (initialBase === null) !== (finalBase === null) ||
       (initialBase !== null && finalBase !== null &&
         (initialBase.ref !== finalBase.ref || initialBase.commit !== finalBase.commit ||
           evidence.inspection.ancestry.kind !== finalEvidence.inspection.ancestry.kind)) ||
@@ -282,7 +283,10 @@ export async function cleanupWorktree(
       else if (finalInspection.publication.kind === "published") {
         preservation = { kind: "published", upstreamRef: finalInspection.publication.upstreamRef };
       } else throw new Error("Local branch deletion requires proven integration or live upstream publication.");
-      await deletePreservedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, preservation, config, options, finalEvidence.validatedBase);
+      // Git removal deletes the saved association. Keep its selected input for
+      // the final base check instead of falling back to repository configuration.
+      const deletionOptions = finalEvidence.baseInput === undefined ? options : { ...options, base: finalEvidence.baseInput };
+      await deletePreservedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, preservation, config, deletionOptions, finalEvidence.validatedBase);
       return { removedWorktreePath: path, deletedLocalBranch: branchName, retainedLocalBranch: null };
     } catch (error) {
       const currentOid = await branchObjectId(primaryRepository, evidence.branchRef);

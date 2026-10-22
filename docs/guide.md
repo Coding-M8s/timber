@@ -14,10 +14,10 @@ and `open` reuses an existing worktree or creates one for a resolved existing
 branch. `done` safely removes a linked worktree and deletes its local branch
 only when Git proves its commits are published to the live upstream or
 integrated into the validated base.
-Use `timber done my-feature --base parent-feature` when work was merged into a
-non-default branch. The override applies only to this cleanup, keeps the safety
+`done` uses the saved base shown by `ls`, when present. Use
+`timber done my-feature --base parent-feature` to override it for one cleanup. The override applies only to this cleanup, keeps the safety
 checks, and never changes TOML. Local and cached remote branch refs are supported;
-Timber does not infer the parent or fetch automatically.
+Timber refreshes selected remote bases automatically and never infers a parent.
 
 ## Install the standalone CLI
 
@@ -318,9 +318,12 @@ contained in the validated base, or integrated with that base by a successful
 virtual merge or exact historical tree match. This supports cleaning up an
 unmerged review checkout; no separate review flag is required, and the remote
 branch and PR stay untouched.
-Modified and untracked files always block cleanup. The base uses the primary
-checkout's `.timber.toml` and the normal base selection policy. Timber checks
-fresh Git state immediately before removal.
+Modified and untracked files always block cleanup. Base selection uses explicit
+`--base`, then the saved worktree base shown by `ls`, then repository/global
+configuration and existing default discovery. Missing saved refs fail without
+fallback; malformed/unreadable metadata requires repair, and stale identity
+metadata requires an explicit override. Cleanup never saves an override. Timber
+rechecks the saved selection and fresh Git state immediately before removal.
 
 Normal merges are proven by commit ancestry. For squash/rebase merges, Timber
 also accepts a successful virtual Git merge that would add no file changes to
@@ -332,7 +335,7 @@ only on unrelated branches do not qualify. These checks work after the feature's
 remote branch has been deleted. When the selected base is a remote branch such
 as `origin/main`, `done` automatically fetches that branch and updates its cached
 remote-tracking ref before checking integration. This applies to `--base`, the
-configured base and the default remote base. No separate `git fetch` is needed.
+saved base, the configured base and the default remote base. No separate `git fetch` is needed.
 Fetch failure stops cleanup and preserves the worktree and local branch. Local
 base branches remain unchanged and can be used offline when the necessary
 commits are available locally. A closed PR alone is not proof. Custom merge

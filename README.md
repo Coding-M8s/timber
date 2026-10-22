@@ -69,7 +69,7 @@ Timber prints its absolute path. It doesn't change your shell's directory:
 | `timber rebase my-feature` | Rebase onto the saved base (fetching remote bases); [bases and conflict recovery](docs/worktree-bases.md) |
 | `timber ls` | List worktrees, saved bases, workflows, and status |
 | `timber done my-feature --base parent-feature` | Choose a one-off cleanup merge target |
-| `timber done my-feature` | Remove a finished worktree and its local branch when safe |
+| `timber done my-feature` | Remove a finished worktree safely, using its saved base when present |
 
 Editors and assistants are off by default. Configure them in setup, then enable
 automatic launch or pass `--editor` / `--agent` for one command. Use `--no-editor`
