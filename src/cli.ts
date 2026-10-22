@@ -99,9 +99,9 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
 
   program.command("rebase <branch-or-worktree>")
-    .description("Fetch a remote base and rebase an existing worktree; leave conflicts for manual resolution")
-    .option("--base <remote/branch-or-branch>", "Override the configured remote base branch")
-    .addHelpText("after", "\nRewrites commit IDs, including published commits. No automatic stash, abort, push or tool launch.\nResolve and stage conflicts, then use native git rebase --continue or --abort in the target worktree.")
+    .description("Rebase an existing worktree onto its saved base; leave conflicts for manual resolution")
+    .option("--base <ref>", "Override and remember the base (remote/branch, plain remote branch, or refs/heads/local-branch)")
+    .addHelpText("after", "\nRewrites commit IDs, including published commits. No automatic stash, abort, push or tool launch.\nResolve and stage conflicts, then use native git rebase --continue or --abort in the target worktree.\nRemote bases are fetched; local bases are used as-is and must be up to date.")
     .action(async (input: string, options: { base?: string }) => {
       if (!handlers.rebase) throw new Error("Rebase handler is unavailable in this embedding.");
       onExitCode(await handlers.rebase(input, options.base === undefined ? {} : { base: options.base }, context));

@@ -1,5 +1,5 @@
 import { reportAgentResult } from "../agent";
-import { FormattedError, failureWithRetry, safeDisplay } from "../display";
+import { FormattedError, failureWithRetry, safeDisplay, shellQuoteForDisplay } from "../display";
 import type { CommandHandlers, CommandServices } from "../services";
 import { JiraLookupFailure } from "../jira/client";
 import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
@@ -8,7 +8,7 @@ import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflo
 
 type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
-  "createWorktree" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
+  "createWorktree" | "writeBaseAssociation" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
@@ -74,6 +74,11 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     }
     const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branchInput;
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
+    try {
+      await services.writeBaseAssociation(repository, worktree, base.ref);
+    } catch {
+      throw new FormattedError(`Could not save the base association; created worktree retained at ${safeDisplay(worktree.path)}. Setup and launch have not run. Inspect its private Git metadata and permissions, then retry with:\ntimber rebase --base ${shellQuoteForDisplay(base.ref)} -- ${shellQuoteForDisplay(worktree.path)}`);
+    }
     if (options.workflow) await services.writeWorkflowAssociation(repository, worktree, options.workflow);
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
     if (ticket) context.io.stdout(`Jira: ${ticket.url}\n`);

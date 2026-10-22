@@ -19,7 +19,7 @@
 
 ## Rebase an existing worktree (TIM-28)
 
-`timber rebase <branch-or-worktree> [--base <remote/branch-or-branch>]` requires
+`timber rebase <branch-or-worktree> [--base <ref>]` requires
 an existing Git-registered worktree, selected by exact branch, absolute path, or
 existing delimiter-boundary ticket matching. Filter ambiguous matches to registered
 worktrees, use the existing chooser/capped diagnostic, and cancel without mutation.
@@ -27,11 +27,18 @@ Never create a worktree or branch. Reject detached, missing, stale, locked, or
 unverifiable targets, and branches checked out in multiple worktrees. Primary
 worktrees are eligible when explicitly selected.
 
-Use explicit base, effective configured base, selected remote default, then an
-unambiguous remote main/master. A remote-qualified base selects that remote;
-otherwise require configured or sole remote. Plain names always mean remote
-branches here, even when a same-named local branch exists. Discover live remote
-heads to validate defaults/fallbacks. Fetch only the selected branch without
+Use explicit base, saved worktree base, effective configured base, selected remote
+default, then an unambiguous remote main/master. A remote-qualified base selects
+that remote; otherwise require configured or sole remote. Plain names always mean remote
+branches here, even when a same-named local branch exists. Explicit
+`refs/heads/<branch>` selects a local base. Saved canonical identities retain local
+versus remote meaning regardless of later config changes. A local base uses its
+current commit without fetching, pulling or moving it, and its direct ref and tip
+are revalidated before mutation. Warn before proceeding that the local branch must
+be up to date and Timber will not fetch or pull it. Local bases work without remotes.
+
+For remote bases, discover live remote heads to validate defaults/fallbacks. Fetch
+only the selected branch without
 pruning or modifying branch refs: fetch into FETCH_HEAD with an empty refmap,
 without a destination ref. This also avoids symbolic cached refs redirecting writes
 into local branches. Pin/verify FETCH_HEAD against the advertised commit; a moved
@@ -52,7 +59,8 @@ editors, autostash, automatic unrelated-ref updates, interactive rebase and auto
 Await one owned noninteractive Git process group; cancellation signals that group,
 including Git hook descendants. Never run Timber setup hooks, editors or agents;
 ordinary Git hooks remain Git's responsibility. Do not stash, clean, reset, skip, abort, push or force-push automatically.
-Report worktree, branch, selected remote base, fetched commit and original tip.
+Report worktree, branch, selected base, pinned commit and original tip; identify
+remote fetches versus local selection.
 Rebase can rewrite published commit IDs; publishing remains a separate user action.
 
 Completed/up-to-date returns zero. Conflicts return nonzero, keep Git's paused state,
@@ -64,6 +72,32 @@ resolve and stage before continuing, which may expose later conflicts. Rerunning
 Timber refuses an existing operation. Cleanup refuses in-progress Git operations,
 even when conflicts are staged and the index has no unmerged paths. Native Git
 continuation/abort suffice; no Timber continuation flags or AI resolution.
+
+## Saved worktree bases (#79)
+
+`new` saves its resolved canonical base ref in private, versioned Git-admin metadata
+before setup or launches. Store the moving branch identity, not its creation commit.
+Metadata is bound to the canonical repository/worktree paths, validated like workflow
+associations, and published atomically with private permissions. Save failure retains
+the created worktree and reports recovery guidance. `open` does not infer or overwrite
+bases for existing or materialized branches. Arena creation is unchanged.
+
+`ls` adds a BASE column before WORKFLOW: remote bases display `remote/branch`, local
+bases display `refs/heads/branch`, absent records display `-`, and invalid records
+show `?` plus a warning without hiding the Git row. Listing remains offline and does
+not validate whether a saved branch still exists. Never infer parent branches from
+history or from a feature branch's publication upstream.
+
+`rebase` uses explicit selection before saved metadata, then existing config/default
+selection. Missing saved targets stop with `--base` replacement guidance, without a
+fallback. Invalid metadata stops before mutation; stale identity records may be
+replaced by an explicit selection, while malformed or unreadable records require
+repair first. Save the selected canonical ref after success, an up-to-date result,
+or a verified paused rebase with unmerged conflicts. Other failures retain the
+previous association. Metadata publication failure after rebase reports the actual
+Git outcome and recovery guidance; it never resets or aborts Git. Conflicts retain
+native Git continuation/abort behavior. A later native abort does not restore the
+previous saved association. Cleanup base selection remains unchanged.
 
 ## `new` branch input
 

@@ -45,9 +45,9 @@ test("list marks the primary, shows branches and paths, and deduplicates Git sta
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("WORKTREE  ");
   expect(result.stdout).toContain("WORKFLOW  STATUS");
-  expect(result.stdout).toMatch(/primary\s+main\s+-\s+clean\s+\/repo\n/);
-  expect(result.stdout).toMatch(/linked\s+\(detached HEAD\)\s+-\s+clean\s+\/manual tree\n/);
-  expect(result.stdout).toMatch(/linked\s+feature\/z\s+-\s+dirty \(2 modified, 1 untracked\); 1 ignored\s+\/repo-worktrees\/z-last\n/);
+  expect(result.stdout).toMatch(/primary\s+main\s+-\s+-\s+clean\s+\/repo\n/);
+  expect(result.stdout).toMatch(/linked\s+\(detached HEAD\)\s+-\s+-\s+clean\s+\/manual tree\n/);
+  expect(result.stdout).toMatch(/linked\s+feature\/z\s+-\s+-\s+dirty \(2 modified, 1 untracked\); 1 ignored\s+\/repo-worktrees\/z-last\n/);
   expect(trees[0]?.path).toBe("/repo-worktrees/z-last");
 });
 
@@ -60,8 +60,8 @@ test("unknown, missing, locked, and prunable rows remain visible without looking
   ]);
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(result.stdout).toMatch(/primary\s+main\s+-\s+unknown \(cannot read status\); locked\s+\/repo\n/);
-  expect(result.stdout).toMatch(/linked\s+\(detached HEAD\)\s+-\s+unknown \(path missing\); missing; prunable\s+\/missing\n/);
+  expect(result.stdout).toMatch(/primary\s+main\s+-\s+-\s+unknown \(cannot read status\); locked\s+\/repo\n/);
+  expect(result.stdout).toMatch(/linked\s+\(detached HEAD\)\s+-\s+-\s+unknown \(path missing\); missing; prunable\s+\/missing\n/);
 });
 
 test("untracked files make a worktree dirty while ignored files remain explicitly visible", async () => {
@@ -78,8 +78,8 @@ test("untracked files make a worktree dirty while ignored files remain explicitl
 test("control characters in paths and status reasons cannot forge additional rows", async () => {
   const result = await list([worktreeFixture({ path: "/repo\nforged\tpath\u001b[31m",
     status: { kind: "unknown", reason: "failure\nforged" } })]);
-  expect(result.stdout).toMatch(/WORKTREE\s+BRANCH\s+WORKFLOW\s+STATUS\s+PATH\n/);
-  expect(result.stdout).toMatch(/primary\s+main\s+-\s+unknown \("failure\\nforged"\)\s+"\/repo\\nforged\\tpath\\u001b\[31m"\n/);
+  expect(result.stdout).toMatch(/WORKTREE\s+BRANCH\s+BASE\s+WORKFLOW\s+STATUS\s+PATH\n/);
+  expect(result.stdout).toMatch(/primary\s+main\s+-\s+-\s+unknown \("failure\\nforged"\)\s+"\/repo\\nforged\\tpath\\u001b\[31m"\n/);
   expect(result.stderr).toBe("");
 });
 
@@ -105,7 +105,7 @@ test("list shows assigned workflows in aligned columns and preserves all rows", 
   expect(lines[0]).toContain("WORKFLOW");
   expect(lines[1]).toContain("-");
   expect(lines[2]).toContain("review");
-  expect(lines[0]!.indexOf("WORKFLOW")).toBe(lines[1]!.indexOf("-"));
+  expect(lines[0]!.indexOf("WORKFLOW")).toBe(lines[1]!.lastIndexOf("-"));
   expect(lines[0]!.indexOf("WORKFLOW")).toBe(lines[2]!.lastIndexOf("review"));
 });
 
@@ -129,18 +129,18 @@ test("every list column aligns for full mixed status, Unicode, workflow, and esc
       : tree.path.startsWith("/z") ? { kind: "assigned", name: "review" } : { kind: "unassigned" },
   });
   const cells = [
-    ["WORKTREE", "BRANCH", "WORKFLOW", "STATUS", "PATH"],
-    ["primary", "very-long-primary-branch-name", "long_workflow_name", "clean", "/repo"],
-    ["linked", "(detached HEAD)", "-", "clean", "/a detached"],
-    ["linked", "界e\u0301", "?", "unknown (path missing); missing; locked; prunable", "/b 界e\u0301"],
-    ["linked", '"control\\nbranch"', "-", 'unknown ("failure\\n\\u001b[2J")', '"/c\\n\\t\\u001b[2J"'],
-    ["linked", "🇺🇸1️⃣", "review", "dirty (1 modified, 1 untracked); 1 ignored", "/z flag 🇺🇸1️⃣"],
+    ["WORKTREE", "BRANCH", "BASE", "WORKFLOW", "STATUS", "PATH"],
+    ["primary", "very-long-primary-branch-name", "-", "long_workflow_name", "clean", "/repo"],
+    ["linked", "(detached HEAD)", "-", "-", "clean", "/a detached"],
+    ["linked", "界e\u0301", "-", "?", "unknown (path missing); missing; locked; prunable", "/b 界e\u0301"],
+    ["linked", '"control\\nbranch"', "-", "-", 'unknown ("failure\\n\\u001b[2J")', '"/c\\n\\t\\u001b[2J"'],
+    ["linked", "🇺🇸1️⃣", "-", "review", "dirty (1 modified, 1 untracked); 1 ignored", "/z flag 🇺🇸1️⃣"],
   ];
   const widths = cells.map(row => row.map(cell => cell.length));
   widths[3]![1] = 3;
-  widths[3]![4] = 6;
+  widths[3]![5] = 6;
   widths[5]![1] = 4;
-  widths[5]![4] = 12;
+  widths[5]![5] = 12;
   expect(result.exitCode).toBe(0);
   expectColumnPositions(result.stdout, cells, widths);
   expect(trees).toEqual(before);
@@ -199,7 +199,7 @@ test("list shows a saved name even when its definition is missing", async () => 
   });
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(result.stdout).toMatch(/primary\s+main\s+retired\s+clean\s+\/repo\n/);
+  expect(result.stdout).toMatch(/primary\s+main\s+-\s+retired\s+clean\s+\/repo\n/);
 });
 
 test("list keeps every Git row when an association is malformed or stale", async () => {
@@ -211,8 +211,8 @@ test("list keeps every Git row when an association is malformed or stale", async
       ? { kind: "invalid", reason: "malformed" } : { kind: "invalid", reason: "stale" },
   });
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toMatch(/primary\s+main\s+\?\s+clean\s+\/repo\n/);
-  expect(result.stdout).toMatch(/linked\s+feature\s+\?\s+clean\s+\/repo-worktrees\/feature\n/);
+  expect(result.stdout).toMatch(/primary\s+main\s+-\s+\?\s+clean\s+\/repo\n/);
+  expect(result.stdout).toMatch(/linked\s+feature\s+-\s+\?\s+clean\s+\/repo-worktrees\/feature\n/);
   expect(result.stderr).toContain("/repo (malformed)");
   expect(result.stderr).toContain("/repo-worktrees/feature (stale)");
 });

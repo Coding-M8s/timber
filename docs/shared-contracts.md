@@ -461,7 +461,25 @@ execution and safe result/recovery reporting; `resolveRebaseTarget` reuses ordin
 selection and maps a detached paused rebase through Git's saved head-name solely
 for recovery lookup. Ordinary open/done selection is unchanged. Operational
 failures reject; actual rebase results return numeric status. It never invokes launch/setup seams.
-Existing shared base resolution retains its local semantics; rebase resolves only
-remote branches. Git-operation detection is shared with cleanup's initial/final
+Existing shared base resolution retains its local semantics; rebase resolves remote
+branches and explicitly identified local branches. Git-operation detection is shared
+with cleanup's initial/final
 checks, preserving staged paused operations. No existing service signature changes.
 See [rebase behavior](cli-contract.md#rebase-an-existing-worktree-tim-28).
+
+## Saved worktree base association (#79)
+
+`readBaseAssociation(repository, worktree)` returns assigned canonical `ref`,
+unassigned, or invalid (malformed/stale/unreadable). `writeBaseAssociation(repository,
+worktree, ref)` validates a canonical local/remote ref, binds the record to reciprocal
+Git identity, and writes atomically with private permissions. Records contain no
+commit snapshot or credentials. Explicit reassignment can replace stale identities;
+malformed/unreadable metadata fails before Git mutation. `new` saves its resolved
+base before setup/launch. `ls` renders the association without network discovery.
+
+`rebaseWorktree` keeps its existing service signature and owns saved selection,
+explicit local ref resolution, fresh remote fetch, local direct-ref/tip revalidation,
+and outcome-dependent persistence. Save only on success/no-op or verified paused
+conflicts, preserving the old record for other failures. Local bases use
+`refs/heads/<branch>`; existing plain-name remote semantics are unchanged. `done`,
+`open`, shared creation-base resolution, and arena behavior remain unchanged.

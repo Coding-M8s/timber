@@ -80,8 +80,8 @@ test("new, setup retry, open, ls, and safe cleanup work across one real reposito
       expect(listing.exitCode).toBe(0);
       expect(listing.stderr).toBe("");
       const rows = listing.stdout.split("\n");
-      expect(rows.find(row => row.endsWith(primary))).toMatch(/primary\s+main\s+-\s+clean; 1 ignored/);
-      expect(rows.find(row => row.endsWith(workflowTree))).toMatch(/linked\s+TIM-16-workflow\s+-\s+clean; 1 ignored/);
+      expect(rows.find(row => row.endsWith(primary))).toMatch(/primary\s+main\s+-\s+-\s+clean; 1 ignored/);
+      expect(rows.find(row => row.endsWith(workflowTree))).toMatch(/linked\s+TIM-16-workflow\s+refs\/heads\/main\s+-\s+clean; 1 ignored/);
     }
     expect(fromNested.stdout).toBe(fromPrimary.stdout);
     expect(fromLinked.stdout).toBe(fromPrimary.stdout);

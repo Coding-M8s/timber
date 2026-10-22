@@ -17,6 +17,8 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     resolveBase: unexpected("resolveBase"),
     resolveOpenTarget: unexpected("resolveOpenTarget"),
     createWorktree: unexpected("createWorktree"),
+    readBaseAssociation: async () => ({ kind: "unassigned" }),
+    writeBaseAssociation: async () => {},
     readWorkflowAssociation: async () => ({ kind: "unassigned" }),
     writeWorkflowAssociation: unexpected("writeWorkflowAssociation"),
     rebaseWorktree: unexpected("rebaseWorktree"),

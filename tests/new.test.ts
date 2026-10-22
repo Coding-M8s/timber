@@ -457,3 +457,27 @@ test("new stops before creation and editor when base selection fails", async () 
   expect(calls).toEqual(["base"]);
   expect(h.output()).toBe("");
 });
+
+test("new saves the resolved base before setup and retains creation when saving fails", async () => {
+  for (const fails of [false, true]) {
+    const calls: string[] = [];
+    const repository = repositoryFixture();
+    const tree = worktreeFixture({ path: "/repo-worktrees/feature", branch: "feature", isPrimary: false });
+    const handler = createNewHandler(createServiceDouble({
+      discoverRepository: async () => repository,
+      loadConfig: async () => ({ ...config, hooks: { postCreate: ["setup"] } }),
+      resolveBase: async () => base,
+      createWorktree: async () => { calls.push("create"); return tree; },
+      writeBaseAssociation: async (repo, created, ref) => {
+        expect([repo, created, ref]).toEqual([repository, tree, "refs/heads/other"]);
+        calls.push("save");
+        if (fails) throw new Error("Cannot save base; worktree retained");
+      },
+      runSetup: async () => { calls.push("setup"); },
+      launchEditor: async () => { calls.push("editor"); return { kind: "skipped" }; },
+    }));
+    if (fails) await expect(handler("feature", {}, context().value)).rejects.toThrow(/worktree retained.*\/repo-worktrees\/feature.*timber rebase/s);
+    else await handler("feature", {}, context().value);
+    expect(calls).toEqual(fails ? ["create", "save"] : ["create", "save", "setup", "editor"]);
+  }
+});
