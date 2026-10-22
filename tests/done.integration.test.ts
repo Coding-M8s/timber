@@ -222,6 +222,7 @@ test.each(["unmerged", "unknown-base"])("done removes published %s review work a
   });
 });
 
+// Allow fixture Git operations and preservation checks in addition to the CLI's own timeout.
 test.each(["unpublished", "no-upstream", "offline", "rewritten-upstream", "ambiguous-base", "self-base"])("done refuses %s unproven work with both options and preserves all refs and bytes", async scenario => {
   await withRepository(async (primary, directory) => {
     const path = await target(primary, directory);
@@ -253,7 +254,7 @@ test.each(["unpublished", "no-upstream", "offline", "rewritten-upstream", "ambig
     expect(await readFile(join(path, "feature.txt"), "utf8")).toBe("feature bytes\n");
     if (remote !== null) expect(await git(remote, "show-ref")).toBe(remoteRefs!);
   });
-});
+}, 15_000);
 
 test("done accepts base containment offline, including a contained detached worktree", async () => {
   await withRepository(async (primary, directory) => {
