@@ -154,7 +154,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .action(() => handlers.list(context));
 
   program.command("done <branch-or-worktree>")
-    .option("--base <ref>", "Verify integration against this base instead of the configured/default branch")
+    .option("--base <ref>", "Verify integration against this base instead of the saved/configured/default branch")
     .description("Remove a linked worktree, discard ignored files, and delete its branch when published or integrated")
     .option(
       "--keep-branch",

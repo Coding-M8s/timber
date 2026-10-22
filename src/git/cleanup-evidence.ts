@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from "node:path";
 import { execa } from "execa";
 import { gitOperation } from "./operations";
 import { resolveBase } from "./branches";
+import { readBaseAssociation } from "./base-metadata";
 import { hasIntegratedContent } from "./cleanup-integration";
 import { discoverRepository } from "./repository";
 import { assertWorktreeIdentity, listWorktrees } from "./worktrees";
@@ -18,6 +19,8 @@ export type CleanupEvidence = {
   /** Private comparison data; may contain a credential-bearing URL. Never display it. */
   upstreamIdentity?: string;
   validatedBase: ValidatedBase | null;
+  /** Selected explicit or saved input, retained after worktree metadata is removed. */
+  baseInput: string | undefined;
 };
 
 export type CleanupPublication = { state: PublicationState; upstreamCommit: string | null; upstreamIdentity?: string };
@@ -286,14 +289,22 @@ async function readCleanupEvidenceImpl(
     }
   }
 
+  const association = await readBaseAssociation(freshRepository, tree);
+  if (association.kind === "invalid" && (association.reason !== "stale" || explicitBase === undefined)) {
+    throw new Error("Cannot read saved base association; inspect the worktree's private Git metadata, then select a replacement with --base <ref>.");
+  }
+  const baseInput = explicitBase ?? (association.kind === "assigned" ? association.ref : undefined);
   let base: ValidatedBase | null = null;
   try {
-    base = await resolveBase(freshRepository, config, explicitBase);
+    base = await resolveBase(freshRepository, config, baseInput);
+    if (explicitBase === undefined && association.kind === "assigned" && base.ref !== association.ref) {
+      throw new Error("Saved base branch is missing; select a replacement with --base <ref> and retry.");
+    }
   } catch (error) {
-    if (explicitBase !== undefined) throw error;
+    if (baseInput !== undefined) throw error;
     // An invalid or ambiguous base is explanatory unknown evidence, never permission.
   }
-  if (explicitBase !== undefined && branchRef !== null && base?.ref === branchRef) {
+  if (baseInput !== undefined && branchRef !== null && base?.ref === branchRef) {
     throw new Error(UNKNOWN_SELF_BASE);
   }
   const [ancestryState, publicationEvidence] = await Promise.all([
@@ -318,6 +329,7 @@ async function readCleanupEvidenceImpl(
     ...("upstreamIdentity" in publicationEvidence && publicationEvidence.upstreamIdentity !== undefined
       ? { upstreamIdentity: publicationEvidence.upstreamIdentity } : {}),
     validatedBase: base,
+    baseInput,
   };
 }
 

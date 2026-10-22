@@ -2,7 +2,7 @@
 
 Timber remembers the branch selected when `timber new` creates a worktree. `timber ls`
 shows that choice in its BASE column, alongside the workflow. The saved base is the
-intended target for future rebases; it follows the branch's current tip.
+intended target for future rebases and cleanup; it follows the branch's current tip.
 
 ```sh
 timber new my-feature --base origin/main
@@ -10,7 +10,7 @@ timber ls
 timber rebase my-feature
 ```
 
-Rebase chooses its base in this order:
+`rebase` and `done` choose their base in this order:
 
 1. Explicit `--base`.
 2. The worktree's saved base.
@@ -61,5 +61,9 @@ records before retrying; an explicit rebase base can replace a stale identity re
 If saving fails after Git finishes or pauses, the diagnostic reports that actual
 outcome and gives recovery guidance. Timber never resets or aborts to undo it.
 
-Saved bases affect rebase only. Cleanup keeps its existing rules; use
-`timber done my-feature --base <ref>` to choose a cleanup integration target.
+`done` uses the saved base to verify integration, including work merged into an
+epic branch. Remote bases are refreshed before cleanup; local bases stay local.
+A missing saved branch or invalid metadata stops cleanup instead of falling back.
+Use `timber done my-feature --base <ref>` for a one-off cleanup target; this never
+changes the saved association. Cleanup still requires clean files and proven
+publication or integration. Changes to the saved base during cleanup stop removal.

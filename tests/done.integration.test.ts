@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { git, withRepository } from "./helpers/git";
+import { writeBaseAssociation } from "../src/git/base-metadata";
+import { discoverRepository } from "../src/git/repository";
+import { listWorktrees } from "../src/git/worktrees";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (cwd: string, ...args: string[]) => execa(process.execPath, [entry, "done", ...args], {
@@ -60,6 +63,13 @@ async function removed(primary: string, path: string, branch: string | null, del
     expect(ref.exitCode).toBe(deleted ? 1 : 0);
   }
   expect(await readFile(join(primary, "tracked.txt"), "utf8")).toBe("original\n");
+}
+
+async function saveBase(primary: string, path: string, ref: string) {
+  const repository = await discoverRepository(primary);
+  const tree = (await listWorktrees(repository)).find(tree => tree.path === path)!;
+  await writeBaseAssociation(repository, tree, ref);
+  return join(await git(path, "rev-parse", "--absolute-git-dir"), "timber", "base.json");
 }
 
 test.each(["branch", "path", "ticket", "remote"])("done selects a merged manual worktree by %s and preserves unrelated work and remote refs", async selector => {
@@ -613,6 +623,86 @@ async function mergedIntoParent(primary: string, directory: string, squash = fal
   return { path, child };
 }
 
+test.each(["merge", "squash", "rebase", "keep-branch"])("done uses the saved epic base instead of config: %s", async scenario => {
+  await withRepository(async (primary, directory) => {
+    const { path, child } = await mergedIntoParent(primary, directory, scenario === "squash", scenario === "rebase");
+    await saveBase(primary, path, "refs/heads/feature/parent");
+    const parent = await git(primary, "rev-parse", "feature/parent");
+    const trunk = await git(primary, "rev-parse", "trunk");
+    const config = await readFile(join(primary, ".timber.toml"));
+    const result = await cli(primary, path, ...(scenario === "keep-branch" ? ["--keep-branch"] : []));
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    await removed(primary, path, "feature/one", scenario !== "keep-branch");
+    if (scenario === "keep-branch") expect(await git(primary, "rev-parse", "feature/one")).toBe(child);
+    expect(await git(primary, "rev-parse", "feature/parent")).toBe(parent);
+    expect(await git(primary, "rev-parse", "trunk")).toBe(trunk);
+    expect(await readFile(join(primary, ".timber.toml"))).toEqual(config);
+  });
+});
+
+test("done explicit base overrides the saved choice without rewriting it", async () => {
+  await withRepository(async (primary, directory) => {
+    const { path } = await mergedIntoParent(primary, directory);
+    const file = await saveBase(primary, path, "refs/heads/trunk");
+    const record = await readFile(file, "utf8");
+    const before = await snapshot(primary);
+    expect((await cli(primary, path)).exitCode).toBe(1);
+    await retained(primary, path, before);
+    expect(await readFile(file, "utf8")).toBe(record);
+    const result = await cli(primary, path, "--base", "refs/heads/feature/parent");
+    expect(result.exitCode).toBe(0);
+    await removed(primary, path, "feature/one", true);
+  });
+});
+
+test.each(["missing", "missing-local-shadow", "missing-remote-shadow", "self", "malformed", "stale"])("done refuses a %s saved base even with published work", async scenario => {
+  await withRepository(async (primary, directory) => {
+    const path = await target(primary, directory);
+    await upstream(primary, directory, path);
+    const file = await saveBase(primary, path, scenario === "self" ? "refs/heads/feature/one" : "refs/heads/trunk");
+    if (scenario.startsWith("missing")) {
+      const ref = scenario === "missing-remote-shadow" ? "refs/remotes/backup/missing" : "refs/heads/missing";
+      if (scenario !== "missing") await git(primary, "branch", ref);
+      const record = JSON.parse(await readFile(file, "utf8"));
+      await writeFile(file, JSON.stringify({ ...record, ref }));
+    } else if (scenario === "malformed") await writeFile(file, "invalid JSON");
+    else if (scenario === "stale") {
+      const record = JSON.parse(await readFile(file, "utf8"));
+      await writeFile(file, JSON.stringify({ ...record, worktreePath: primary }));
+    }
+    const record = await readFile(file, "utf8");
+    const before = await snapshot(primary);
+    const result = await cli(primary, path, "--keep-branch");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/base/i);
+    await retained(primary, path, before);
+    expect(await readFile(file, "utf8")).toBe(record);
+    const override = await cli(primary, path, "--base", "refs/heads/trunk");
+    expect(override.exitCode).toBe(scenario === "malformed" ? 1 : 0);
+    if (scenario === "malformed") await retained(primary, path, before);
+    else await removed(primary, path, "feature/one", true);
+  });
+});
+
+test("done rechecks the saved base association after hooks even when both bases contain the branch", async () => {
+  await withRepository(async (primary, directory) => {
+    const path = await target(primary, directory);
+    const file = await saveBase(primary, path, "refs/heads/trunk");
+    await git(primary, "branch", "other");
+    const hook = join(directory, "change-base.sh");
+    await writeFile(hook, 'sed -i "s@refs/heads/trunk@refs/heads/other@" "$TIMBER_BASE_RECORD"\n');
+    await writeFile(join(primary, ".timber.toml"), `base_branch = "trunk"\n[hooks]\npre_delete = ['sh "${hook}"']\n`);
+    const before = await snapshot(primary);
+    const result = await execa(process.execPath, [entry, "done", path], {
+      cwd: primary, reject: false, timeout: 5_000, env: { CI: "true", TIMBER_BASE_RECORD: file },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/base.*changed/i);
+    await retained(primary, path, before);
+  });
+});
+
 test.each(["merge", "squash", "rebase", "keep-branch", "remote"])("done uses an explicit non-default base without changing TOML: %s", async scenario => {
   await withRepository(async (primary, directory) => {
     const { path, child } = await mergedIntoParent(primary, directory, scenario === "squash", scenario === "rebase");
@@ -675,17 +765,21 @@ test.each(["wrong-base", "dirty", "untracked", "keep-ignored"])("done explicit b
   });
 });
 
-// A moving explicit base must be caught even if publication independently permits cleanup.
-test.each(["hook", "after-remove"])("done revalidates explicit base at %s and preserves the branch", async phase => {
+// A moving selected base must be caught even if publication independently permits cleanup.
+test.each([
+  ["explicit", "hook"], ["explicit", "after-remove"], ["saved", "hook"], ["saved", "after-remove"],
+])("done revalidates %s base at %s and preserves the branch", async (selection, phase) => {
   await withRepository(async (primary, directory) => {
     const { path, child } = await mergedIntoParent(primary, directory);
+    if (selection === "saved") await saveBase(primary, path, "refs/heads/feature/parent");
+    const flags = selection === "explicit" ? ["--base", "feature/parent"] : [];
     await upstream(primary, directory, path);
     const trunk = await git(primary, "rev-parse", "trunk");
     const before = await snapshot(primary);
     let result;
     if (phase === "hook") {
       await writeFile(join(primary, ".timber.toml"), `base_branch = "trunk"\n[hooks]\npre_delete = ['git update-ref refs/heads/feature/parent refs/heads/trunk']\n`);
-      result = await cli(primary, path, "--base", "feature/parent");
+      result = await cli(primary, path, ...flags);
     } else {
       const wrapperDir = join(directory, "base race git");
       await mkdir(wrapperDir);
@@ -700,7 +794,7 @@ test.each(["hook", "after-remove"])("done revalidates explicit base at %s and pr
         'exec "$TIMBER_REAL_GIT" "$@"', "",
       ].join("\n"));
       await chmod(join(wrapperDir, "git"), 0o755);
-      result = await execa(process.execPath, [entry, "done", path, "--base", "feature/parent"], {
+      result = await execa(process.execPath, [entry, "done", path, ...flags], {
         cwd: primary, reject: false, timeout: 5_000,
         env: { CI: "true", PATH: `${wrapperDir}:${process.env.PATH}`, TIMBER_REAL_GIT: realGit },
       });
@@ -723,7 +817,7 @@ test.each(["hook", "after-remove"])("done revalidates explicit base at %s and pr
 });
 
 
-test.each(["explicit", "configured", "default"])("done refreshes a stale remote base automatically: %s", async selection => {
+test.each(["explicit", "saved", "configured", "default"])("done refreshes a stale remote base automatically: %s", async selection => {
   await withRepository(async (primary, directory) => {
     const path = await target(primary, directory);
     const remote = join(directory, "base.git");
@@ -743,8 +837,10 @@ test.each(["explicit", "configured", "default"])("done refreshes a stale remote 
     expect(feature).not.toBe(tip);
     expect(await git(primary, "rev-parse", "backup/trunk")).toBe(original);
     await git(primary, "symbolic-ref", "refs/remotes/backup/HEAD", "refs/remotes/backup/trunk");
-    const config = selection === "configured" ? 'base_branch = "backup/trunk"\n' : "";
+    const config = selection === "configured" ? 'base_branch = "backup/trunk"\n'
+      : selection === "saved" ? 'base_branch = "refs/heads/trunk"\n' : "";
     await writeFile(join(primary, ".timber.toml"), config);
+    if (selection === "saved") await saveBase(primary, path, "refs/remotes/backup/trunk");
     const remoteRefs = await git(remote, "show-ref");
 
     const result = await cli(primary, path, ...(selection === "explicit" ? ["--base", "backup/trunk"] : []));
@@ -759,15 +855,17 @@ test.each(["explicit", "configured", "default"])("done refreshes a stale remote 
   });
 });
 
-test.each(["explicit", "configured", "default"])("done retains integrated work when its remote base cannot refresh: %s", async selection => {
+test.each(["explicit", "saved", "configured", "default"])("done retains integrated work when its remote base cannot refresh: %s", async selection => {
   await withRepository(async (primary, directory) => {
     const path = await target(primary, directory);
     const remote = await upstream(primary, directory, path);
     await git(primary, "push", "backup", "trunk");
     await git(primary, "symbolic-ref", "refs/remotes/backup/HEAD", "refs/remotes/backup/trunk");
     const marker = join(directory, "hook-ran");
-    const config = selection === "configured" ? 'base_branch = "backup/trunk"\n' : "";
+    const config = selection === "configured" ? 'base_branch = "backup/trunk"\n'
+      : selection === "saved" ? 'base_branch = "refs/heads/trunk"\n' : "";
     await writeFile(join(primary, ".timber.toml"), config + `[hooks]\npre_delete = ['touch "${marker}"']\n`);
+    if (selection === "saved") await saveBase(primary, path, "refs/remotes/backup/feature/one");
     await git(primary, "remote", "set-url", "backup", join(directory, "unavailable.git"));
     await writeFile(join(path, ".env"), "preserve ignored bytes\n");
     const before = await snapshot(primary);
