@@ -30,6 +30,7 @@ import { createWorktree } from "./git/create-worktree";
 import { resolveOpenTarget } from "./git/open-target";
 import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
+import { readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
 import { readWorkflowAssociation, writeWorkflowAssociation } from "./git/workflow-metadata";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
 import { createTerminalChooser, shouldEnableInteractiveSelection } from "./selection";
@@ -72,7 +73,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
-      createWorktree, writeWorkflowAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
+      createWorktree, writeBaseAssociation, writeWorkflowAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
     }),
     open: createOpenHandler({
       discoverRepository,
@@ -85,7 +86,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
       launchEditorTerminals,
     }),
     list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig,
-      readWorkflowAssociation }),
+      readWorkflowAssociation, readBaseAssociation }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
     done: createDoneHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,

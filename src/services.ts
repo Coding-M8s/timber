@@ -4,6 +4,7 @@ import type {
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
+import type { BaseAssociationRead } from "./git/base-metadata";
 import type { WorkflowAssociationRead } from "./git/workflow-metadata";
 import type { TerminalChooser } from "./selection";
 
@@ -36,9 +37,11 @@ export interface CommandServices {
    * Default path: ../<repository-name>-worktrees/<safe-branch-slug>.
    */
   createWorktree(repository: RepositoryContext, request: CreateWorktreeRequest, config: RepositoryConfig): Promise<Worktree>;
+  readBaseAssociation(repository: RepositoryContext, worktree: Worktree): Promise<BaseAssociationRead>;
+  writeBaseAssociation(repository: RepositoryContext, worktree: Worktree, ref: string): Promise<void>;
   readWorkflowAssociation(repository: RepositoryContext, worktree: Worktree): Promise<WorkflowAssociationRead>;
   writeWorkflowAssociation(repository: RepositoryContext, worktree: Worktree, name: string): Promise<void>;
-  /** TIM-28: fetch a remote base and rebase only a verified, clean registered worktree. */
+  /** TIM-28: select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     explicitBase: string | undefined, io: CommandIO): Promise<number>;
   /** TIM-5: inspect all file classes and publication/validated-base integration. */

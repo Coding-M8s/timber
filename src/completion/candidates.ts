@@ -16,12 +16,12 @@ function filtered(values: readonly string[], prefix: string): string[] {
 }
 
 /** Raw selectors, independent of any shell's quoting or transport protocol. */
-async function repositoryCandidates(cwd: string, mode: "open" | "done" | "rebase" | "base" | "remote-base"): Promise<string[]> {
+async function repositoryCandidates(cwd: string, mode: "open" | "done" | "rebase" | "base" | "rebase-base"): Promise<string[]> {
   try {
     // One deadline for the whole lookup keeps a stalled Git from hanging the Tab press.
     const options: GitReadOptions = { signal: AbortSignal.timeout(1000) };
     const repository = await discoverRepository(cwd, options);
-    const trees = (mode === "base" || mode === "remote-base") ? [] : await listWorktreeInventory(repository, options);
+    const trees = (mode === "base" || mode === "rebase-base") ? [] : await listWorktreeInventory(repository, options);
     const isRemoteSelector = (name: string) => repository.remotes.some(remote => name.startsWith(remote.name + "/"));
     const registrations = new Map<string, number>();
     for (const tree of trees) {
@@ -31,10 +31,10 @@ async function repositoryCandidates(cwd: string, mode: "open" | "done" | "rebase
     const values = trees.filter(tree => mode !== "done" || !tree.isPrimary)
       .flatMap(tree => tree.branch === null || isRemoteSelector(tree.branch)
         || registrations.get(tree.branch) !== 1 ? [tree.path] : [tree.path, tree.branch]);
-    if (mode === "open" || mode === "base" || mode === "remote-base") {
+    if (mode === "open" || mode === "base" || mode === "rebase-base") {
       values.push(...(await listBranches(repository, options)).flatMap(branch => {
         if (branch.kind === "remote") return [branch.remote + "/" + branch.name];
-        if (mode === "remote-base") return [];
+        if (mode === "rebase-base") return [branch.ref];
         if ((registrations.get(branch.name) ?? 0) > 1) return [];
         // Normal resolution reserves remote/name for explicit remote selectors.
         // Base resolution also accepts full refs; open uses absolute tree paths.
@@ -93,13 +93,13 @@ export async function completionCandidates(program: Command, request: Completion
   if (expectingValue) {
     const previous = words.at(-1);
     if (previous === "--tool" && command.parent?.name() === "arena") return filtered(["codex", "claude", "cursor", "manual"], prefix);
-    return previous === "--base" ? filtered(await repositoryCandidates(cwd, command.name() === "rebase" ? "remote-base" : "base"), prefix) : [];
+    return previous === "--base" ? filtered(await repositoryCandidates(cwd, command.name() === "rebase" ? "rebase-base" : "base"), prefix) : [];
   }
   if (!endOptions && prefix.startsWith("--tool=") && command.parent?.name() === "arena") {
     return filtered(["codex", "claude", "cursor", "manual"].map(value => "--tool=" + value), prefix);
   }
   if (!endOptions && prefix.startsWith("--base=") && options.some(option => option.long === "--base")) {
-    return filtered((await repositoryCandidates(cwd, command.name() === "rebase" ? "remote-base" : "base")).map(value => "--base=" + value), prefix);
+    return filtered((await repositoryCandidates(cwd, command.name() === "rebase" ? "rebase-base" : "base")).map(value => "--base=" + value), prefix);
   }
   if (!endOptions && prefix.startsWith("-")) {
     return filtered(options.flatMap(option => [option.short, option.long].filter((flag): flag is string => !!flag)), prefix);

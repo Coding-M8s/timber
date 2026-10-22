@@ -1,3 +1,4 @@
+import { writeBaseAssociation } from "../src/git/base-metadata";
 import { expect, test } from "bun:test";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -195,7 +196,7 @@ function handlersFor(
   const shared = {
     discoverRepository,
     loadConfig: loadRepositoryConfig,
-    createWorktree,
+    createWorktree, writeBaseAssociation,
     readWorkflowAssociation: async () => ({ kind: "unassigned" } as const),
     writeWorkflowAssociation: async () => {},
     runSetup: async (...args: Parameters<typeof runSetup>) => {

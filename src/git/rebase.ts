@@ -2,11 +2,12 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { constants } from "node:os";
 import { execa } from "execa";
-import { bashAnsiCQuote, jsonDisplay, safeDisplay, FormattedError } from "../display";
+import { bashAnsiCQuote, shellQuoteForDisplay, jsonDisplay, safeDisplay, FormattedError } from "../display";
 import type { CommandIO } from "../services";
 import type { OpenTarget, RepositoryConfig, RepositoryContext, Resolution, Worktree } from "../types";
 import { assertWorktreeIdentity, listWorktrees } from "./worktrees";
 import { gitOperation } from "./operations";
+import { readBaseAssociation, writeBaseAssociation } from "./base-metadata";
 import { resolveOpenTarget } from "./open-target";
 
 const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -71,12 +72,14 @@ async function preflight(repository: RepositoryContext, selected: Worktree, gitD
 
 async function remoteBase(repository: RepositoryContext, config: RepositoryConfig, explicit: string | undefined, cwd: string) {
   const input = explicit ?? config.baseBranch;
+  const canonical = input?.startsWith("refs/remotes/") === true;
   const qualified = input === null ? undefined : [...repository.remotes].sort((a, b) => b.name.length - a.name.length)
-    .find(remote => input.startsWith(remote.name + "/"));
+    .find(remote => input.startsWith((canonical ? "refs/remotes/" : "") + remote.name + "/"));
+  if (canonical && !qualified) throw new Error("Saved remote base no longer exists; choose a replacement with --base <ref>.");
   const remoteName = qualified?.name ?? config.remote ?? (repository.remotes.length === 1 ? repository.remotes[0]!.name : null);
   const remote = repository.remotes.find(candidate => candidate.name === remoteName);
   if (!remote) throw new Error("Remote is missing or ambiguous; configure remote or use --base <remote/branch>.");
-  const requested = qualified ? input!.slice(qualified.name.length + 1) : input;
+  const requested = qualified ? input!.slice(qualified.name.length + 1 + (canonical ? "refs/remotes/".length : 0)) : input;
   if (requested !== null) {
     const checked = await git(cwd, ["check-ref-format", `refs/heads/${requested}`]);
     if (requested === "HEAD" || checked.exitCode !== 0) throw new Error("Invalid remote base branch; use a plain branch or remote/branch.");
@@ -98,7 +101,7 @@ async function remoteBase(repository: RepositoryContext, config: RepositoryConfi
   const fallback = ["main", "master"].filter(name => heads.has(name));
   const name = requested ?? defaultName ?? cachedDefault ?? (fallback.length === 1 ? fallback[0]! : null);
   if (!name || !heads.has(name)) throw new Error("Remote base is missing or ambiguous; use --base <remote/branch>.");
-  return { remote: remote.name, name, advertisedCommit: heads.get(name)! };
+  return { remote: remote.name, name, advertisedCommit: heads.get(name)!, ref: `refs/remotes/${remote.name}/${name}` };
 }
 
 async function preserveIgnored(tree: Worktree, base: string): Promise<void> {
@@ -119,29 +122,79 @@ async function preserveIgnored(tree: Worktree, base: string): Promise<void> {
   }
 }
 
-/** Fetch one remote base, then rebase only the verified selected worktree. */
+async function localBase(cwd: string, ref: string): Promise<string> {
+  const valid = await git(cwd, ["check-ref-format", ref]);
+  const symbolic = await git(cwd, ["symbolic-ref", "--quiet", ref]);
+  if (valid.exitCode !== 0 || symbolic.exitCode !== 1) {
+    throw new Error("Local base must be a valid direct branch ref; select refs/heads/<branch> with --base.");
+  }
+  const result = await git(cwd, ["rev-parse", "--verify", `${ref}^{commit}`]);
+  const commit = result.stdout.trim();
+  if (result.exitCode !== 0 || !oid.test(commit)) {
+    throw new Error("Local base is missing or invalid; choose a replacement with --base refs/heads/<branch>.");
+  }
+  return commit;
+}
+
+/** Select a remembered/explicit base, fetching only remote bases. */
 export async function rebaseWorktree(
   repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
   explicitBase: string | undefined, io: CommandIO,
 ): Promise<number> {
   await preflight(repository, selected);
   const gitDirectory = await output(selected.path, ["rev-parse", "--absolute-git-dir"]);
-  const base = await remoteBase(repository, config, explicitBase, selected.path);
-  await preflight(repository, selected, gitDirectory);
-  const fetched = await git(selected.path, [
-    "fetch", "--no-tags", "--no-prune", "--no-prune-tags", "--no-recurse-submodules", "--refmap=", "--", base.remote,
-    `refs/heads/${base.name}`,
-  ], 10_000);
-  if (fetched.exitCode !== 0) throw new Error("Remote base fetch failed; check branch existence/authentication/network access. Rebase was not started; no cached fallback was used.");
-  const commit = await output(selected.path, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"]);
-  if (!oid.test(commit) || commit !== base.advertisedCommit) throw new Error("Fetched base moved or could not be validated; rebase was not started. Rerun to select the latest base.");
-  io.stdout(`Worktree: ${safeDisplay(selected.path)}\nBranch: ${safeDisplay(selected.branch!)}\nRemote base: ${safeDisplay(base.remote + "/" + base.name)}\nFetched base commit: ${commit}\nOriginal branch tip: ${selected.head}\n`);
+  const association = await readBaseAssociation(repository, selected);
+  if (association.kind === "invalid" && (association.reason !== "stale" || explicitBase === undefined)) {
+    throw new Error("Cannot read saved base association; inspect the worktree's private Git metadata, then select a replacement with --base <ref>.");
+  }
+  const input = explicitBase ?? (association.kind === "assigned" ? association.ref : undefined);
+  const localRef = input?.startsWith("refs/heads/") ? input : null;
+  if (localRef === `refs/heads/${selected.branch}`) throw new Error("Cannot use the target branch itself as its rebase base; select another branch with --base.");
+  let ref: string, commit: string, label: string;
+  if (localRef !== null) {
+    ref = localRef;
+    commit = await localBase(selected.path, ref);
+    label = ref;
+    io.stderr(`warning: Using local branch '${safeDisplay(ref.slice("refs/heads/".length))}' as the base. Timber will not fetch or pull it. Make sure it is up to date before rebasing.\n`);
+  } else {
+    const base = await remoteBase(repository, config, input, selected.path);
+    ref = base.ref;
+    label = base.remote + "/" + base.name;
+    await preflight(repository, selected, gitDirectory);
+    const fetched = await git(selected.path, [
+      "fetch", "--no-tags", "--no-prune", "--no-prune-tags", "--no-recurse-submodules", "--refmap=", "--", base.remote,
+      `refs/heads/${base.name}`,
+    ], 10_000);
+    if (fetched.exitCode !== 0) throw new Error("Remote base fetch failed; check branch existence/authentication/network access. Rebase was not started; no cached fallback was used.");
+    commit = await output(selected.path, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"]);
+    if (!oid.test(commit) || commit !== base.advertisedCommit) throw new Error("Fetched base moved or could not be validated; rebase was not started. Rerun to select the latest base.");
+  }
+  async function revalidateLocal() {
+    if (localRef !== null && await localBase(selected.path, localRef) !== commit) {
+      throw new Error("Local base changed; rebase was not started. Retry to select its latest tip.");
+    }
+  }
+  async function saveBase(paused: boolean) {
+    try {
+      if (await output(selected.path, ["rev-parse", "--absolute-git-dir"]) !== gitDirectory) throw new Error("Git identity changed");
+      const branch = paused
+        ? (await readFile(join(gitDirectory, "rebase-merge", "head-name"), "utf8")).trim()
+        : await output(selected.path, ["symbolic-ref", "--quiet", "HEAD"]);
+      if (branch !== `refs/heads/${selected.branch}`) throw new Error("Branch changed");
+      await writeBaseAssociation(repository, selected, ref);
+    } catch {
+      throw new FormattedError(`Git rebase ${paused ? "paused with conflicts" : "completed (or was already up to date)"}, but the base association could not be saved. Workspace retained; inspect private Git metadata and after resolving any operation, retry with:\ntimber rebase --base ${shellQuoteForDisplay(ref)} -- ${shellQuoteForDisplay(selected.path)}\n${paused ? recovery(selected.path) : "No automatic reset or abort was attempted."}`);
+    }
+  }
+  io.stdout(`Worktree: ${safeDisplay(selected.path)}\nBranch: ${safeDisplay(selected.branch!)}\n${localRef === null ? "Remote" : "Local"} base: ${safeDisplay(label)}\n${localRef === null ? "Fetched" : "Local"} base commit: ${commit}\nOriginal branch tip: ${selected.head}\n`);
   const tree = await preflight(repository, selected, gitDirectory);
+  await revalidateLocal();
   const contained = await git(selected.path, ["merge-base", "--is-ancestor", commit, selected.head!]);
-  if (contained.exitCode === 0) { io.stdout("Already up to date.\n"); return 0; }
+  if (contained.exitCode === 0) { await revalidateLocal(); await saveBase(false); io.stdout("Already up to date.\n"); return 0; }
   if (contained.exitCode !== 1) throw new Error("Cannot verify base ancestry; rebase was not started. Fetch metadata may have changed.");
   await preserveIgnored(tree, commit);
   await preflight(repository, selected, gitDirectory);
+  await revalidateLocal();
   let result;
   try {
     const child = execa("git", ["-c", "rebase.autoStash=false", "-c", "rebase.updateRefs=false",
@@ -161,17 +214,18 @@ export async function rebaseWorktree(
   } catch {
     throw new FormattedError(`Git rebase could not start or finish. Original branch tip: ${selected.head}. Workspace retained; no automatic abort/reset.\n${recovery(selected.path)}`);
   }
-  if (result.exitCode === 0) { io.stdout("Rebase completed (or already up to date).\n"); return 0; }
+  if (result.exitCode === 0) { await saveBase(false); io.stdout("Rebase completed (or already up to date).\n"); return 0; }
   let conflicts: string[] = [];
   try {
     const unmerged = await git(selected.path, ["diff", "--name-only", "--diff-filter=U", "-z"]);
     if (unmerged.exitCode === 0) conflicts = unmerged.stdout.split("\0").filter(Boolean);
   } catch { /* Recovery guidance still applies when inspection fails. */ }
   const status = result.signal ? 128 + constants.signals[result.signal] : result.exitCode ?? 1;
-  io.stderr(`error: ${conflicts.length ? "Rebase paused with conflicts" : result.signal ? `Rebase interrupted by ${result.signal}` : "Git rebase failed (hook rejection or another non-conflict error)"}. Workspace retained at ${safeDisplay(selected.path)}; branch ${safeDisplay(selected.branch!)}, base ${safeDisplay(base.remote + "/" + base.name)}, original tip ${selected.head}.\n`);
+  io.stderr(`error: ${conflicts.length ? "Rebase paused with conflicts" : result.signal ? `Rebase interrupted by ${result.signal}` : "Git rebase failed (hook rejection or another non-conflict error)"}. Workspace retained at ${safeDisplay(selected.path)}; branch ${safeDisplay(selected.branch!)}, base ${safeDisplay(label)}, original tip ${selected.head}.\n`);
   for (const path of conflicts) io.stderr(`  ${jsonDisplay(path)}\n`);
   let operation: string | null;
   try { operation = await gitOperation(selected.path); } catch { operation = "unknown"; }
+  if (conflicts.length && operation === "rebase" && !result.signal) await saveBase(true);
   io.stderr(operation === null
     ? "No in-progress Git operation was found. Inspect the worktree with git status before retrying; no automatic abort/reset was attempted.\n"
     : recovery(selected.path) + "\n");
