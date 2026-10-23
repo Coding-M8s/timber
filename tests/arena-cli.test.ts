@@ -78,7 +78,7 @@ test("arena nested command forwards literal options and propagates numeric statu
 
 test("nested arena completion derives subcommands, flags, and base refs without config reads", async () => {
   expect(await candidates("timber ar")).toEqual(["arena"]);
-  expect(await candidates("timber arena ")).toEqual(["help", "new"]);
+  expect(await candidates("timber arena ")).toEqual(["help", "new", "resume"]);
   expect(await candidates("timber arena new --prompt-f")).toEqual(["--prompt-file"]);
   expect(await candidates("timber arena new demo --no-")).toEqual([
     "--no-agent",

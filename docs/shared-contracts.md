@@ -488,3 +488,38 @@ cleanup, while an explicit override can bypass stale identity metadata. Cleanup
 never saves an override. Re-read the association before removal and carry its
 selected input past metadata removal for branch-deletion base revalidation.
 `open`, shared creation-base resolution, and arena behavior remain unchanged.
+
+## TIM-21 arena resume contract
+
+`ArenaResumeOptions` carries exact optional `attempt` label, `setup?: true`,
+`agent?: false`, and `editor?: boolean`. Optional `CommandHandlers.arenaResume`
+keeps existing embedders compatible. `ArenaResumeServices` exposes only repository,
+configuration, read/reopen/validation, executable, setup, editor and agent seams;
+it exposes no creation, bind, source resolution or cleanup authority.
+
+`openArenaForResume(repository, name, expectedManifest)` exclusively locks an existing
+arena and revalidates the full selection snapshot before returning
+`ArenaResumeSession` (manifest/taskPath/save/verifyTask/close; no bind). Existing locks
+are never adopted or removed. Creation and resume share only owned session operations;
+creation's initial-base/bind assumptions do not apply to evolved attempts. V1/V2 schema,
+UUIDs, task and markers are unchanged. Publication uses existing atomic writes;
+failed metadata prevents later external actions. Cancellation precedes lock acquisition.
+
+`recoverArenaParticipant(manifest, attemptId, config)` returns a `PlannedParticipant`
+with recorded identity and a fingerprint-proven literal command, or an actionable
+configuration-restoration error. It never consults fuzzy matchers/model catalogs.
+V2 source/model/requested-effort constrain reconstruction; V1 values stay unknown
+unless already recorded. Matching current literal arguments does not freeze native
+profiles/defaults or tool versions. `--no-agent` skips participant reconstruction.
+Explicit recorded Claude effort uses `arenaEffortEnvironment`; historical inherited
+observations remain observations. Neither schema nor history gains fabricated fields.
+
+Setup policy and uncertain-stage handling live in the
+[CLI resume contract](cli-contract.md#arena-resume-tim-21). In particular, revisiting
+without setup or agent launch never erases incomplete setup or previous outcomes.
+Git/task/lock validation precedes each external boundary, including after awaited
+editor startup. `arenaResumeRetry` provides exact record-based retry display for both
+creation failures and resume failures, preserving explicit agent/editor choices.
+`arenaToolExecutable` shares native CLI mapping between creation and recovery.
+No membership/session operation authorizes
+cleanup, comparison, winner selection, merging or publishing for TIM-22.

@@ -4,10 +4,16 @@ import { isArenaEffort } from "./effort";
 import type { ExecutableCommand, RepositoryConfig } from "../types";
 import type {
   ArenaParticipantConfig,
+  ArenaTool,
   PlannedParticipant,
   ArenaAttemptGroup,
   ArenaGroupToken,
 } from "./types";
+
+/** Native CLI names, shared by creation and recorded-configuration recovery. */
+export function arenaToolExecutable(tool: Exclude<ArenaTool, "wrapper">): string {
+  return tool === "cursor" ? "cursor-agent" : tool;
+}
 
 export const arenaNamePattern = /^[a-z][a-z0-9_-]{0,47}$/u;
 export function validateArenaName(name: string): void {
@@ -222,7 +228,7 @@ export function resolveArenaGroups(
         ? {
             tool: group.harness as "codex" | "claude" | "cursor",
             // Avoid the editor executable and the ambiguous `agent` binary.
-            command: group.harness === "cursor" ? "cursor-agent" : group.harness,
+            command: arenaToolExecutable(group.harness as Exclude<ArenaTool, "wrapper">),
             args: [],
             ...(group.model === null ? {} : { model: group.model }),
             ...(group.effort == null ? {} : { effort: group.effort }),

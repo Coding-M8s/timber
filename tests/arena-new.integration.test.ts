@@ -314,6 +314,9 @@ for (const failure of [
         ).toBe("keep hook work");
       expect(output()).not.toContain("SECRET");
       expect(output()).toContain("retained");
+      if (failure !== "creation") {
+        expect(output()).toContain(`timber arena resume demo --attempt custom-1${failure === "setup" ? " --setup" : ""}`);
+      }
     });
   });
 

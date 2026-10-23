@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 import { resolveArenaSource, finalizeArenaSource } from "./arena/source";
+import { createArenaResumeHandler } from "./commands/arena-resume";
 import { createArenaNewHandler } from "./commands/arena-new";
 import { collectArenaInput } from "./arena/input";
 import { confirmArenaPlan, chooseArenaSource } from "./arena/prompt";
 import { planArenaDraft } from "./arena/plan";
-import { reserveArena, validateArenaAttempt } from "./arena/storage";
+import { reserveArena, readArena, openArenaForResume, validateArenaAttempt } from "./arena/storage";
 import { showInstallationHint } from "./guidance";
 import { runEditorTask } from "./editor-terminals/runner";
 import { createEditorTerminalLauncher } from "./editor-terminals/launch";
@@ -67,6 +68,10 @@ process.exitCode = await runCli(process.argv.slice(2), {
         const prompt = createSetupPrompt(process.stdin, process.stdout);
         try {return await chooseArenaSource(candidates, prompt);} finally {prompt.close();}
       },
+    }),
+    arenaResume: createArenaResumeHandler({
+      discoverRepository, loadConfig: loadRepositoryConfig, readArena, openArenaForResume,
+      validateArenaAttempt, checkExecutable, runSetup, launchEditor, launchAgent,
     }),
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
       jira: createJiraSetupSession,

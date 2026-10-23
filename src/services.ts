@@ -1,4 +1,4 @@
-import type { ArenaNewOptions } from "./arena/types";
+import type { ArenaNewOptions, ArenaResumeOptions } from "./arena/types";
 import type {
   AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, ConfirmCleanupDiscard, CreateWorktreeRequest,
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
@@ -109,6 +109,8 @@ export interface CommandHandlers {
   rebase?(input: string, options: { base?: string }, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires arena creation. */
   arenaNew?(name: string, options: ArenaNewOptions, context: CommandContext): Promise<number>;
+  /** Existing attempts only; no materialization or ordinary agent substitution. */
+  arenaResume?(name: string, options: ArenaResumeOptions, context: CommandContext): Promise<number>;
   setup(options: { global: boolean }, context: CommandContext): Promise<void>;
   new: (branch: string, options: NewOptions, context: CommandContext) => Promise<void | number>;
   open(input: string, options: OpenOptions, context: CommandContext): Promise<void | number>;

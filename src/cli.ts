@@ -1,6 +1,6 @@
 import { parseArenaGroups } from "./arena/participants";
 import type { ArenaGroupToken } from "./arena/types";
-import type { ArenaNewOptions } from "./arena/types";
+import type { ArenaNewOptions, ArenaResumeOptions } from "./arena/types";
 import { Command, CommanderError, Option } from "commander";
 import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
@@ -128,7 +128,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .on("option:preset", (value: string) => arenaTokens.push({option: "preset", value}))
     .option("--base <ref>", "Resolve one starting commit for every attempt")
     .option("--no-agent", "Prepare workspaces without launching agents; required for agent presets without a terminal")
-    .addHelpText("after", "\nAll worktrees and setup finish before sequential editor/foreground-agent launches. Failures retain completed state. No automatic cleanup or background sessions. Resume/pick follow in later releases.")
+    .addHelpText("after", "\nAll worktrees and setup finish before sequential editor/foreground-agent launches. Failures retain completed state. No automatic cleanup or background sessions. Use arena resume to revisit retained attempts; pick follows separately.")
     .action(async (name: string, options: { promptFile?: string; prompt?: string; defaultEffort?: string; name?: string; base?: string; agent?: boolean; editor?: boolean }) => {
       const normalized: ArenaNewOptions = {
         ...(options.defaultEffort === undefined ? {} : { defaultEffort: options.defaultEffort }),
@@ -142,6 +142,23 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       };
       if (handlers.arenaNew === undefined) throw new Error("Arena handler is unavailable in this embedding.");
       onExitCode(await handlers.arenaNew(name, normalized, context));
+    });
+
+  editorOptions(arena.command("resume <name>"))
+    .description("Revisit an existing attempt and launch its recorded agent without recreating work")
+    .option("--attempt <label>", "Exact recorded attempt label; required without an interactive terminal")
+    .option("--setup", "Deliberately rerun ALL ordinary post_create hooks, then launch unless --no-agent")
+    .option("--no-agent", "Revisit or retry setup without launching an agent; required for unattended agent attempts")
+    .addHelpText("after", "\nWorkspace continuation preserves current commits and files. Agent conversation restoration is tool-specific, not guaranteed. Incomplete setup requires --setup; existing locks and uncertain launch stages require inspection. Missing/changed agent configuration is never substituted. Agents remain in this foreground terminal.")
+    .action(async (name: string, options: { attempt?: string; setup?: boolean; agent?: boolean; editor?: boolean }) => {
+      const normalized: ArenaResumeOptions = {
+        ...(options.attempt === undefined ? {} : { attempt: options.attempt }),
+        ...(options.setup === true ? { setup: true as const } : {}),
+        ...(options.agent === false ? { agent: false as const } : {}),
+        ...(options.editor === undefined ? {} : { editor: options.editor }),
+      };
+      if (handlers.arenaResume === undefined) throw new Error("Arena resume handler is unavailable in this embedding.");
+      onExitCode(await handlers.arenaResume(name, normalized, context));
     });
 
   program.command("setup")

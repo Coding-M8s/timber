@@ -562,7 +562,7 @@ for activation and the actually verified Bash/Linux environment.
 `timber arena new <name-or-ticket>` prepares at least two fresh attempts from one pinned
 commit and identical immutable task instructions, then launches agents sequentially
 in the invoking terminal. This enhancement does not block stable release;
-resume/pick remain separate tickets.
+resume is specified below; pick remains a separate ticket.
 
 ### Lifecycle boundaries
 
@@ -589,7 +589,7 @@ selection itself is not publication or integration evidence.
 Creation exposes live foreground output, paths and stage/exit outcomes. These
 contracts do not add collected final-answer reports, automatic quality judging,
 parallel/background session management, automatic merging/publishing, or implicit
-process killing. Resume and pick remain future commands until their tickets land.
+process killing. Resume is specified below; pick remains a future command until TIM-22 lands.
 
 ### Tool, model, effort, and runs
 
@@ -771,9 +771,9 @@ creation/setup/editor/agent. Metadata errors stop later stages; uncertain crash
 states never authorize implicit replay or recreation. Source-fetch failure may
 leave only refreshed cached refs; later failures retain private records/workspaces.
 Inspect timber ls, reopen with `timber open --no-editor --no-agent -- '<path>'`, or
-explicitly rerun hooks with --setup. Relaunch assigned tool/preset manually with
-the task snapshot until TIM-21. Ordinary open --agent uses ordinary config, not the
-arena preset. No automatic winner, merge, publish, cleanup, or unrelated process kill.
+explicitly rerun hooks with --setup. Use arena resume below to relaunch the recorded
+tool/preset with its task snapshot. Ordinary open --agent uses ordinary config, not
+the arena preset. No automatic winner, merge, publish, cleanup, or unrelated process kill.
 
 ### Downstream Arena consumers
 
@@ -786,3 +786,97 @@ these selections alongside state/diffs and retain its existing human selection
 and preservation rules. Neither command should rerun fuzzy resolution against
 mutable current catalogs to reinterpret a recorded run. No resume, winner,
 comparison, merging, cleanup or parallel-session behavior is added by selection.
+
+
+## Arena resume (TIM-21)
+
+`timber arena resume <name> [--attempt <label>] [--setup] [--no-agent]
+[--editor | --no-editor]` revisits one recorded attempt. Names use the existing exact
+arena-name validation. `--attempt` is an exact recorded label, not a fuzzy query,
+branch/path selector, ticket resolver, or numeric index. Without it, an interactive
+chooser presents recorded labels, tools, stages, branches and paths using stable UUID
+values. Reject unoffered values; cancellation prints `Cancelled.`, returns zero,
+and does not acquire a lock or write records. Without a chooser require `--attempt`,
+show at most five sorted labels plus total count, and never prompt.
+
+Discover the current repository and read the existing private record/task. Use the
+same primary configuration scopes and validate both independently. Resume never
+fetches refs, resolves a replacement base, creates/binds/recreates worktrees or
+branches, resets evolved HEAD, cleans files, or changes another attempt. Preserve
+committed, modified, untracked and ignored work. External trusted hooks/agents may
+intentionally change work; Timber does not roll back those side effects.
+
+Resume explicitly launches the assigned native/wrapper participant independently of
+ordinary agent.enabled unless `--no-agent`. Require interactive stdin/stdout and CI
+off before record updates for agent launch. Unattended use requires exact selection
+and `--no-agent`; manual attempts have no agent/TTY requirement. Editor settings and
+explicit overrides follow arena new. Setup precedes editor startup, which precedes
+one awaited foreground agent with existing stdio/signals/status handling. TIM-27
+editor-owned agent terminals remain specific to ordinary new/open.
+
+Reconstruct the participant without catalog discovery or fuzzy matching. V2 built-ins
+use recorded exact tool/model/optional requested effort; preset and ordinary sources
+must reconstruct from the original configuration reference and match the fingerprint
+of tool/executable/resolved literal arguments. Replay only recorded invocation effort
+when it was added to a preset with no configured effort. Verify recorded model/effort
+consistency and fingerprint; never silently substitute a missing/changed definition.
+V1 uses recorded references/tool and exact fingerprint proof without inventing source,
+model or effort fields. Missing optional historical values stay absent/unknown.
+If exact reconstruction cannot be proven, explain original-configuration restoration
+or workspace revisit with `--no-agent`. Check required executable availability before
+updates. `--no-agent` does not require participant recovery, but malformed existing
+repository/global configuration remains an error. External profiles, provider defaults,
+PATH binary identities and tool versions are not frozen by a command fingerprint.
+
+Keep the original task path/bytes/digest and native file-read instruction or wrapper
+TIMBER_TASK_FILE handoff. Set the established arena/attempt/repository/worktree/branch
+agent environment; clear inherited TIMBER_WORKFLOW and TIMBER_TASK_ID. Synchronize
+explicit recorded Claude effort with its child environment. Historical inherited-effort
+observations are never replayed as overrides; requested effort does not confirm
+runtime effort. Do not log task body, raw argv, configuration values or raw launch
+exceptions. Hook/agent output keeps its existing stream behavior.
+
+Setup retry is explicit: `created`, `setup-running`, or `failed/setup` requires
+`--setup` before an agent starts. `--setup` reruns all current ordinary post_create
+hooks from the beginning once, even after prior success; no workflow hooks are
+introduced. Never infer a partially executed hook is safe to replay. Without setup,
+`--no-agent` may revisit these stages without changing lifecycle history. A revisit
+without setup or agent preserves existing stage/exit/signal fields on editor success
+and failure. Manual revisit follows the same rule. Unbound/planned or failed-creation
+attempts cannot be adopted. `launch-running` and failed stages without a classified
+cause, or non-failed stages carrying a contradictory failedStage, refuse external
+actions pending inspection and explicit repair.
+
+Read/select before acquiring a lock. Exclusively create a fresh active.lock only in
+an existing private arena directory, then reread schema/repository/task and compare
+the entire manifest with the selection snapshot. Changed records fail without
+replaying work; release only the newly owned lock. Never reuse creation reservation,
+replace arena/run UUIDs, overwrite task/markers, steal/clear an existing lock, or
+perform automatic interrupted-stage repair. Updates use existing atomic manifest
+publication and preserve V1/V2 versions and unrelated attempts. Persist setup/launch
+intent before actions and actual outcomes after; stop later actions if publication
+fails. Verify lock ownership before saves, task checks and release. Lock initialization
+errors distinguish an existing lock from permission/capacity/I/O failures. If token
+write, sync or close fails after creation, remove only the same owned file, verified
+by filesystem identity; never remove a replacement lock. Failed/unverifiable cleanup
+retains the lock and requires inspection, with the storage failure still reported.
+
+Immediately before each setup/editor/agent boundary validate repository, absolute
+path, branch, administrative Git directory and reciprocal UUID membership against
+Git, then verify task integrity. Repeat after awaited setup/editor operations; evolved
+commits/dirty files do not invalidate membership. Missing, stale, replaced or unbound
+identities fail with inspection guidance and no recreation. Persist actual exits and
+signals, including 130/143, and retain work on every failure. Diagnose affected attempt,
+failed stage and a safely renderable exact resume retry; setup failures include
+--setup. Retry hints preserve explicit --no-agent and editor enable/disable choices.
+If saving a failed outcome also fails, retain the original failure detail and report
+that additional metadata failure separately. Successful/skipped editor completion
+is revalidated, including editor-only visits. Before an agent launch, persist ready
+after editor completion, then persist a separate launch-running agent intent. Lock/uncertain metadata failures require inspection rather than automatic
+retry. Do not detach agents, run concurrent attempts, manage unrelated processes,
+merge, publish, compare, pick, or clean up.
+
+Resume guarantees workspace continuation for valid retained identities, not universal
+agent conversation restoration. No native resume flags/session IDs are inferred.
+Only explicit tool/wrapper support may restore a conversation. Exit zero never proves
+quality, integration, or a winning attempt.

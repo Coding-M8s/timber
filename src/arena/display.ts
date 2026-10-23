@@ -1,5 +1,5 @@
 import { safeDiagnostic } from "../display";
-import type { ArenaPlan, ArenaReview, PlannedAttempt } from "./types";
+import type { ArenaPlan, ArenaReview, PlannedAttempt, ArenaResumeOptions } from "./types";
 
 import { terminalStyle as arenaStyle } from "../terminal-style";
 
@@ -50,4 +50,9 @@ export function arenaReviewText(plan: ArenaReview): string {
 
 export function arenaStartText(plan: ArenaPlan, taskPath: string, style: ArenaStyle): string {
   return `\n${arenaOverview(plan, style)}\n  ${style.label("Task")}    ${safeDiagnostic(taskPath)} (private snapshot)\n\n`;
+}
+
+export function arenaResumeRetry(name: string, label: string, setup = false, options: Pick<ArenaResumeOptions, "agent" | "editor"> = {}): string {
+  // Both identifiers come from validated arena records, never user shell source.
+  return `timber arena resume ${name} --attempt ${label}${setup ? " --setup" : ""}${options.agent === false ? " --no-agent" : ""}${options.editor === false ? " --no-editor" : options.editor === true ? " --editor" : ""}`;
 }

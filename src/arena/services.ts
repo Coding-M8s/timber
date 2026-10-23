@@ -71,3 +71,12 @@ export interface ArenaServices
     attempt: ArenaAttemptRecord,
   ): Promise<Worktree>;
 }
+
+/** Resume deliberately has no source, creation, binding, or cleanup capabilities. */
+export interface ArenaResumeServices extends Pick<CommandServices,
+  "discoverRepository" | "loadConfig" | "runSetup" | "launchEditor" | "launchAgent"> {
+  readArena(repository: RepositoryContext, name: string): Promise<{ manifest: ArenaManifest; taskPath: string }>;
+  openArenaForResume(repository: RepositoryContext, name: string, expected: ArenaManifest): Promise<import("./storage").ArenaResumeSession>;
+  validateArenaAttempt(repository: RepositoryContext, manifest: ArenaManifest, attempt: ArenaAttemptRecord): Promise<Worktree>;
+  checkExecutable(command: string): Promise<boolean>;
+}
