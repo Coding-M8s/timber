@@ -195,10 +195,12 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
 
   program.command("completion <shell>")
-    .description("Print a completion script for Bash or Zsh; does not modify shell startup files")
+    .description("Print a completion script for Bash, Zsh, or Fish; does not modify shell startup files")
     .action((shell: string) => {
       const script = completionScript(shell);
-      if (script === undefined) throw new Error("Supported completion shells: Bash and Zsh. Run timber completion bash or timber completion zsh.");
+      if (script === undefined) {
+        throw new Error("Supported completion shells: Bash, Zsh, and Fish. Run timber completion bash, timber completion zsh, or timber completion fish.");
+      }
       context.io.stdout(script);
     });
 
@@ -209,11 +211,20 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       }
     });
 
-  program.command("__complete <line>", { hidden: true })
+  program.command("__complete <input> [words...]", { hidden: true })
     .option("--bash", "Format candidates for literal Bash insertion")
+    .option("--fish", "Accept Fish-tokenized arguments")
     .option("--word-breaks <characters>", "Bash Readline word separators")
-    .action(async (line: string, options: { bash?: boolean; wordBreaks?: string }) => {
-      const request = { cwd: context.cwd, ...parseBashCompletion(line, options.wordBreaks) };
+    .action(async (input: string, words: string[], options: { bash?: boolean; fish?: boolean; wordBreaks?: string }) => {
+      if (options.bash && options.fish) throw new Error("Cannot combine --bash and --fish.");
+      if (options.fish) {
+        for (const candidate of await completionCandidates(program, { cwd: context.cwd, words, prefix: input })) {
+          // Fish treats a tab as a description separator, which would truncate a path.
+          if (!candidate.includes("\t")) context.io.stdout(candidate + "\0");
+        }
+        return;
+      }
+      const request = { cwd: context.cwd, ...parseBashCompletion(input, options.wordBreaks) };
       // Already typed expansion syntax is not a literal selector. In particular,
       // quoting a suffix cannot protect an unquoted prefix retained by Readline.
       if (options.bash && request.hasExpansion) return;

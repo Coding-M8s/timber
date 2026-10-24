@@ -152,11 +152,13 @@ test("CLI completion cannot launch tools, contact remotes, inspect status, or wr
     };
     for (const command of ["open", "done"]) {
       const line = "timber " + command + " ";
-      const result = await execa(process.execPath, ["--no-env-file", entry, "__complete", "--", line], {
-        cwd: primary, env, timeout: 3_000,
-      });
-      expect(result.stderr).toBe("");
-      expect(result.stdout).toContain("linked\0");
+      for (const request of [["__complete", "--", line], ["__complete", "--fish", "--", "", command]]) {
+        const result = await execa(process.execPath, ["--no-env-file", entry, ...request], {
+          cwd: primary, env, timeout: 3_000,
+        });
+        expect(result.stderr).toBe("");
+        expect(result.stdout).toContain("linked\0");
+      }
     }
     const operations = (await readFile(calls, "utf8")).trim().split("\n");
     expect(operations.length).toBeGreaterThan(0);
