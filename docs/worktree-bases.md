@@ -65,5 +65,8 @@ outcome and gives recovery guidance. Timber never resets or aborts to undo it.
 epic branch. Remote bases are refreshed before cleanup; local bases stay local.
 A missing saved branch or invalid metadata stops cleanup instead of falling back.
 Use `timber done my-feature --base <ref>` for a one-off cleanup target; this never
-changes the saved association. Cleanup still requires clean files and proven
-publication or integration. Changes to the saved base during cleanup stop removal.
+changes the saved association. Ordinary cleanup requires clean files and proven
+publication or integration. Confirmed upstream deletion or explicit interactive
+discard can authorize loss of local commits and modified/untracked files; see
+[cleanup details](guide.md#finish-a-worktree). Changes to the saved base during
+cleanup stop removal.

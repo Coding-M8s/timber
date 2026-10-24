@@ -42,7 +42,9 @@ test("done help describes safe cleanup and explicit preservation options", async
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("Remove a linked worktree");
-  expect(result.stdout).toContain("published or integrated");
+  expect(result.stdout).toContain("Published or integrated");
+  expect(result.stdout).toContain("confirmed deleted upstream");
+  expect(result.stdout).toContain("default No");
   expect(result.stdout).toContain("--keep-ignored");
   expect(result.stdout).toContain("--keep-branch");
   expect(result.stdout).toContain("Retain the local branch");

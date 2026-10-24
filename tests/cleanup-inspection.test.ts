@@ -111,7 +111,7 @@ test("live upstream proves publication and reports ahead commits", async () => {
   });
 });
 
-test("missing or rewritten remote defeats cached publication", async () => {
+test("missing upstream is distinguished from rewritten publication", async () => {
   await withRepository(async (primary, directory) => {
     for (const variant of ["missing", "rewritten"] as const) {
       const path = join(directory, `remote ${variant}`);
@@ -137,7 +137,7 @@ test("missing or rewritten remote defeats cached publication", async () => {
       const repository = await discoverRepository(primary);
       const tree = await selectedTree(primary, path);
       const result = await inspectCleanup(repository, tree, config());
-      if (variant === "missing") expect(result.publication).toMatchObject({ kind: "unknown" });
+      if (variant === "missing") expect(result.publication).toMatchObject({ kind: "upstream-deleted" });
       else expect(result.publication).toEqual({ kind: "unpublished", commits: expectedAhead });
       expect(await git(primary, "rev-parse", `refs/remotes/remote-${variant}/${branch}`)).toBe(cachedTip);
     }

@@ -5,6 +5,8 @@ export interface ChoiceOption {
   value: string;
   label: string;
   description?: string;
+  /** Optional explicit default. Ordinary target choosers require a selection. */
+  default?: boolean;
   keywords?: readonly string[];
 }
 
@@ -82,6 +84,7 @@ export function createTerminalChooser(input: Readable, output: Writable): Termin
           expanded = confirmation.toLowerCase() === "y";
           continue;
         }
+        if (answer === "" && choices.some(choice => choice.default)) return choices.find(choice => choice.default)!.value;
         if (/^[1-9]\d*$/u.test(answer)) {
           const selected = Number(answer);
           const visibleCount = expanded ? choices.length : Math.min(choices.length, 5);

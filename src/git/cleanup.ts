@@ -1,3 +1,4 @@
+import { CleanupCancelled, discardFingerprint } from "./cleanup-discard";
 import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { execa } from "execa";
@@ -10,7 +11,7 @@ import { readCleanupEvidence, readCleanupPublication, readCleanupTarget } from "
 import { discoverRepository } from "./repository";
 import { listWorktrees } from "./worktrees";
 import type {
-  CleanupInspection, CleanupOptions, CleanupResult, RepositoryConfig, RepositoryContext, ValidatedBase, Worktree,
+  CleanupInspection, CleanupOptions, CleanupResult, ConfirmCleanupDiscard, RepositoryConfig, RepositoryContext, ValidatedBase, Worktree,
 } from "../types";
 
 type GitResult = { exitCode: number; stdout: string };
@@ -85,6 +86,17 @@ async function verifyRemoved(repository: RepositoryContext, path: string): Promi
   return exists === false && isRegistered === false;
 }
 
+function hardRefusal(inspection: CleanupInspection, options: CleanupOptions): string | null {
+  const worktree = inspection.worktree;
+  if (worktree.status.kind === "unknown") {
+    return `Cannot clean up worktree at ${worktree.path} because file status is unknown: ${worktree.status.reason}.`;
+  }
+  if (worktree.status.ignored.length > 0 && !options.discardIgnored) {
+    return `Cannot clean up worktree at ${worktree.path} because --keep-ignored preserves ignored files such as .env in this worktree: ${worktree.status.ignored.map(file => JSON.stringify(file)).join(", ")}; move or preserve them elsewhere, or retry without --keep-ignored to discard them.`;
+  }
+  return null;
+}
+
 function refusal(inspection: CleanupInspection, options: CleanupOptions): string | null {
   const worktree = inspection.worktree;
   if (worktree.status.kind === "unknown") {
@@ -96,9 +108,7 @@ function refusal(inspection: CleanupInspection, options: CleanupOptions): string
   if (worktree.status.untracked.length > 0) {
     return `Cannot clean up worktree at ${worktree.path} because untracked files would be lost: ${worktree.status.untracked.map(file => JSON.stringify(file)).join(", ")}. Move or preserve them first.`;
   }
-  if (worktree.status.ignored.length > 0 && !options.discardIgnored) {
-    return `Cannot clean up worktree at ${worktree.path} because --keep-ignored preserves ignored files such as .env in this worktree: ${worktree.status.ignored.map(file => JSON.stringify(file)).join(", ")}; move or preserve them elsewhere, or retry without --keep-ignored to discard them.`;
-  }
+
 
   if (inspection.ancestry.kind === "contained" || inspection.integration.kind === "equivalent") return null;
   if (inspection.publication.kind === "published") return null;
@@ -107,12 +117,14 @@ function refusal(inspection: CleanupInspection, options: CleanupOptions): string
   if (inspection.publication.kind === "unpublished") {
     return `Cannot remove this worktree because it has unpublished commits: ${inspection.publication.commits.join(", ")}. ${ancestry} Publish them or select their merge target with --base <ref> and retry.`;
   }
-  return `Cannot verify that worktree commits are published or integrated into the validated base. Publication: ${inspection.publication.reason} Ancestry: ${ancestry} Git could not prove content integration. Leave the worktree in place; refresh repository state or select the merge target with --base <ref> and retry.`;
+  return `Cannot verify that worktree commits are published or integrated into the validated base. Publication: ${inspection.publication.kind === "upstream-deleted" ? "The configured upstream branch no longer exists." : inspection.publication.reason} Ancestry: ${ancestry} Git could not prove content integration. Leave the worktree in place; refresh repository state or select the merge target with --base <ref> and retry.`;
 }
 
 type BranchPreservation =
   | { kind: "integrated"; base: ValidatedBase }
-  | { kind: "published"; upstreamRef: string };
+  | { kind: "published"; upstreamRef: string }
+  | { kind: "discard" }
+  | { kind: "upstream-deleted"; upstreamRef: string; upstreamIdentity: string };
 
 async function deletePreservedBranch(
   repository: RepositoryContext, branchRef: string, expectedOid: string,
@@ -148,7 +160,13 @@ async function deletePreservedBranch(
         !await hasIntegratedContent(repository.primaryWorktreeRoot, base, expectedOid))) {
       throw new Error("Local branch integration could not be reproven after worktree removal.");
     }
-  } else {
+  } else if (preservation.kind === "upstream-deleted") {
+    const publication = await readCleanupPublication(repository, branchRef, expectedOid, true);
+    if (publication.state.kind !== "upstream-deleted" || publication.state.upstreamRef !== preservation.upstreamRef ||
+        publication.upstreamIdentity !== preservation.upstreamIdentity) {
+      throw new Error("Live upstream deletion could not be reproven after worktree removal.");
+    }
+  } else if (preservation.kind === "published") {
     const publication = (await readCleanupPublication(repository, branchRef, expectedOid)).state;
     if (publication.kind !== "published" || publication.upstreamRef !== preservation.upstreamRef) {
       throw new Error("Live upstream publication could not be reproven after worktree removal.");
@@ -186,10 +204,11 @@ export async function inspectCleanup(
   return (await readCleanupEvidence(repository, worktree, config)).inspection;
 }
 
-/** Remove a linked worktree only when current preservation and ancestry evidence permits it. */
+/** Remove a linked worktree using current preservation evidence or scoped discard authorization. */
 export async function cleanupWorktree(
   repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions,
   io: CommandIO = { stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } },
+  confirmDiscard?: ConfirmCleanupDiscard,
 ): Promise<CleanupResult> {
   let primaryRepository: RepositoryContext;
   try {
@@ -213,8 +232,20 @@ export async function cleanupWorktree(
   if (!options.keepBranch && evidence.branchRef !== null && evidence.branchRef === evidence.validatedBase?.ref) {
     throw new Error("The cleanup target branch is the validated base and cannot be deleted by cleanup.");
   }
+  const blocked = hardRefusal(evidence.inspection, options);
+  if (blocked) throw new Error(blocked);
+  const upstreamDeleted = evidence.inspection.publication.kind === "upstream-deleted";
+  let discard = upstreamDeleted;
+  // Capture before the prompt so an answer cannot authorize newly edited content.
+  let fingerprint: string | null = null;
   const initialFailure = refusal(evidence.inspection, options);
-  if (initialFailure) throw new Error(initialFailure);
+  if (discard || (initialFailure && confirmDiscard)) fingerprint = await discardFingerprint(evidence.inspection.worktree, options.discardIgnored);
+  if (!discard && initialFailure) {
+    if (!confirmDiscard) throw new Error(`${initialFailure} Rerun in an interactive terminal to choose whether to delete anyway.`);
+    if (!await confirmDiscard(initialFailure)) throw new CleanupCancelled();
+    discard = true;
+  }
+  if (upstreamDeleted) io.stdout("The configured upstream branch no longer exists; removing the worktree and discarding local changes.\n");
 
   const hasDeletionHooks = (config.hooks?.preDelete?.length ?? 0) > 0;
   if (hasDeletionHooks) await runPreDelete(primaryRepository, evidence.inspection.worktree, config, options, io);
@@ -237,11 +268,17 @@ export async function cleanupWorktree(
   }
 
   let currentPublication = evidence.inspection.publication;
-  if (integratedBase(finalEvidence.inspection) === null) {
+  if (upstreamDeleted || (!discard && integratedBase(finalEvidence.inspection) === null)) {
     const publication = await readCleanupPublication(
-      primaryRepository, finalEvidence.branchRef, finalEvidence.headCommit, hasDeletionHooks,
+      primaryRepository, finalEvidence.branchRef, finalEvidence.headCommit, hasDeletionHooks || upstreamDeleted,
     );
     currentPublication = publication.state;
+    if (upstreamDeleted && (currentPublication.kind !== "upstream-deleted" ||
+        evidence.inspection.publication.kind !== "upstream-deleted" ||
+        currentPublication.upstreamRef !== evidence.inspection.publication.upstreamRef ||
+        publication.upstreamIdentity !== evidence.upstreamIdentity)) {
+      throw new Error("Live upstream state changed before removal; worktree and branch retained. Retry cleanup.");
+    }
     if (hasDeletionHooks && evidence.inspection.publication.kind === "published" &&
         (currentPublication.kind !== "published" ||
           currentPublication.upstreamRef !== evidence.inspection.publication.upstreamRef ||
@@ -257,14 +294,18 @@ export async function cleanupWorktree(
     ancestry: finalEvidence.inspection.ancestry,
     integration: finalEvidence.inspection.integration,
   };
-  const finalFailure = refusal(finalInspection, options);
+  const finalFailure = hardRefusal(finalInspection, options) ?? (discard ? null : refusal(finalInspection, options));
   if (finalFailure) throw new Error(finalFailure);
+
+  if (fingerprint !== null && await discardFingerprint(finalInspection.worktree, options.discardIgnored) !== fingerprint) {
+    throw new Error("Local file state changed after discard inspection; worktree and branch retained. Retry cleanup.");
+  }
 
   const path = finalInspection.worktree.path;
   const branchName = evidence.branchRef?.slice("refs/heads/".length) ?? null;
   let removed: GitResult;
   try {
-    removed = await runGit(primaryRepository, ["worktree", "remove", "--", path]);
+    removed = await runGit(primaryRepository, ["worktree", "remove", ...(discard ? ["--force"] : []), "--", path]);
   } catch {
     throw await removalFailure(primaryRepository, path, branchName, "Git removal did not return a verifiable result.");
   }
@@ -279,7 +320,10 @@ export async function cleanupWorktree(
     try {
       const base = integratedBase(finalInspection);
       let preservation: BranchPreservation;
-      if (base !== null) preservation = { kind: "integrated", base };
+      if (upstreamDeleted && finalInspection.publication.kind === "upstream-deleted" && evidence.upstreamIdentity !== undefined) {
+        preservation = { kind: "upstream-deleted", upstreamRef: finalInspection.publication.upstreamRef, upstreamIdentity: evidence.upstreamIdentity };
+      } else if (discard) preservation = { kind: "discard" };
+      else if (base !== null) preservation = { kind: "integrated", base };
       else if (finalInspection.publication.kind === "published") {
         preservation = { kind: "published", upstreamRef: finalInspection.publication.upstreamRef };
       } else throw new Error("Local branch deletion requires proven integration or live upstream publication.");

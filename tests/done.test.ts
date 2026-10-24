@@ -254,3 +254,32 @@ test("done rejects contradictory ignored-file options before cleanup", async () 
   expect(result.stdout).toBe("");
   expect(result.stderr).toMatch(/conflict|combine/i);
 });
+
+for (const choice of ["delete", "cancel", null]) test(`done discard confirmation handles ${choice}`, async () => {
+  const result = await invoke(services({ cleanupWorktree: async (_repo, _tree, _config, _options, _io, confirm) => {
+    expect(confirm).toBeDefined();
+    if (!await confirm!("Unpublished local commits would be lost.")) {
+      const { CleanupCancelled } = await import("../src/git/cleanup-discard");
+      throw new CleanupCancelled();
+    }
+    return { removedWorktreePath: tree.path, deletedLocalBranch: tree.branch, retainedLocalBranch: null };
+  } }), ["done", "feature/one"], async (message, choices) => {
+    expect(message).toContain("Delete anyway");
+    expect(message).toContain("modified and untracked");
+    expect(choices[0]).toMatchObject({ value: "cancel", default: true });
+    return choice;
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toContain("Unpublished local commits would be lost.");
+  expect(result.stdout).toContain(choice === "delete" ? "Removed worktree" : "Cancelled.");
+  if (choice !== "delete") expect(result.stdout).not.toContain("Deleted local branch");
+});
+
+test("noninteractive done supplies no discard confirmation", async () => {
+  const result = await invoke(services({ cleanupWorktree: async (_repo, _tree, _config, _options, _io, confirm) => {
+    expect(confirm).toBeUndefined();
+    throw new Error("Cannot preserve local commits.");
+  } }));
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+});

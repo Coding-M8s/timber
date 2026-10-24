@@ -933,3 +933,34 @@ test.each(["deleted", "fetch-fails", "remote-moves", "tracking-moves", "symbolic
     expect(await absent(marker)).toBe(true);
   });
 });
+
+for (const answer of ["2\n", "\n", "q\n", "\u0003"]) test(`interactive done discard handles ${JSON.stringify(answer)}`, async () => {
+  await withRepository(async (primary, directory) => {
+    const path = await target(primary, directory);
+    await commit(path);
+    await writeFile(join(path, "tracked.txt"), "local edit\n");
+    await writeFile(join(path, "scratch.txt"), "local scratch\n");
+    const before = await snapshot(primary);
+    const payload = join(directory, "done terminal.json");
+    await writeFile(payload, JSON.stringify({
+      cwd: primary, command: [process.execPath, entry, "done", "feature/one"],
+      sendAt: "Choose 1-2, or q to cancel:", input: answer,
+      env: { XDG_CONFIG_HOME: join(directory, "isolated config") },
+    }));
+    const child = await execa("python3", [fileURLToPath(new URL("./helpers/pty-runner.py", import.meta.url)), payload]);
+    const result = JSON.parse(child.stdout) as { exitCode: number; output: string };
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("Delete anyway?");
+    expect(result.output).toContain("modified and untracked files");
+    expect(result.output).toContain("default");
+    if (answer === "2\n") {
+      await removed(primary, path, "feature/one", true);
+      expect(result.output).toContain("Deleted local branch feature/one");
+    } else {
+      await retained(primary, path, before);
+      expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("local edit\n");
+      expect(await readFile(join(path, "scratch.txt"), "utf8")).toBe("local scratch\n");
+      expect(result.output).toContain("Cancelled.");
+    }
+  });
+});

@@ -11,9 +11,8 @@ A small CLI for creating, opening, listing, and safely cleaning up Git worktrees
 
 `new` creates a branch and linked worktree, `ls` lists the repository's worktrees,
 and `open` reuses an existing worktree or creates one for a resolved existing
-branch. `done` safely removes a linked worktree and deletes its local branch
-only when Git proves its commits are published to the live upstream or
-integrated into the validated base.
+branch. `done` removes a linked worktree and its local branch using publication,
+integration, confirmed upstream deletion, or explicit interactive discard.
 `done` uses the saved base shown by `ls`, when present. Use
 `timber done my-feature --base parent-feature` to override it for one cleanup. The override applies only to this cleanup, keeps the safety
 checks, and never changes TOML. Local and cached remote branch refs are supported;
@@ -313,12 +312,25 @@ The primary worktree is always protected.
 
 By default, Timber removes the linked worktree **including ignored files and
 folders such as `.env`, `node_modules`, and build output**, then deletes its local
-branch only when Git proves every local commit is published to the live upstream,
+branch when Git proves every local commit is published to the live upstream,
 contained in the validated base, or integrated with that base by a successful
 virtual merge or exact historical tree match. This supports cleaning up an
 unmerged review checkout; no separate review flag is required, and the remote
 branch and PR stay untouched.
-Modified and untracked files always block cleanup. Base selection uses explicit
+A successful live query confirming the configured upstream branch no longer exists
+allows automatic deletion even when local commits differ from the merged version
+or modified/untracked files exist. Timber reports this reason before removal.
+A missing upstream configuration, stale tracking cache, connection failure,
+authentication failure or timeout does not establish upstream deletion.
+
+Otherwise, modified/untracked files or unpreserved commits produce an explanation
+and an interactive **Delete anyway?** prompt, defaulting to **No**. Accepting discards
+the worktree's local commits and all modified and untracked files. Cancel or press
+Enter to retain the worktree and branch. Noninteractive commands refuse when this
+confirmation is needed; there is no force flag for scripts. A confirmed deleted
+upstream permits automatic cleanup in noninteractive runs too.
+
+Base selection uses explicit
 `--base`, then the saved worktree base shown by `ls`, then repository/global
 configuration and existing default discovery. Missing saved refs fail without
 fallback; malformed/unreadable metadata requires repair, and stale identity
@@ -331,8 +343,8 @@ the validated base. It also accepts an exact full-tree match between the local
 branch tip and a commit in the validated base history. This permits cleanup
 after later base edits or reverts: the complete snapshot remains recoverable
 from base history even when it differs from the current base. Matching trees
-only on unrelated branches do not qualify. These checks work after the feature's
-remote branch has been deleted. When the selected base is a remote branch such
+only on unrelated branches do not qualify. Independently, a confirmed deleted
+upstream permits the automatic discard described above. When the selected base is a remote branch such
 as `origin/main`, `done` automatically fetches that branch and updates its cached
 remote-tracking ref before checking integration. This applies to `--base`, the
 saved base, the configured base and the default remote base. No separate `git fetch` is needed.
@@ -347,17 +359,22 @@ index, or refs.
 
 For published review work, Timber verifies every local commit is reachable from
 the live upstream, rechecks that evidence before removing the worktree, then
-checks again before deleting the local branch. A deleted or unreachable upstream,
-or a rewrite that no longer preserves all local commits, blocks this path.
-Unverifiable publication also blocks cleanup. If publication becomes unproven after
+checks again before deleting the local branch. An unreachable upstream or a rewrite
+that no longer preserves all local commits blocks the publication path. Initially
+confirmed upstream absence uses the separate automatic discard path, revalidated
+before removal and branch deletion. If that upstream reappears or becomes
+unverifiable, cleanup stops; after removal it retains the local branch.
+If publication becomes unproven after
 worktree removal, Timber retains the local branch and reports the partial result.
 A missing creation base does not block cleanup when publication is proven.
 
 `--keep-branch` retains the local branch. Cached remote-tracking refs alone do not
 prove publication. A detached worktree
-can be removed by absolute path only when its commit is contained in the base.
+can be removed by absolute path when its commit is contained in the base or the
+user explicitly confirms discard.
 
-`--keep-ignored` refuses cleanup when ignored files exist. The worktree, branch,
+`--keep-ignored` refuses cleanup when ignored files exist, including inside
+initialized submodules. The worktree, branch,
 and ignored files remain in their original locations; nothing is copied to a
 backup folder. Move those files yourself or retry without the flag to discard
 them. `--discard-ignored` remains supported for compatibility and expresses the
@@ -601,10 +618,13 @@ diagnostic names the step and gives a `timber done` retry retaining
 does not roll them back. Explicit retries run all steps from the beginning, so
 make them safe to rerun. Commands are trusted code with your permissions.
 
-After hooks succeed, Timber rechecks identity, files, refs and preservation
-evidence. New modified/untracked files or changed target/base refs refuse
-cleanup. `--keep-ignored` still protects ignored files; otherwise ignored content
-is discarded as usual. A repository hooks table replaces the entire global
+After hooks succeed, Timber rechecks identity, files, refs and applicable cleanup
+authorization. Discard approval is bound to file contents and staged changes, not
+just path names, and includes initialized submodule indexes. Changed file state
+during confirmation/hooks or changed target/base refs refuse
+cleanup. Ignored runtime file changes do not invalidate default discard;
+`--keep-ignored` still refuses when any ignored files exist. Otherwise ignored
+content is discarded as usual. A repository hooks table replaces the entire global
 table, and `hooks = false` disables both hook lists.
 
 ### Optional interactive agents (0.2)
