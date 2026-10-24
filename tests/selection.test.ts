@@ -147,3 +147,11 @@ test.each([
     stdinIsTTY, stdoutIsTTY, ...(ci === undefined ? {} : { ci }),
   })).toBe(expected);
 });
+
+test("Enter selects an explicitly designated default without accepting deletion", async () => {
+  const options = [
+    { value: "cancel", label: "No, keep worktree", default: true },
+    { value: "delete", label: "Yes, delete anyway" },
+  ];
+  expect((await choose("\n", options)).value).toBe("cancel");
+});

@@ -128,12 +128,12 @@ async function upstreamFor(cwd: string, branchRef: string): Promise<{
 
 async function liveUpstreamTip(
   cwd: string, repository: RepositoryContext, upstream: { trackingRef: string; remote: string; remoteRef: string },
-): Promise<string | null> {
+): Promise<{ kind: "tip"; tip: string } | { kind: "missing" } | null> {
   if (!repository.remotes.some(remote => remote.name === upstream.remote)) return null;
   let result: GitResult;
   try {
     result = await runGit(cwd, [
-      "ls-remote", "--exit-code", "--refs", "--", upstream.remote, upstream.remoteRef,
+      "ls-remote", "--refs", "--", upstream.remote, upstream.remoteRef,
     ], { timeout: 10_000 });
   } catch {
     return null;
@@ -145,10 +145,12 @@ async function liveUpstreamTip(
     if (separator < 0) return null;
     const oid = line.slice(0, separator);
     const ref = line.slice(separator + 1);
-    if (ref === upstream.remoteRef) matches.push(oid);
+    if (ref !== upstream.remoteRef || !validOid(oid)) return null;
+    matches.push(oid);
   }
-  if (matches.length !== 1 || !validOid(matches[0]!)) return null;
-  return matches[0]!;
+  if (matches.length === 0) return { kind: "missing" };
+  if (matches.length !== 1) return null;
+  return { kind: "tip", tip: matches[0]! };
 }
 
 async function publication(
@@ -165,8 +167,11 @@ async function publication(
       upstreamCommit: null,
     };
   }
+  const live = await liveUpstreamTip(cwd, repository, upstream);
+  if (!live) return { state: unknownPublication(), upstreamCommit: null };
   let upstreamIdentity: string | undefined;
-  if (captureIdentity) {
+  if (captureIdentity || live.kind === "missing") {
+    // A missing-upstream authorization must also pin the configured remote URL.
     try {
       const url = await runGit(cwd, ["remote", "get-url", "--", upstream.remote]);
       if (url.exitCode !== 0 || !url.stdout) return { state: unknownPublication(), upstreamCommit: null };
@@ -175,9 +180,11 @@ async function publication(
       return { state: unknownPublication(), upstreamCommit: null };
     }
   }
-  const tip = await liveUpstreamTip(cwd, repository, upstream);
-  if (!tip) return { state: unknownPublication(), upstreamCommit: null };
-  const localTip = await verifiedCommit(cwd, tip);
+  if (live.kind === "missing") {
+    if (upstreamIdentity === undefined) return { state: unknownPublication(), upstreamCommit: null };
+    return { state: { kind: "upstream-deleted", upstreamRef: upstream.trackingRef }, upstreamCommit: null, upstreamIdentity };
+  }
+  const localTip = await verifiedCommit(cwd, live.tip);
   if (!localTip) {
     return {
       state: unknownPublication("The live upstream commit is not available locally; fetch it explicitly and retry."),

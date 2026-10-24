@@ -155,7 +155,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
 
   program.command("done <branch-or-worktree>")
     .option("--base <ref>", "Verify integration against this base instead of the saved/configured/default branch")
-    .description("Remove a linked worktree, discard ignored files, and delete its branch when published or integrated")
+    .description("Remove a linked worktree and its local branch; discard ignored files by default")
     .option(
       "--keep-branch",
       "Retain the local branch after removing the worktree",
@@ -163,7 +163,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     )
     .option("--keep-ignored", "Refuse removal when ignored files exist; leave them in the worktree", false)
     .option("--discard-ignored", "Discard ignored files, including .env (the default)")
-    .addHelpText("after", "\nConfigured pre_delete hooks run after initial safety checks and before removal, including with --keep-branch.\nHook failure retains the worktree and branch; hook side effects remain. Safety is rechecked after hooks.\n")
+    .addHelpText("after", "\nPublished or integrated commits allow ordinary clean cleanup.\nA confirmed deleted upstream automatically discards local commits and modified/untracked files.\nOther file or commit refusals offer an interactive delete-anyway prompt (default No).\nNoninteractive runs refuse when confirmation is required. Remote branches are never deleted.\nConfigured pre_delete hooks run after initial safety checks and before removal, including with --keep-branch.\nHook failure retains the worktree and branch; hook side effects remain. Safety is rechecked after hooks.\n")
     .action((input: string, options: { base?: string; keepBranch?: boolean; keepIgnored?: boolean; discardIgnored?: boolean }) => {
       if (options.keepIgnored && options.discardIgnored) {
         throw new Error("Cannot combine --keep-ignored and --discard-ignored.");

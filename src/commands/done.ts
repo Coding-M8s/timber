@@ -1,4 +1,5 @@
-import { FormattedError } from "../display";
+import { CleanupCancelled } from "../git/cleanup-discard";
+import { FormattedError, safeDiagnostic } from "../display";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Worktree } from "../types";
 
@@ -79,7 +80,25 @@ export function createDoneHandler(
     const worktree = selected.worktree;
     if (worktree.isPrimary) throw new Error(`Cannot clean up the primary worktree at ${display(worktree.path)}.`);
 
-    const result = await services.cleanupWorktree(repository, worktree, config, options, context.io);
+    const choose = context.choose;
+    const confirmDiscard = choose ? async (reason: string) => {
+      context.io.stderr(`error: ${safeDiagnostic(reason)}\n`);
+      const choice = await choose(
+        `Delete anyway? This discards local commits and all modified and untracked files in ${quoted(worktree.path)}.` +
+        (options.keepBranch ? " The local branch will be retained." : " The local branch will also be deleted."),
+        [{ value: "cancel", label: "No, keep the worktree (default)", default: true },
+          { value: "delete", label: "Yes, delete anyway" }],
+      );
+      return choice === "delete";
+    } : undefined;
+    let result;
+    try {
+      result = await services.cleanupWorktree(repository, worktree, config, options, context.io, confirmDiscard);
+    } catch (error) {
+      if (!(error instanceof CleanupCancelled)) throw error;
+      context.io.stdout("Cancelled. Worktree and local branch retained.\n");
+      return;
+    }
     context.io.stdout(`Removed worktree at ${display(result.removedWorktreePath)}\n`);
     if (result.deletedLocalBranch !== null) {
       context.io.stdout(`Deleted local branch ${display(result.deletedLocalBranch)}\n`);

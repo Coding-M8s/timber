@@ -18,6 +18,7 @@ const runnerPath = fileURLToPath(new URL("./fixtures/cleanup-runner.ts", import.
 
 const wrapperSource = [
   "#!/bin/sh",
+  'if [ "$1" = ls-remote ] && [ "$TIMBER_RACE_ACTION" = malformed-upstream ]; then printf "malformed advertisement\\n"; exit 0; fi',
   'if [ "$1" = ls-remote ] && [ ! -e "$TIMBER_RACE_MARKER" ]; then',
   '  case "$TIMBER_RACE_ACTION" in',
   '    add-ignored) printf "race ignored bytes\\n" > "$TIMBER_RACE_TARGET/.env" ;;',
@@ -39,11 +40,11 @@ const wrapperSource = [
   'esac',
   'if [ "$1" = worktree ] && [ "$2" = remove ]; then',
   '  case "$TIMBER_RACE_ACTION" in',
-  '    rewrite-remote-after-remove|delete-remote-after-remove)',
+  '    rewrite-remote-after-remove|delete-remote-after-remove|recreate-remote-after-remove)',
   '      "$TIMBER_REAL_GIT" "$@"',
   '      remove_status=$?',
   '      if [ "$remove_status" -eq 0 ]; then',
-  '        if [ "$TIMBER_RACE_ACTION" = rewrite-remote-after-remove ]; then',
+  '        if [ "$TIMBER_RACE_ACTION" != delete-remote-after-remove ]; then',
   '          "$TIMBER_REAL_GIT" -C "$TIMBER_RACE_REMOTE" update-ref "refs/heads/$TIMBER_RACE_REMOTE_BRANCH" "$TIMBER_RACE_REMOTE_OID"',
   '        else',
   '          "$TIMBER_REAL_GIT" -C "$TIMBER_RACE_REMOTE" update-ref -d "refs/heads/$TIMBER_RACE_REMOTE_BRANCH"',
@@ -473,5 +474,44 @@ test.each(["rewrite", "delete"] as const)("review cleanup retains the local bran
     expect(await refs(primary)).toBe(beforeRefs);
     expect(await git(primary, "show", `${branch}:review.txt`)).toBe("published review");
     expect(await readFile(join(primary, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+});
+
+test("upstream reappearing after automatic discard retains the local branch", async () => {
+  await withRepository(async (primary, directory) => {
+    const path = join(directory, "deleted review linked");
+    const branch = "feature/deleted-review";
+    await addTarget(primary, path, branch);
+    const remote = await configureRemote(primary, directory, path, branch);
+    const remoteOid = await git(remote, "rev-parse", `refs/heads/${branch}`);
+    const head = await commitFile(path, "unpublished.txt", "local only\n", "unpublished review");
+    await git(remote, "update-ref", "-d", `refs/heads/${branch}`);
+    const repository = await discoverRepository(primary);
+    const result = await runWithGitRace(primary, directory, repository, await selectedTree(primary, path), "recreate-remote-after-remove", {
+      TIMBER_RACE_REMOTE: remote, TIMBER_RACE_REMOTE_BRANCH: branch, TIMBER_RACE_REMOTE_OID: remoteOid,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Live upstream deletion could not be reproven");
+    expect(result.stderr).toContain(`was retained at ${head}`);
+    expect(await isAbsent(path)).toBe(true);
+    expect(await branchOid(primary, branch)).toBe(head);
+    expect(await git(remote, "rev-parse", `refs/heads/${branch}`)).toBe(remoteOid);
+  });
+});
+
+test("a malformed successful upstream response never authorizes automatic discard", async () => {
+  await withRepository(async (primary, directory) => {
+    const path = join(directory, "malformed response linked");
+    const branch = "feature/malformed-response";
+    await addTarget(primary, path, branch);
+    await configureRemote(primary, directory, path, branch);
+    const head = await commitFile(path, "unpublished.txt", "local only\n", "unpublished review");
+    const repository = await discoverRepository(primary);
+    const result = await runWithGitRace(primary, directory, repository, await selectedTree(primary, path), "malformed-upstream");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Could not verify the live upstream state");
+    expect(await isAbsent(path)).toBe(false);
+    expect(await branchOid(primary, branch)).toBe(head);
+    expect(await readFile(join(path, "unpublished.txt"), "utf8")).toBe("local only\n");
   });
 });

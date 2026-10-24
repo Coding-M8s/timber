@@ -81,8 +81,10 @@ worktree. It doesn't rerun setup scripts unless you pass `--setup`.
 
 ### Cleaning up
 
-`done` refuses to remove modified or untracked files, protects the primary
-checkout, and requires proof that commits are published or integrated.
+`done` protects the primary checkout. A confirmed deleted upstream allows automatic
+cleanup, **including local commits and modified/untracked files**. Otherwise,
+unsafe cleanup offers a default-No "delete anyway" prompt in an interactive
+terminal. See [cleanup details](docs/guide.md#finish-a-worktree).
 
 **It deletes ignored files by default, including `.env` and `node_modules`.**
 To refuse cleanup when ignored files exist:

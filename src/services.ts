@@ -1,6 +1,6 @@
 import type { ArenaNewOptions } from "./arena/types";
 import type {
-  AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, CreateWorktreeRequest,
+  AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, ConfirmCleanupDiscard, CreateWorktreeRequest,
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
@@ -46,17 +46,12 @@ export interface CommandServices {
     explicitBase: string | undefined, io: CommandIO): Promise<number>;
   /** TIM-5: inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
-  /**
-   * TIM-5: recheck safety at mutation time, never trust an earlier inspection.
-   * Refuse primary, dirty/untracked, and unintegrated unpublished/unproven work.
-   * Ignored content blocks only when discardIgnored is false (--keep-ignored).
-   * Base ancestry or content integration can prove publication safety, but the
-   * target branch must not be the validated base. Local branch deletion requires
-   * integration or verified live upstream publication; keepBranch skips deletion only. No destructive force, remote
-   * deletion, stash, or process killing.
+  /** Recheck identity and safety at mutation time. Confirmed upstream absence or
+   * explicit interactive discard can authorize loss of local commits and files.
+   * Keep options and hard identity/operation failures remain enforced.
    */
   cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions,
-    io?: CommandIO): Promise<CleanupResult>;
+    io?: CommandIO, confirmDiscard?: ConfirmCleanupDiscard): Promise<CleanupResult>;
   /** TIM-8: executable + args, no shell; null config or disabled means skipped. */
   launchEditor(worktree: Worktree, config: RepositoryConfig, disabled: boolean): Promise<EditorResult>;
   /** TIM-7: sequential trusted /bin/sh hooks; rejection retains workspace and blocks launch. */

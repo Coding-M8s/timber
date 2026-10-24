@@ -8,7 +8,7 @@ This is a small TypeScript CLI using Bun for development, tests, and optional st
 - Installed Git and its worktree metadata are the source of truth. Invoke Git using executable plus argument arrays; never interpolate user input into shell commands.
 - No GUI/IDE work, Rust rewrite, database, daemon, local API, global task registry, or provider plugin framework.
 - Test Git mutations with meaningful temporary real repositories, including failure cases that assert files and refs remain intact. Use test doubles at command service seams.
-- Preserve dirty, untracked, ignored, unpublished, and unproven work according to the contract. No destructive force bypass.
+- Preserve local work according to the contract. `done` may discard modified/untracked files and unpreserved commits when the configured upstream is confirmed deleted or the user explicitly confirms interactive deletion. Keep identity, primary-worktree, operation, and keep-option protections. No noninteractive force flag.
 - Keep editor and agent launching separate. Agents run interactively in the invoking terminal unless an enabled, explicitly selected editor integration owns their terminal. Orca uses the existing local window and exact worktree, with separate setup and agent terminals; never silently fall back after handoff failure. Trusted shell hooks receive context through environment variables, never shell source substitution.
 - Keep secrets out of repository config, logs, tickets, and commits.
 - Linux x86_64 is the initial release target. Claim other platforms only after actual testing.

@@ -138,6 +138,7 @@ export type CreateWorktreeRequest =
 
 export type PublicationState =
   | { kind: "published"; upstreamRef: string }
+  | { kind: "upstream-deleted"; upstreamRef: string }
   | { kind: "unpublished"; commits: readonly string[] }
   | { kind: "unknown"; reason: string };
 
@@ -158,6 +159,9 @@ export interface CleanupInspection {
   /** Content integration is separate from commit ancestry. Detached HEAD requires ancestry. */
   integration: ContentIntegrationState;
 }
+
+/** Called only for overridable file/commit refusals, before any cleanup hooks. */
+export type ConfirmCleanupDiscard = (reason: string) => Promise<boolean>;
 
 export interface CleanupOptions {
   base?: string;
