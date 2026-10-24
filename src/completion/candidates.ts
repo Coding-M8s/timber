@@ -3,6 +3,7 @@ import { listBranches } from "../git/branches";
 import { discoverRepository } from "../git/repository";
 import { listWorktreeInventory } from "../git/worktrees";
 import type { GitReadOptions } from "../types";
+import { completionShells } from "./shells";
 
 export interface CompletionRequest {
   cwd: string;
@@ -105,7 +106,7 @@ export async function completionCandidates(program: Command, request: Completion
     return filtered(options.flatMap(option => [option.short, option.long].filter((flag): flag is string => !!flag)), prefix);
   }
   if (operands > 0) return [];
-  if (command.name() === "completion") return filtered(["bash"], prefix);
+  if (command.name() === "completion") return filtered(completionShells, prefix);
   if (command.name() === "help") return filtered(commands.map(command => command.name()), prefix);
   if (command.name() === "open" || command.name() === "done" || command.name() === "rebase") {
     return filtered(await repositoryCandidates(cwd, command.name() as "open" | "done" | "rebase"), prefix);

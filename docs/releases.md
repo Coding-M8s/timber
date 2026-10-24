@@ -35,13 +35,13 @@ creates these additional files:
 | `build-info.json` | Version, optional tag, source commit, dirty-source marker, Bun version, compile target |
 | `SHA256SUMS` | SHA-256 digests for executable and build metadata |
 
-The Bash completion generator and its query route are bundled in the executable;
-there is no separate script asset. After building, run the Bash suite against the
-artifact as well as the source entry:
+The Bash and Zsh completion generators and query routes are bundled in the executable;
+there are no separate script assets. After building, run both shell suites against
+the artifact as well as the source entry:
 
 ```bash
 TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v0.1.0-dev.0-linux-x64" \
-  bun test tests/completion-bash.test.ts
+  bun test tests/completion-bash.test.ts tests/completion-zsh.test.ts
 ```
 
 `bun run build:release --outdir /absolute/temporary/output` builds into an

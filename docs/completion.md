@@ -1,4 +1,6 @@
-# Bash tab completion
+# Shell tab completion
+
+## Bash
 
 With Timber on PATH, activate completion in the current Bash session:
 
@@ -35,6 +37,30 @@ source "$HOME/.local/share/timber/completion.bash"
 Regenerate the saved script after upgrading Timber. To deactivate it in the current
 session, run `complete -r timber`.
 
+## Zsh
+
+Initialize Zsh's completion system, then load Timber completion:
+
+```zsh
+autoload -Uz compinit
+compinit
+source <(timber completion zsh)
+```
+
+Most Zsh frameworks already run `compinit`; in that case only the `source` line
+is needed. Timber does not initialize Zsh completion or edit `.zshrc`.
+
+To keep a copy and activate it manually:
+
+```zsh
+mkdir -p "$HOME/.local/share/timber"
+timber completion zsh > "$HOME/.local/share/timber/_timber"
+source "$HOME/.local/share/timber/_timber"
+```
+
+Regenerate the saved script after upgrading Timber. To deactivate it in the
+current session, run `compdef -d timber`.
+
 ## What Tab suggests
 
 - `timber <Tab>` lists public commands. Type a prefix, such as `timber o<Tab>`,
@@ -60,8 +86,8 @@ yields no target suggestions instead of a hanging prompt.
 
 Paths containing spaces, quotes, or shell metacharacters are inserted as one
 literal argument. Quote or escape shell syntax already entered in a prefix;
-completion declines unescaped variable, command, history, or glob expansion
-syntax instead of treating it as a literal selector.
+the Bash adapter declines active expansion syntax, while Zsh uses its native
+parsed completion words and quoting.
 Completion does not evaluate candidate text. It does not parse
 the ls display, scan dirty-file status, load configuration, run hooks, open
 editors, or launch agents. Outside a repository, command and flag suggestions
@@ -74,30 +100,30 @@ use --keep-ignored to refuse removal when they exist.
 
 ## Verified environment
 
-Verified on Linux x86_64 with GNU Bash 5.2.21, Git 2.43.0, and Bun 1.4.2 for
-source tests and standalone builds. The tests load the generated script in Bash
-and press Tab in a controlling terminal, checking the resulting argument bytes.
-Other Bash versions, operating systems, Zsh, and Fish have not been verified.
-Zsh and Fish adapters are future work; the repository candidate service is
-independent of Bash formatting.
+Verified on Linux x86_64 with GNU Bash 5.3.9, Zsh 5.9, Git 2.56.0, and Bun 1.4.2
+for source tests and standalone builds. The tests load each generated script and
+press Tab in a controlling terminal, checking the resulting argument bytes.
+Other shell versions, operating systems, and Fish have not been verified. Both
+adapters use the same shell-independent repository candidate service.
 
 From a checkout with the pinned Bun toolchain selected:
 
 ```bash
 bun --version
 bash --version
+zsh --version
 git --version
-bun test tests/completion.test.ts tests/completion.integration.test.ts tests/completion-bash.test.ts
+bun test tests/completion.test.ts tests/completion.integration.test.ts tests/completion-bash.test.ts tests/completion-zsh.test.ts
 bun run typecheck
 bun test
 bun run build
 bun run build:release
 TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v0.1.0-dev.0-linux-x64" \
-  bun test tests/completion-bash.test.ts
+  bun test tests/completion-bash.test.ts tests/completion-zsh.test.ts
 ```
 
 `TIMBER_COMPLETION_EXECUTABLE` is a test-harness selector, not a Timber CLI
-option. It makes the Bash suite generate the script from, and send its queries
+option. It makes both shell suites generate scripts from, and send their queries
 to, the built executable instead of the source entry.
 
 Release builds require exactly the packageManager version in package.json.

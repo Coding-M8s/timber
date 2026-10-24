@@ -6,8 +6,9 @@ import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
 import type { CommandContext, CommandHandlers, NewOptions, OpenOptions } from "./services";
 import type { CleanupOptions } from "./types";
-import { bashCompletionScript, formatBashCandidate, parseBashCompletion } from "./completion/bash";
+import { formatBashCandidate, parseBashCompletion } from "./completion/bash";
 import { completionCandidates } from "./completion/candidates";
+import { completionScript } from "./completion/shells";
 
 const placeholder = (name: string, ticket: string) => async (): Promise<void> => {
   throw new Error(`timber ${name} is not implemented yet (${ticket}). See timber ${name} --help.`);
@@ -194,10 +195,18 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
 
   program.command("completion <shell>")
-    .description("Print a completion script for Bash; does not modify shell startup files")
+    .description("Print a completion script for Bash or Zsh; does not modify shell startup files")
     .action((shell: string) => {
-      if (shell !== "bash") throw new Error("Only Bash completion is supported. Run timber completion bash.");
-      context.io.stdout(bashCompletionScript());
+      const script = completionScript(shell);
+      if (script === undefined) throw new Error("Supported completion shells: Bash and Zsh. Run timber completion bash or timber completion zsh.");
+      context.io.stdout(script);
+    });
+
+  program.command("__complete-words <prefix> [words...]", { hidden: true })
+    .action(async (prefix: string, words: string[]) => {
+      for (const candidate of await completionCandidates(program, { cwd: context.cwd, words, prefix })) {
+        context.io.stdout(candidate + "\0");
+      }
     });
 
   program.command("__complete <line>", { hidden: true })
