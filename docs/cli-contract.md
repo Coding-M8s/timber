@@ -530,12 +530,13 @@ Malformed configuration still reports its actionable error. `ls` validates both
 scopes while remaining offline and read-only. Guidance never starts setup or
 blocks CI implicitly.
 
-## Bash and Zsh completion (TIM-23, #84)
+## Shell completion (TIM-23, #84, #85)
 
-`timber completion bash` and `timber completion zsh` emit activation scripts
-without editing shell startup files. The generator and hidden completion transport
-bypass installation guidance, first-use state writes, and interactive selection.
-Unsupported shells produce an actionable error; Fish remains a future adapter.
+`timber completion bash`, `timber completion zsh`, and `timber completion fish`
+emit activation scripts without editing shell startup files. The generator and
+hidden completion transport bypass installation guidance, first-use state writes,
+and interactive selection. Unsupported shells produce an actionable error naming
+every supported command.
 
 Public command and flag suggestions derive from the same Commander definitions
 as dispatch and help. Repository suggestions read fresh Git worktree inventory
@@ -552,11 +553,15 @@ inaccessible metadata, and non-repositories quietly yield no target candidates;
 command/flag completion still works. The Git reads behind one Tab press share a
 one-second deadline and skip optional locks; a stalled Git yields none as well. Dirty/stale/locked entries remain discoverable
 and never imply safe cleanup. Normal execution retains all preservation checks.
-Shell-independent candidate lookup returns raw selectors. Both adapters transport
-them with NUL separators and insert them literally, including spaces and shell
-metacharacters, without evaluating candidate text. Bash parses its command line
-for Readline; Zsh passes its native parsed words and lets `compadd` quote insertion.
-See [shell completion](completion.md) for activation and verified environments.
+Shell-independent candidate lookup returns raw selectors. Every adapter
+transports them with NUL separators and inserts them literally, including spaces
+and shell metacharacters, without evaluating candidate text. Bash parses its
+command line for Readline; Zsh passes its native parsed words and lets `compadd`
+quote insertion. Fish feeds native tokenized arguments to the same candidate
+service and uses native literal insertion. Fish omits tab-containing selectors
+because its completion API treats tabs as description separators; it must never
+offer a truncated path. See [shell completion](completion.md) for activation,
+this Fish limitation, and the actually verified Linux shell environments.
 
 ## Arena creation (post-1.0, TIM-20)
 

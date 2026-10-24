@@ -61,6 +61,33 @@ source "$HOME/.local/share/timber/_timber"
 Regenerate the saved script after upgrading Timber. To deactivate it in the
 current session, run `compdef -d timber`.
 
+## Fish
+
+With Timber on PATH, activate completion in the current Fish session:
+
+```fish
+timber completion fish | source
+```
+
+For automatic loading in new terminals, save the generated script yourself:
+
+```fish
+mkdir -p "$__fish_config_dir/completions"
+timber completion fish > "$__fish_config_dir/completions/timber.fish"
+source "$__fish_config_dir/completions/timber.fish"
+```
+
+Fish autoloads `timber.fish` from its completion search path. The example uses
+Fish's configuration directory, including an `XDG_CONFIG_HOME` override. You can
+instead choose another directory in `$fish_complete_path`. Regenerate the saved
+script after upgrading Timber. To deactivate it in the current session, run
+`complete -e -c timber`; remove the saved file yourself to disable autoloading.
+
+Source checkouts can generate the same script with
+`bun --no-env-file src/index.ts completion fish`. Install or link Timber first
+so completion can call the executable on PATH. Standalone builds embed both
+adapters. Generating a script never changes shell startup files or runs setup.
+
 ## What Tab suggests
 
 - `timber <Tab>` lists public commands. Type a prefix, such as `timber o<Tab>`,
@@ -85,9 +112,14 @@ press share a one-second deadline and skip optional locks, so a stalled Git
 yields no target suggestions instead of a hanging prompt.
 
 Paths containing spaces, quotes, or shell metacharacters are inserted as one
-literal argument. Quote or escape shell syntax already entered in a prefix;
-the Bash adapter declines active expansion syntax, while Zsh uses its native
-parsed completion words and quoting.
+literal argument. Quote or escape shell syntax already entered in a prefix.
+Bash declines unescaped variable, command, history, or glob expansion syntax
+instead of treating it as a literal selector. Zsh uses its native parsed
+completion words and quoting. Fish uses its native tokenizer and insertion rules
+without evaluating candidate text. Fish omits selectors containing tabs because
+its completion API treats a tab as a description separator; select such
+worktrees by branch name where available, or enter the quoted path manually.
+Newlines in candidate paths remain supported.
 Completion does not evaluate candidate text. It does not parse
 the ls display, scan dirty-file status, load configuration, run hooks, open
 editors, or launch agents. Outside a repository, command and flag suggestions
@@ -100,11 +132,14 @@ use --keep-ignored to refuse removal when they exist.
 
 ## Verified environment
 
-Verified on Linux x86_64 with GNU Bash 5.3.9, Zsh 5.9, Git 2.56.0, and Bun 1.4.2
-for source tests and standalone builds. The tests load each generated script and
-press Tab in a controlling terminal, checking the resulting argument bytes.
-Other shell versions, operating systems, and Fish have not been verified. Both
-adapters use the same shell-independent repository candidate service.
+Bash and Zsh were verified on Linux x86_64 with GNU Bash 5.3.9, Zsh 5.9,
+Git 2.56.0, and Bun 1.4.2 for source tests and standalone builds. Fish was
+verified on Ubuntu 24.04 Linux x86_64 with GNU Bash 5.2.21, Fish 3.7.0,
+Git 2.43.0, Python 3.12.3, and Bun 1.4.2 in an offline Ubuntu container.
+The tests load each generated script and press Tab in a controlling terminal,
+checking the resulting argument bytes. Other shell versions and operating
+systems have not been verified. All adapters use the same shell-independent
+repository candidate service.
 
 From a checkout with the pinned Bun toolchain selected:
 
@@ -112,19 +147,24 @@ From a checkout with the pinned Bun toolchain selected:
 bun --version
 bash --version
 zsh --version
+fish --version
 git --version
-bun test tests/completion.test.ts tests/completion.integration.test.ts tests/completion-bash.test.ts tests/completion-zsh.test.ts
+bun test tests/completion.test.ts tests/completion.integration.test.ts tests/completion-bash.test.ts tests/completion-zsh.test.ts tests/completion-fish.test.ts
 bun run typecheck
 bun test
 bun run build
 bun run build:release
 TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v0.1.0-dev.0-linux-x64" \
-  bun test tests/completion-bash.test.ts tests/completion-zsh.test.ts
+  bun test tests/completion-bash.test.ts tests/completion-zsh.test.ts tests/completion-fish.test.ts
 ```
 
 `TIMBER_COMPLETION_EXECUTABLE` is a test-harness selector, not a Timber CLI
-option. It makes both shell suites generate scripts from, and send their queries
+option. It makes the shell suites generate their scripts from, and send queries
 to, the built executable instead of the source entry.
+
+Install Fish before verification. Fish tests report a skip when it is missing
+locally, and fail when it is missing in CI. CI installs Fish before the full
+suite and runs the Bash and Fish suites against the standalone executable.
 
 Release builds require exactly the packageManager version in package.json.
 

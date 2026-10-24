@@ -28,10 +28,21 @@ jobs:
           sudo apt-get install --yes zsh
           zsh --version
       - run: bun run typecheck
+      - name: Install Fish for completion tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends fish
+          fish --version
+          test "$(fish --version)" = "fish, version 3.7.0"
       - run: bun test
       - run: bun run build
       - run: bun dist/index.js --help
       - run: bun run build:release
+      - name: Verify standalone shell completion
+        run: |
+          VERSION="$(bun --no-env-file -p 'require("./package.json").version')"
+          TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v$VERSION-linux-x64" \
+            bun test tests/completion-bash.test.ts tests/completion-fish.test.ts
       - name: Verify standalone checksums
         run: cd dist/release && sha256sum -c SHA256SUMS
       - run: docker build -f tests/release/Dockerfile -t timber-release-smoke .

@@ -105,8 +105,9 @@ Add `--keep-branch` to retain the local branch. Remote branches stay untouched.
   isolated attempts with the same task and starting commit. Agents run one at a
   time. Use `timber arena resume my-task` to continue an existing attempt.
   Winner selection remains planned.
-- **Shell completion:** run `source <(timber completion bash)` in Bash or
-  `source <(timber completion zsh)` after `compinit` in Zsh.
+- **Shell completion:** Bash: `source <(timber completion bash)`.
+  Zsh: `source <(timber completion zsh)` after `compinit`.
+  Fish: `timber completion fish | source`. See [persistent setup](docs/completion.md).
 
 ## Continue an arena attempt
 

@@ -8,7 +8,7 @@ import { candidates } from "./helpers/completion";
 test("completion discovers commands and filters their prefix outside Git", async () => {
   expect(await candidates("timber ")).toEqual(["arena", "completion", "done", "help", "ls", "new", "open", "rebase", "setup"]);
   expect(await candidates("timber o")).toEqual(["open"]);
-  expect(await candidates("timber completion ")).toEqual(["bash", "zsh"]);
+  expect(await candidates("timber completion ")).toEqual(["bash", "fish", "zsh"]);
   expect(await candidates("timber help o")).toEqual(["open"]);
 });
 
@@ -43,8 +43,61 @@ test("hidden transport is absent from public help and unsupported shells fail cl
   expect(await runCli(["--help"], dependencies)).toBe(0);
   expect(stdout).toContain("completion");
   expect(stdout).not.toContain("__complete");
-  expect(await runCli(["completion", "fish"], dependencies)).toBe(1);
-  expect(stderr).toContain("Bash");
+  stdout = "";
+  stderr = "";
+  expect(await runCli(["completion", "fish"], dependencies)).toBe(0);
+  expect(stdout).toContain("complete -c timber");
+  expect(stderr).toBe("");
+  stdout = "";
+  expect(await runCli(["completion", "powershell"], dependencies)).toBe(1);
+  expect(stdout).toBe("");
+  expect(stderr).toContain("timber completion bash");
+  expect(stderr).toContain("timber completion zsh");
+  expect(stderr).toContain("timber completion fish");
+});
+
+test("Fish argv transport matches shared candidate requests", async () => {
+  async function transport(argv: string[]): Promise<{ code: number; candidates: string[]; stderr: string }> {
+    let stdout = "";
+    let stderr = "";
+    const code = await runCli(argv, { context: { cwd: tmpdir(), io: {
+      stdout: text => { stdout += text; }, stderr: text => { stderr += text; },
+    } } });
+    return { code, candidates: stdout.split("\0").filter(Boolean), stderr };
+  }
+
+  expect(await transport(["__complete", "--fish", "--", "--no-", "open"])).toEqual({
+    code: 0, candidates: ["--no-agent", "--no-editor"], stderr: "",
+  });
+  expect(await transport(["__complete", "--fish", "--", "--tool=cu", "arena", "new"])).toEqual({
+    code: 0, candidates: ["--tool=cursor"], stderr: "",
+  });
+  expect(await transport(["__complete", "--fish", "--", "", "arena"])).toEqual({
+    code: 0, candidates: ["help", "new", "resume"], stderr: "",
+  });
+  expect(await transport(["__complete", "--fish", "--", "--", "open", "--"])).toEqual({
+    code: 0, candidates: [], stderr: "",
+  });
+  const conflict = await transport(["__complete", "--bash", "--fish", "--", "timber open "]);
+  expect(conflict.code).toBe(1);
+  expect(conflict.stderr).toContain("Cannot combine --bash and --fish");
+});
+
+test("Fish transport omits tab paths instead of suggesting a truncated selector", async () => {
+  const { withRepository, git } = await import("./helpers/git");
+  const { join } = await import("node:path");
+  await withRepository(async (primary, directory) => {
+    const tree = join(directory, "odd\ttree");
+    await git(primary, "worktree", "add", "--detach", tree);
+    let stdout = "";
+    let stderr = "";
+    expect(await runCli(["__complete", "--fish", "--", "", "done"], { context: { cwd: primary, io: {
+      stdout: text => { stdout += text; }, stderr: text => { stderr += text; },
+    } } })).toBe(0);
+    expect(stdout).toBe("");
+    expect(stderr).toBe("");
+    expect(await candidates("timber done ", primary)).toEqual([tree]);
+  });
 });
 
 test("structured completion transport accepts native shell words", async () => {
