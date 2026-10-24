@@ -8,7 +8,7 @@ import { candidates } from "./helpers/completion";
 test("completion discovers commands and filters their prefix outside Git", async () => {
   expect(await candidates("timber ")).toEqual(["arena", "completion", "done", "help", "ls", "new", "open", "rebase", "setup"]);
   expect(await candidates("timber o")).toEqual(["open"]);
-  expect(await candidates("timber completion ")).toEqual(["bash"]);
+  expect(await candidates("timber completion ")).toEqual(["bash", "zsh"]);
   expect(await candidates("timber help o")).toEqual(["open"]);
 });
 
@@ -45,6 +45,17 @@ test("hidden transport is absent from public help and unsupported shells fail cl
   expect(stdout).not.toContain("__complete");
   expect(await runCli(["completion", "fish"], dependencies)).toBe(1);
   expect(stderr).toContain("Bash");
+});
+
+test("structured completion transport accepts native shell words", async () => {
+  let stdout = "";
+  let stderr = "";
+  const dependencies = { context: { cwd: tmpdir(), io: {
+    stdout: (text: string) => { stdout += text; }, stderr: (text: string) => { stderr += text; },
+  } } };
+  expect(await runCli(["__complete-words", "--", "--no-", "open"], dependencies)).toBe(0);
+  expect(stdout.split("\0").filter(Boolean)).toEqual(["--no-agent", "--no-editor"]);
+  expect(stderr).toBe("");
 });
 
 test("Unicode operands before a flag prefix do not affect candidate lookup", async () => {

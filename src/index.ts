@@ -40,7 +40,9 @@ if (process.argv[2] === "__editor-task") {
   process.exit(await runEditorTask(process.argv.length === 4 ? process.argv[3]! : ""));
 }
 
-const completing = process.argv[2] === "completion" || process.argv[2] === "__complete";
+const completing = process.argv[2] === "completion"
+  || process.argv[2] === "__complete"
+  || process.argv[2] === "__complete-words";
 const choose = !completing && shouldEnableInteractiveSelection({
   stdinIsTTY: process.stdin.isTTY === true,
   stdoutIsTTY: process.stdout.isTTY === true,

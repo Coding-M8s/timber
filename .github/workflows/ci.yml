@@ -22,6 +22,11 @@ jobs:
       - name: Reject AI commit attribution
         run: bun --no-env-file scripts/check-commit-attribution.ts --event "$GITHUB_EVENT_PATH"
       - run: bun install --frozen-lockfile
+      - name: Install Zsh
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes zsh
+          zsh --version
       - run: bun run typecheck
       - run: bun test
       - run: bun run build
