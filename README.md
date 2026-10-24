@@ -103,8 +103,26 @@ Add `--keep-branch` to retain the local branch. Remote branches stay untouched.
   you've defined with its own setup scripts, editor, and assistant.
 - **Arena:** `timber arena new my-task` guides you through creating multiple
   isolated attempts with the same task and starting commit. Agents run one at a
-  time. Resume and winner selection commands are still planned.
+  time. Use `timber arena resume my-task` to continue an existing attempt.
+  Winner selection remains planned.
 - **Bash completion:** run `source <(timber completion bash)` in your terminal.
+
+## Continue an arena attempt
+
+`timber arena resume <name>` lets you choose an existing attempt and launch its
+recorded agent in the same workspace. Current commits, modified files, untracked
+files, and ignored files remain intact. To revisit without launching tools:
+
+```bash
+timber arena resume my-task --attempt codex-1 --no-agent --no-editor
+```
+
+Normal resume skips setup. Use `--setup` to deliberately rerun all setup hooks,
+including after failed or interrupted setup. Missing worktrees are never recreated;
+changed configuration or existing invocation locks require inspection and repair.
+Workspace continuation does not guarantee restored agent conversation history.
+See the [resume guide](docs/guide.md#continue-an-existing-arena-attempt) for exact
+selection, recovery, configuration, and foreground exit-status behavior.
 
 ## More help
 

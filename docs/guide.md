@@ -880,7 +880,7 @@ destinations are refused; continuing an existing attempt belongs to resume.
 | Command | Responsibility | Availability |
 | --- | --- | --- |
 | `arena new` | Create isolated attempts, prepare them, and launch agents sequentially in the invoking terminal | Implemented in [TIM-20](https://github.com/Coding-M8s/timber/issues/40) |
-| `arena resume` | Select and revisit an existing attempt, preserving its current work; explicitly retry setup when needed | Planned in [TIM-21](https://github.com/Coding-M8s/timber/issues/41) |
+| `arena resume` | Select and revisit an existing attempt, preserving its current work; explicitly retry setup when needed | Implemented in [TIM-21](https://github.com/Coding-M8s/timber/issues/41) |
 | `arena pick` | Show grouped attempt state and changes, let the user choose a winner, and clean up only eligible losers | Planned in [TIM-22](https://github.com/Coding-M8s/timber/issues/42) |
 
 Creation displays attempt paths, live foreground agent output, and completion or
@@ -1109,10 +1109,70 @@ setup/editor/agent actions. Private v2 manifests record source/ticket/harness/mo
 context and optional requested effort; existing v1/v2 records remain readable
 without migration or guessed model/effort defaults.
 
-Inspect `timber ls`, then reopen retained work with
-`timber open --no-agent --no-editor -- '<absolute-worktree-path>'`. Deliberately retry
-all hooks with `--setup --no-agent --no-editor`; manually relaunch the assigned
-tool/preset with the recorded task snapshot. `arena resume` and `arena pick`
-remain separate follow-ups. Stale locks require inspection; crashes may leave
-uncertain state. Private records are local visibility controls, not encryption.
-Linux x86_64 remains the verified target. See [arena contract](cli-contract.md#arena-creation-post-10-tim-20).
+Inspect `timber ls`, then use `arena resume` below for recorded attempt recovery.
+Ordinary `timber open --no-agent --no-editor -- '<absolute-worktree-path>'` remains
+available for workspace inspection, including when arena metadata needs repair.
+Ordinary `open --agent` uses ordinary configuration, not the recorded arena agent.
+`arena pick` remains a separate follow-up. Private records are local visibility
+controls, not encryption. Linux x86_64 remains the verified target.
+See [arena contract](cli-contract.md#arena-creation-post-10-tim-20).
+
+### Continue an existing arena attempt
+
+`timber arena resume <name>` selects one existing attempt interactively and launches
+its assigned agent in the invoking terminal. It keeps the attempt's current commits,
+modified files, untracked files, and ignored files; it never resets to the starting
+commit or recreates a missing branch/worktree. Hooks and agents retain their normal
+ability to change files. Cancellation leaves files, refs, and arena records unchanged.
+
+```bash
+# Choose an existing attempt, then launch its recorded participant:
+timber arena resume search-fix
+
+# Exact recorded label, bypassing the chooser:
+timber arena resume search-fix --attempt codex-1 --no-editor
+
+# Deliberately rerun all ordinary setup hooks, then launch:
+timber arena resume search-fix --attempt codex-1 --setup --no-editor
+
+# Unattended preparation/revisit, without an agent or editor:
+timber arena resume search-fix --attempt codex-1 --setup --no-agent --no-editor
+```
+
+`--attempt` accepts an exact recorded label, not a fuzzy query, branch, or path.
+It is required without an interactive chooser. Native/wrapper agents require
+interactive stdin/stdout and CI off; pass `--no-agent` for unattended use. Manual
+attempts need no agent configuration. `--editor`/`--no-editor` follow ordinary editor
+settings; Arena agents stay foreground even when ordinary new/open use Orca terminals.
+
+Normal resume skips successful setup. Created attempts awaiting setup and failed or
+interrupted setup require explicit `--setup` before launching an agent. That flag
+reruns **every current ordinary `post_create` hook from the beginning**, not only
+failed steps; use trusted hooks that are safe to rerun. No workflow hooks are added.
+`--setup --no-agent` prepares only. A revisit without setup or agent launch keeps the
+previous lifecycle/outcome record, even when editor startup fails.
+
+Resume reuses the original private task snapshot and verifies its digest and reciprocal
+Git/UUID membership before each setup/editor/agent boundary. It reconstructs recorded
+tool/model/effort arguments from built-in selections or the original named/ordinary
+configuration, requiring the stored fingerprint. No model catalog/fuzzy lookup occurs.
+If configuration changed or disappeared, restore its original definition; if the
+executable is missing, restore it or fix PATH. `--no-agent` can revisit without that
+participant configuration, but existing global/repository configuration must still be
+valid. Missing/tampered task or stale/replaced worktree identity blocks resume rather
+than adopting another workspace. Existing V1/V2 records are supported without migration;
+missing historical model/effort stays unknown, and unverifiable commands are refused.
+A matching command cannot freeze external profiles, provider defaults, PATH binaries,
+or tool versions. Requested effort is not proof of effective runtime effort; recorded
+inherited effort observations are not replayed as overrides.
+
+Existing invocation locks, uncertain `launch-running`, and unclassified failed stages
+require manual inspection before explicit metadata repair. Resume never clears locks,
+guesses whether an old process stopped, or kills a process. Setup/launch failures retain
+work and print the affected attempt and retry command; numeric child statuses propagate,
+including 130/143 for signal exits. Exit zero proves no quality or integration outcome.
+
+**Workspace continuation is guaranteed for a valid recorded identity. Agent conversation
+restoration is tool-specific, not universally supported.** Timber does not append native
+conversation-resume flags or infer session IDs. An explicitly configured wrapper may
+provide its own restoration behavior. See the [resume contract](cli-contract.md#arena-resume-tim-21).

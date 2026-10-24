@@ -1,6 +1,6 @@
 import { arenaEffortEnvironment } from "../arena/effort";
 import { arenaIdentity } from "../arena/source";
-import { arenaRunBlock, arenaStartText } from "../arena/display";
+import { arenaRunBlock, arenaStartText, arenaResumeRetry } from "../arena/display";
 import { terminalStyle as arenaStyle } from "../terminal-style";
 import type { CommandContext } from "../services";
 import { FormattedError, retryForDisplay, safeDisplay } from "../display";
@@ -246,7 +246,7 @@ export function createArenaNewHandler(services: ArenaServices) {
         if (launched.exitCode !== 0) {
           exitCode = launched.exitCode;
           context.io.stderr(
-            `\n${err.error(`error: Arena attempt ${active.label} ${launched.signal ? `interrupted by ${launched.signal}` : `exited with status ${exitCode}`}`)}\nAll workspaces retained. Later attempts were not launched.\n\nReopen with:\n  ${recovery(active.path)}\nRelaunch the assigned tool manually with the private task snapshot.\n`,
+            `\n${err.error(`error: Arena attempt ${active.label} ${launched.signal ? `interrupted by ${launched.signal}` : `exited with status ${exitCode}`}`)}\nAll workspaces retained. Later attempts were not launched.\n\nReopen with:\n  ${recovery(active.path)}\nResume assigned agent with:\n  ${arenaResumeRetry(name, active.label, false, options)}\n`,
           );
           break;
         }
@@ -274,9 +274,9 @@ export function createArenaNewHandler(services: ArenaServices) {
           "", "Planned location:", `  ${safeDisplay(active.path)}`,
           ...(stage === "creation"
             ? ["Inspect any partial Git creation; no automatic rollback occurred."]
-            : [stage === "setup" ? "Deliberately rerun all setup steps with:" : "Reopen with:", `  ${recovery(active.path, stage === "setup")}`]),
+            : [stage === "setup" ? "Deliberately rerun all setup steps, then resume with:" : "Resume assigned agent with:", `  ${arenaResumeRetry(name, active.label, stage === "setup", options)}`, "Add --no-agent --no-editor to revisit without launching tools."]),
         ] : []),
-        "", "Agent retries must use the assigned preset and private task snapshot; arena resume is not implemented yet.", "",
+        "", "Resume reuses the recorded configuration and private task snapshot; missing identities and uncertain locks require inspection.", "",
       ].join("\n"));
     } finally {
       try {

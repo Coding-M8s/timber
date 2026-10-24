@@ -138,3 +138,11 @@ export interface ArenaManifestV2
   attempts: ArenaAttemptRecordV2[];
 }
 export type ArenaManifest = ArenaManifestV1 | ArenaManifestV2;
+
+export interface ArenaResumeOptions {
+  /** Exact recorded attempt label; required without an interactive chooser. */
+  attempt?: string;
+  setup?: true;
+  agent?: false;
+  editor?: boolean;
+}

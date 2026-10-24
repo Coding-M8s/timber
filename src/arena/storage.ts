@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
@@ -245,14 +246,15 @@ function validateRecord(
       "Stale or inconsistent arena manifest; inspect retained state.",
     );
 }
-export async function readArena(
+async function readArenaRecord(
   repository: RepositoryContext,
   name: string,
+  checkLock: boolean,
 ): Promise<{ manifest: ArenaManifest; taskPath: string }> {
   try {
     const dir = await directory(repository, name);
     await privateDirectory(dir, false);
-    try {
+    if (checkLock) try {
       await lstat(join(dir, "active.lock"));
       throw new Error(
         "Arena is active or has an interrupted invocation lock; inspect before explicit repair.",
@@ -286,6 +288,107 @@ export async function readArena(
     throw new Error(
       "Cannot read arena record or task snapshot; inspect private Git metadata. Nothing was recreated.",
     );
+  }
+}
+
+export async function readArena(repository: RepositoryContext, name: string) {
+  return readArenaRecord(repository, name, true);
+}
+
+export type ArenaResumeSession = Pick<ArenaSession, "manifest" | "taskPath" | "save" | "verifyTask" | "close">;
+
+/** Shared ownership only; creation's bind/base assumptions do not belong to resume. */
+function ownedArenaSession(
+  repository: RepositoryContext, name: string, dir: string, token: string, manifest: ArenaManifest,
+): { session: ArenaResumeSession; assertOwned(): Promise<void> } {
+  const lock = join(dir, "active.lock"), taskPath = join(dir, "task.txt");
+  let closed = false;
+  const assertOwned = async () => {
+    await directory(repository, name);
+    await privateDirectory(dir, false);
+    if (closed || (await readPrivate(lock, 100)).toString() !== token)
+      throw new Error("Arena invocation lock changed; retained state requires inspection.");
+  };
+  return { assertOwned, session: {
+    manifest, taskPath,
+    async save() {
+      await assertOwned();
+      validateRecord(manifest, repository, name, await realpath(repository.commonGitDir));
+      await atomicRecord(dir, manifest);
+    },
+    async verifyTask() {
+      await assertOwned();
+      if (hash(await readPrivate(taskPath, 1024 * 1024)) !== manifest.task.sha256)
+        throw new Error("Arena task snapshot changed; no external action was started.");
+    },
+    async close() {
+      if (closed) return;
+      await assertOwned();
+      await unlink(lock);
+      closed = true;
+    },
+  } };
+}
+
+function lockStorageFailure(error: unknown, inspect = false): Error {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  const reason = code === "EACCES" || code === "EPERM" ? "permission denied"
+    : code === "ENOSPC" || code === "EDQUOT" ? "storage is full"
+    : code === "EIO" ? "I/O error" : "filesystem operation failed";
+  return new Error(`Cannot initialize arena invocation lock: ${reason}. No setup or launch started.${inspect ? " Lock cleanup could not be verified; inspect private metadata before retrying." : " Fix storage permissions/capacity and retry."}`);
+}
+
+/** Failed initialization may remove only the exact file created by this open. */
+async function acquireResumeLock(path: string, token: string): Promise<void> {
+  let file;
+  try {
+    file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST" || code === "ELOOP")
+      throw new Error("Arena is active or has an interrupted/unsafe invocation lock; inspect before explicit repair.");
+    throw lockStorageFailure(error);
+  }
+  let identity: { dev: number; ino: number } | undefined;
+  try {
+    identity = await file.stat();
+    await file.writeFile(Buffer.from(token));
+    await file.sync();
+    await file.close();
+  } catch (error) {
+    let retained = true;
+    try {
+      const current = await lstat(path);
+      if (identity && current.isFile() && current.dev === identity.dev && current.ino === identity.ino) {
+        await unlink(path);
+        retained = false;
+      }
+    } catch (cleanupError) {
+      if ((cleanupError as NodeJS.ErrnoException).code === "ENOENT") retained = false;
+    }
+    await file.close().catch(() => {});
+    throw lockStorageFailure(error, retained);
+  }
+}
+
+/** Acquire a new lock for an existing record, then revalidate the chooser snapshot. */
+export async function openArenaForResume(
+  repository: RepositoryContext, name: string, expected: ArenaManifest,
+): Promise<ArenaResumeSession> {
+  const dir = await directory(repository, name);
+  await privateDirectory(dir, false);
+  const lock = join(dir, "active.lock"), token = randomUUID();
+  await acquireResumeLock(lock, token);
+  try {
+    const { manifest } = await readArenaRecord(repository, name, false);
+    if (!isDeepStrictEqual(manifest, expected))
+      throw new Error("Arena record changed since selection; rerun resume to review current state.");
+    return ownedArenaSession(repository, name, dir, token, manifest).session;
+  } catch (error) {
+    // Never remove a lock replaced by another invocation or explicit external repair.
+    if ((await readPrivate(lock, 100).catch(() => null))?.toString() === token)
+      await unlink(lock);
+    throw error;
   }
 }
 
@@ -364,34 +467,9 @@ export async function reserveArena(
       "Arena reservation was incomplete; private records were retained. Inspect Git metadata before choosing another name. No worktrees were created.",
     );
   }
-  let closed = false;
-  const assertOwned = async () => {
-    await privateDirectory(dir, false);
-    if (closed || (await readPrivate(lock, 100)).toString() !== token)
-      throw new Error(
-        "Arena invocation lock changed; retained state requires inspection.",
-      );
-  };
+  const { session: owned, assertOwned } = ownedArenaSession(repository, plan.name, dir, token, manifest);
   const session: ArenaSession = {
-    manifest,
-    taskPath,
-    async save() {
-      await assertOwned();
-      validateRecord(
-        manifest,
-        repository,
-        plan.name,
-        await realpath(repository.commonGitDir),
-      );
-      await atomicRecord(dir, manifest);
-    },
-    async verifyTask() {
-      await assertOwned();
-      if (
-        hash(await readPrivate(taskPath, 1024 * 1024)) !== manifest.task.sha256
-      )
-        throw new Error("Arena task snapshot changed; no agent was launched.");
-    },
+    ...owned,
     async bind(attemptId, worktree) {
       await assertOwned();
       const attempt = manifest.attempts.find((a) => a.id === attemptId);
@@ -430,12 +508,6 @@ export async function reserveArena(
       attempt.worktreeGitDir = admin;
       attempt.stage = "created";
       await session.save();
-    },
-    async close() {
-      if (closed) return;
-      await assertOwned();
-      await unlink(lock);
-      closed = true;
     },
   };
   return session;

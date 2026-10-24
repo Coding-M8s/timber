@@ -23,3 +23,6 @@ Thumbs.db
 # Local Superpowers plans, specs, and execution artifacts
 /.superpowers/
 /docs/superpowers/
+
+# Local demos pending team review
+/scripts/demo/
