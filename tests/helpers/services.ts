@@ -13,6 +13,7 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     resolveJiraTicket: unexpected("resolveJiraTicket"),
     findJiraSuggestions: unexpected("findJiraSuggestions"),
     listWorktrees: unexpected("listWorktrees"),
+    listBranches: unexpected("listBranches"),
     resolveBranch: unexpected("resolveBranch"),
     resolveBase: unexpected("resolveBase"),
     resolveOpenTarget: unexpected("resolveOpenTarget"),

@@ -216,6 +216,22 @@ test("submodule index changes during confirmation invalidate discard even when f
   });
 });
 
+test.each(["--assume-unchanged", "--skip-worktree"])("index flag %s changed during confirmation still invalidates discard", async flag => {
+  await withRepository(async (primary, directory) => {
+    const f = await fixture(primary, directory);
+    await dirty(f.path);
+    const refs = await git(primary, "show-ref");
+    await expect(cleanupWorktree(f.repository, f.tree, config, options, quiet, async () => {
+      await git(f.path, "update-index", flag, "local.txt");
+      return true;
+    })).rejects.toThrow(/changed/i);
+    await retained(primary, f.path, f.head);
+    expect(await git(primary, "show-ref")).toBe(refs);
+    expect(await git(f.path, "ls-files", "-v", "--", "local.txt")).toBe(
+      flag === "--assume-unchanged" ? "h local.txt" : "S local.txt");
+  });
+});
+
 for (const mode of ["confirmation", "deleted"] as const) test(`keep-ignored protects ignored files in initialized submodules (${mode})`, async () => {
   await withRepository(async (primary, directory) => {
     await addModule(primary, directory);
@@ -249,6 +265,34 @@ test("confirmed discard removes populated submodules and their ignored files by 
 });
 
 for (const mode of ["confirmation", "deleted"] as const) {
+  test(`Git index stat refresh during teardown permits ${mode} cleanup on the first try`, async () => {
+    await withRepository(async (primary, directory) => {
+      const f = await fixture(primary, directory);
+      await dirty(f.path);
+      if (mode === "deleted") await git(f.bare, "update-ref", "-d", `refs/heads/${f.branch}`);
+      const result = await cleanupWorktree(f.repository, f.tree, { ...config,
+        hooks: { postCreate: [], preDelete: ["touch -m -d '2000-01-01 00:00:00Z' local.txt; GIT_OPTIONAL_LOCKS=1 git status --porcelain > /dev/null"] },
+      }, options, quiet, async () => true);
+      expect(result.deletedLocalBranch).toBe(f.branch);
+      expect(await lstat(f.path).then(() => true, () => false)).toBe(false);
+    });
+  });
+
+  test(`submodule index stat refresh during teardown permits ${mode} cleanup on the first try`, async () => {
+    await withRepository(async (primary, directory) => {
+      await addModule(primary, directory);
+      const f = await fixture(primary, directory);
+      await git(f.path, "-c", "protocol.file.allow=always", "submodule", "update", "--init");
+      await dirty(f.path);
+      if (mode === "deleted") await git(f.bare, "update-ref", "-d", `refs/heads/${f.branch}`);
+      const result = await cleanupWorktree(f.repository, f.tree, { ...config,
+        hooks: { postCreate: [], preDelete: ["touch -m -d '2000-01-01 00:00:00Z' module/module.txt; GIT_OPTIONAL_LOCKS=1 git -C module status --porcelain > /dev/null"] },
+      }, options, quiet, async () => true);
+      expect(result.deletedLocalBranch).toBe(f.branch);
+      expect(await lstat(f.path).then(() => true, () => false)).toBe(false);
+    });
+  });
+
   for (const change of ["create", "remove"] as const) test(`ignored runtime file ${change} during hooks permits ${mode} cleanup on the first try`, async () => {
     await withRepository(async (primary, directory) => {
       const f = await fixture(primary, directory);

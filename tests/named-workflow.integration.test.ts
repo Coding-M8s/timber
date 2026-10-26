@@ -1,11 +1,11 @@
-import { writeBaseAssociation } from "../src/git/base-metadata";
+import { readBaseAssociation, writeBaseAssociation } from "../src/git/base-metadata";
 import { expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createNewHandler } from "../src/commands/new";
 import { createOpenHandler } from "../src/commands/open";
 import { loadRepositoryConfig } from "../src/config";
-import { resolveBase } from "../src/git/branches";
+import { listBranches, resolveBase } from "../src/git/branches";
 import { createWorktree } from "../src/git/create-worktree";
 import { readWorkflowAssociation, writeWorkflowAssociation } from "../src/git/workflow-metadata";
 import { resolveOpenTarget } from "../src/git/open-target";
@@ -54,7 +54,7 @@ test("new and repeated open preserve creation-only actions with global agent def
     expect(await readFile(join(tree.path, "steps.log"), "utf8")).toBe("ordinary:review\nreview:review\n");
     const nested = join(tree.path, "nested");
     await mkdir(nested);
-    const open = createOpenHandler({ ...shared, resolveOpenTarget });
+    const open = createOpenHandler({ ...shared, resolveOpenTarget, listBranches, resolveBase, readBaseAssociation, writeBaseAssociation });
     await open("review", {}, context(nested));
     await open("review", { workflow: "review" }, context(primary));
     await writeFile(join(primary, ".timber.toml"), settings().replace('command = "review-editor"', 'command = "edited-editor"'));
@@ -78,7 +78,7 @@ test("open materialization remembers workflow and explicit retries alone replay 
       launchAgent: async (_tree: unknown, command: { command: string } | null) => {
         agents.push(command?.command ?? "off"); return { kind: "exited" as const, exitCode: 0, signal: null };
       } };
-    const open = createOpenHandler(services);
+    const open = createOpenHandler({ ...services, listBranches, resolveBase, readBaseAssociation, writeBaseAssociation });
     await open("coworkers-branch", { workflow: "review" }, context(primary));
     const repository = await discoverRepository(primary);
     const tree = (await listWorktrees(repository)).find(item => item.branch === "coworkers-branch")!;
@@ -115,7 +115,7 @@ test("failed workflow setup retains refs and files; ordinary open never retries 
     expect(await readFile(join(tree.path, "steps.log"), "utf8")).toBe("ordinary\n");
     expect(editors).toBe(0);
     expect(await git(primary, "show-ref", "--verify", "refs/heads/review")).toContain("refs/heads/review");
-    const open = createOpenHandler({ ...shared, resolveOpenTarget });
+    const open = createOpenHandler({ ...shared, resolveOpenTarget, listBranches, resolveBase, readBaseAssociation, writeBaseAssociation });
     await open("review", {}, context(primary));
     expect(await readFile(join(tree.path, "steps.log"), "utf8")).toBe("ordinary\n");
     await writeFile(join(tree.path, "ready"), "user content\n");

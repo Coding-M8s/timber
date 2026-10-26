@@ -87,7 +87,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
 
   workflowOptions(agentOptions(editorOptions(program.command("open <input>"))))
-    .description("Open an existing branch or worktree, remembering its named workflow")
+    .description("Open an existing branch or worktree; choose a missing base interactively")
     .option("--setup", "Rerun ordinary and workflow post_create hooks in the selected worktree")
     .action(async (input: string, options: { workflow?: string; w?: string; editor?: boolean; setup?: boolean; agent?: boolean }) => {
       const normalized: OpenOptions = {

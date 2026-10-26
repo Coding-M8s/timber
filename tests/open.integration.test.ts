@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { createOpenHandler } from "../src/commands/open";
+import { listBranches, resolveBase } from "../src/git/branches";
+import { readBaseAssociation, writeBaseAssociation } from "../src/git/base-metadata";
 import { loadRepositoryConfig } from "../src/config";
 import { launchEditor } from "../src/editor";
 import { createWorktree } from "../src/git/create-worktree";
@@ -334,6 +336,7 @@ test("interactive ambiguity creates only the explicitly selected local branch wo
       },
     };
     const open = createOpenHandler({
+      listBranches, resolveBase, readBaseAssociation, writeBaseAssociation,
       discoverRepository,
       loadConfig: loadRepositoryConfig,
       resolveOpenTarget,

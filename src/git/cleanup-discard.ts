@@ -58,24 +58,17 @@ export async function discardFingerprint(tree: Worktree, discardIgnored: boolean
       if (!discardIgnored && (await run(["ls-files", "--others", "--ignored", "--exclude-standard", "-z"])).stdout) {
         throw new IgnoredContent("Cannot clean up because --keep-ignored preserves ignored files, including files inside submodules.");
       }
-      // Initialized submodules keep their indexes outside the worktree. Include
-      // raw index state so index-only edits and conflict stages cannot hide.
-      const index = (await run(["rev-parse", "--path-format=absolute", "--git-path", "index"])).stdout;
-      let indexSize: number | null;
-      try { indexSize = (await lstat(index)).size; }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        indexSize = null;
-      }
-      field(indexSize);
-      if (indexSize !== null) for await (const chunk of createReadStream(index)) hash.update(chunk);
+      // Preserve staged contents, modes, conflict stages and index flags, while
+      // allowing Git to refresh stat caches without changing discard permission.
+      const entries = (await run(["ls-files", "--stage", "-v", "-z"])).stdout;
+      field(entries);
       for (const cached of [false, true]) {
         field((await run([
           "diff", "--no-ext-diff", "--no-textconv", "--binary", "--ignore-submodules=none", ...(cached ? ["--cached"] : []), "--",
         ])).stdout);
       }
-      const entries = (await run(["ls-files", "--stage", "-z"])).stdout.split("\0");
-      const modules = new Set(entries.filter(entry => entry.startsWith("160000 ")).map(entry => entry.slice(entry.indexOf("\t") + 1)));
+      const modules = new Set(entries.split("\0").filter(entry => entry.slice(2).startsWith("160000 "))
+        .map(entry => entry.slice(entry.indexOf("\t") + 1)));
       for (const path of [...modules].sort()) {
         const module = join(cwd, path);
         try { await lstat(join(module, ".git")); }
