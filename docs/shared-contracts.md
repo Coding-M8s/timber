@@ -46,6 +46,13 @@ startup and required setup, leaving agent lifetime to Orca. Arena uses sequentia
 foreground agents. See [launch behavior](cli-contract.md#interactive-agent-launching-02)
 and [Orca recovery](editor-terminals.md#failures-and-recovery).
 
+The private runner's process identity keeps Linux kernel start ticks unchanged.
+The experimental macOS arm64/x86_64 path reads `proc_pidinfo` through Bun FFI and
+preserves kernel start seconds/microseconds, refusing missing, truncated, mismatched,
+or zombie records. PID-only and whole-second fallbacks are not accepted. Native
+macOS and desktop smoke remain required before claiming support; see
+[experimental candidates](releases.md#experimental-macos-candidates).
+
 Saved bases and workflows belong to private Git-admin metadata. Arena adds
 versioned manifests, task digests, reciprocal worktree UUIDs, and invocation locks.
 Preserve existing record versions and exact recorded configuration during recovery;

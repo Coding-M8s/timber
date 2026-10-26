@@ -544,8 +544,12 @@ Ordinary and workflow editor tables accept optional `integration = "orca"`.
 Omission keeps the generic editor launcher. The command names the local Orca CLI
 (e.g. `orca-ide`), with literal args separate from agent args. Require a running
 local Orca window, registered repository and visible external worktrees. Never
-start another window/runtime. Remote routing is unsupported. Editor-owned
-terminals currently support only `orca-ide`. Zed and VS Code (`code`) use the
+start another window/runtime. Remote routing is unsupported. Runner portability
+includes an experimental macOS arm64/x86_64 path, using native
+microsecond process start identity and the same private request protocol. Lookup
+failure must fail closed. macOS support is not claimed until actual native and
+desktop smoke verification; the verified release target remains Linux x86_64.
+Editor-owned terminals currently support only `orca-ide`. Zed and VS Code (`code`) use the
 generic editor launcher (window open only); in-panel terminals for those editors
 are deferred until a demonstrated external bridge exists (see #61 for VS Code).
 

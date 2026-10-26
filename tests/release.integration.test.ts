@@ -15,16 +15,17 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const runner = join(root, "scripts/smoke-release.py");
 let directory: string;
 let binary: string;
+const suffix = process.platform === "darwin" ? `darwin-${process.arch}` : "linux-x64";
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "timber release test "));
-  binary = join(directory, `timber-v${version}-linux-x64`);
+  binary = join(directory, `timber-v${version}-${suffix}`);
   await execa(process.execPath, ["--no-env-file", "scripts/release.ts", "--outdir", directory], {
     cwd: root, timeout: 60_000,
   });
 }, 65_000);
 afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
 
-test("installed Linux standalone resolves Jira using saved credentials without .env or Jira environment (mocked HTTPS)", async () => {
+test("installed standalone resolves Jira using saved credentials without .env or Jira environment (mocked HTTPS)", async () => {
   await withRepository(async (primary, workspace) => {
     const bin = join(workspace, "installed/bin"); await mkdir(bin, { recursive: true });
     const installed = join(bin, "timber"); await copyFile(binary, installed); await chmod(installed, 0o755);
@@ -84,11 +85,12 @@ test("release output identifies source and passes checksum validation", async ()
   const info = JSON.parse(await readFile(join(directory, "build-info.json"), "utf8"));
   expect(info.version).toBe(version);
   expect(info.sourceCommit).toBe((await execa("git", ["rev-parse", "HEAD"], { cwd: root })).stdout);
-  expect(info.target).toBe("bun-linux-x64");
+  expect(info.target).toBe(`bun-${suffix}`);
   expect(info.bunVersion).toBe("1.4.2");
   expect(info.tag).toBeNull();
   expect(typeof info.sourceDirty).toBe("boolean");
-  await execa("sha256sum", ["-c", "SHA256SUMS"], { cwd: directory });
+  await execa(process.platform === "darwin" ? "shasum" : "sha256sum",
+    process.platform === "darwin" ? ["-a", "256", "-c", "SHA256SUMS"] : ["-c", "SHA256SUMS"], { cwd: directory });
 });
 
 test("standalone rebuild produces identical bytes with the same inputs", async () => {

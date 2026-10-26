@@ -34,7 +34,9 @@ bun run build:release
 target and produces `timber-v<VERSION>-windows-x64.exe`,
 `build-info-windows-x64.json` and `SHA256SUMS-windows-x64` in the output directory.
 `--target linux-x64` preserves the Linux names above. Omitted target defaults to
-Windows x64 on Windows and Linux x64 elsewhere. Other targets are rejected.
+Windows x64 on Windows, the native macOS target on macOS, and Linux x64
+elsewhere. `darwin-arm64` and `darwin-x64` are
+[experimental](#experimental-macos-candidates). Other targets are rejected.
 
 Use `--outdir <absolute-path>` for alternate output. Untagged builds allow local
 changes and mark them with `sourceDirty: true`. Tagged builds require clean source,
@@ -73,6 +75,34 @@ Without Docker, run `python3 scripts/smoke-release.py --binary <absolute-path>
 does not establish runtime independence. Jira HTTP tests use doubles; they do not
 establish live Jira access. Completion and Orca tests also use terminal/process
 fixtures where a real external tool is unnecessary.
+
+## Experimental macOS candidates
+
+`build:release --target darwin-arm64` or `--target darwin-x64` selects Bun's
+matching compiler target and produces `timber-v<VERSION>-darwin-arm64` or
+`timber-v<VERSION>-darwin-x64`. These are experimental candidates, not a
+supported release or evidence that a cross-compiled binary runs. The tagged
+publication workflow does not build them.
+
+```bash
+bun run build:release --target darwin-arm64 --outdir dist/macos-arm64
+```
+
+macOS builds write `build-info.json` and `SHA256SUMS`, so keep each target in its
+own output directory. Cross-compilation may download Bun's target runtime and does
+not execute the output.
+
+On the matching Mac, verify with `shasum -a 256 -c SHA256SUMS`, then run
+`python3 -B scripts/smoke-release.py --binary <absolute-binary-path>
+--expected-version <version>`. The host smoke verifies CLI/Git behavior; it does
+not prove a runtime-free environment or desktop-editor handoff. Signing,
+notarization, downloaded-artifact checks and manual editor smoke remain release
+work before claiming macOS support.
+
+`.github/workflows/macos.yml` runs manually on Apple Silicon and Intel runners.
+It checks selected source lifecycle, preservation and runner tests, native builds,
+checksums and standalone smoke. It publishes nothing. Manual triggering keeps macOS
+jobs off every push while the port is experimental.
 
 ## Publish a release
 

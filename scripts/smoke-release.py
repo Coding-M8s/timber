@@ -274,6 +274,18 @@ def smoke(binary, expected, lab):
     return git("--version")
 
 
+def platform_description():
+    system = platform.system()
+    if system == "Darwin":
+        return f"macOS {platform.mac_ver()[0]}".rstrip()
+    if system == "Linux":
+        try:
+            return platform.freedesktop_os_release().get("PRETTY_NAME", system)
+        except OSError:
+            return system
+    return system
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, type=Path)
@@ -286,9 +298,9 @@ def main():
         check(not any(shutil.which(name) for name in ("bun", "node", "npm")),
               "Clean verifier must not contain Bun, Node or npm")
     with tempfile.TemporaryDirectory(prefix="timber-release-smoke-") as directory:
-        git_version = smoke(binary, args.expected_version, Path(directory))
+        git_version = smoke(binary, args.expected_version, Path(directory).resolve())
     print(json.dumps({"result": "passed", "version": args.expected_version,
-                      "os": platform.freedesktop_os_release().get("PRETTY_NAME", "Linux"),
+                      "os": platform_description(),
                       "platform": platform.platform(), "architecture": platform.machine(),
                       "libc": platform.libc_ver(), "git": git_version,
                       "sha256": hashlib.sha256(binary.read_bytes()).hexdigest()}))

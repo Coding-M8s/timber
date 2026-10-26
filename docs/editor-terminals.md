@@ -15,6 +15,14 @@ the generic editor launcher (window open only). In-panel setup and agent
 terminals for those editors are not claimed; see [Zed](#zed) and
 [VS Code](#vs-code) below.
 
+macOS arm64 and x86_64 now have an experimental runner path. It reads native
+process start time at microsecond precision through the system `libproc` library
+using Bun's experimental FFI API; no Python or compiler is needed at runtime.
+Native lookup failures stop handoff rather than accepting a PID-only identity.
+This path requires macOS source/standalone verification and a real Orca desktop
+smoke before it can be described as supported. The existing verification record
+below establishes Linux support only. See [macOS candidates](releases.md#experimental-macos-candidates).
+
 ## Prerequisites
 
 - The Orca desktop app is running locally and reachable from its CLI. Timber
