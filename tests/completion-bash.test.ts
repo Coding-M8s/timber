@@ -63,7 +63,7 @@ test("Bash adapter handles quoted and escaped paths and shell word breaks", asyn
     const tree = join(directory, "odd ' \" $() ; & ! = : name");
     await git(primary, "worktree", "add", "--detach", tree);
     await git(primary, "branch", "literal;name");
-    await withScript(primary, async script => {
+    await withScript(primary, async () => {
       const escapedPrefix = tree.slice(0, -4).replace(/([^a-zA-Z0-9_/.-])/gu, "\\$1");
       expect(await candidates("timber done " + escapedPrefix, primary)).toEqual([tree]);
       expect(await candidates("timber done '" + directory + "/odd", primary)).toEqual([tree]);

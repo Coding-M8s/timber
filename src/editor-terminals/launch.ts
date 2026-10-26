@@ -17,7 +17,7 @@ function retry(path: string, flags: string) {
   return retryForDisplay(path, `timber open ${flags} -- '${path.replaceAll("'", "'\\''")}'`, flags);
 }
 
-/** One built-in integration, not a provider registry. Agent lifetime belongs to Orca. */
+/** Agent lifetime belongs to Orca; await only setup and startup. */
 export function createEditorTerminalLauncher(dependencies: Dependencies) {
   return async (launch: EditorTerminalLaunch, io: CommandIO): Promise<void> => {
     const { config, worktree, repository, agent } = launch;

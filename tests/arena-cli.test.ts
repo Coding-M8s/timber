@@ -193,7 +193,7 @@ for (const mode of ["success", "interrupt"] as const)
   });
 
 test("pasted task, participant, count and final confirmation survive Git preflight between prompts", async () => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     let output = "",
       sent = false;
     const child = Bun.spawn(

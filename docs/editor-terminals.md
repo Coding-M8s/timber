@@ -166,82 +166,15 @@ once the command starts; use the printed handle to find the terminal.
 - Terminal commands run inside the user's login shell, so the tab stays open
   after the runner exits.
 
-## Verification record (2026-10-16)
-
-Toolchain: Bun 1.4.2 (the package pin; the default Bun on this machine was
-1.4.3, which `build:release` and the release integration test reject, so the
-pinned binary was first on PATH), Git 2.55.0, Orca app and CLI 1.4.224, Linux
-x86_64.
-
-| Command | Result |
-| --- | --- |
-| `bun run typecheck` | passed |
-| `bun test` | 759 pass, 0 fail, 5122 expect() calls, 64 files, 72.98 s |
-| `bun run build` then `bun dist/index.js --help` | `dist/index.js` 0.77 MB; usage printed |
-| `bun run build:release` and `sha256sum -c SHA256SUMS` | `timber-v0.1.0-dev.0-linux-x64`, both sums OK |
-| `bun test tests/editor-terminal-compiled.test.ts` | compiled CLI drives a stub Orca with `PATH=/usr/bin:/bin`; passes within the suite |
-
-Manual smoke used a disposable repository registered with `repo add` and
-external visibility `show`, an ordinary hook `sleep 5; date +%s.%N >
-setup-marker`, workflow hooks, and an agent script that prints its cwd and
-Timber/Orca environment, writes a timestamp, then waits on stdin. Timber ran
-from source under a pseudo-terminal, except for the standalone row.
-
-| Scenario | Command | Observed |
-| --- | --- | --- |
-| Parallel (default) | `timber new parallel-smoke --workflow review` | exit 0 in 7.6 s; agent timestamp 4.65 s before setup completion; two connected local terminals owned by the exact worktree id; agent cwd is the worktree, `TIMBER_WORKFLOW=review`, `ORCA_WORKTREE_ID` is the target worktree |
-| Dependent | same with `wait_for_setup = true` | exit 0 in 6.0 s; agent timestamp 0.36 s after setup completion |
-| Setup failure | `timber new broken-smoke --workflow broken` (step 2 exits 7) | exit 1 in 6.0 s with `Setup workflow post_create step 2 failed (exit code 7)` and the retry command; step 3 never ran; branch ref intact; parallel agent terminal still running |
-| Definitive retry | printed `timber open --editor --setup --no-agent -- '<path>'` after fixing the hook | exit 0 in 5.7 s; all steps reran in a new setup terminal; no agent terminal |
-| Existing open | `timber open parallel-smoke` | exit 0 in 0.5 s; no setup rerun, no new terminal, window switched to the worktree's terminal |
-| Agent-only open | `timber open dependent-smoke --agent` | exit 0 in 0.7 s; one new agent terminal; setup marker untouched |
-| Foreground | `timber new foreground-smoke --no-editor` | exit 0 in 5.2 s; setup and agent ran in the invoking terminal; no Orca terminals |
-| Standalone | compiled binary, `PATH=/usr/bin:/bin`, `new standalone-smoke --workflow review` | exit 0 in 6.3 s; bootstrap `…/runtime __editor-task …` without Bun or source files; agent and markers as in the parallel row |
-
-Before the `--focus` change, the first parallel attempt failed after 11.6 s with
-`Orca terminal handoff is uncertain`; its tab attached only when the window
-first showed the worktree and then executed the bootstrap, which failed with
-`No such file or directory` because Timber had fenced and removed the request.
-All smoke terminals, worktrees and the project registration were removed
-afterwards.
-
 ## Zed
 
-Tracked in [Zed terminal integration #60](https://github.com/Coding-M8s/timber/issues/60).
-
-Zed 1.18.1 (`zeditor --help`, https://zed.dev/docs/reference/cli) opens
-workspaces (`zed <path>`, `--new`, `--add`, `--wait`) but exposes no external
-way to run a given command in a workspace terminal or to observe its
-completion. https://zed.dev/docs/tasks describes tasks spawned interactively
-from the UI through task files. Timber continues to open Zed through the
-generic editor launcher and does not modify user settings or task files.
-
-A separate ticket should add Zed terminals only once these are met:
-
-1. A demonstrated external route (CLI, IPC or extension) that runs a literal
-   argv in a Zed terminal inside the exact worktree without editing the user's
-   settings or task files, and that reports process startup and setup
-   completion.
-2. The same coordinator contract as Orca: separate setup and agent terminals,
-   parallel default, `wait_for_setup`, no foreground fallback, bounded
-   readiness, and uncertain-handoff diagnostics without replay.
-3. Real-process tests plus a recorded manual smoke on Linux x86_64 in this
-   document.
-4. `integration = "zed"` accepted by strict validation only in that change.
+Zed uses the generic editor launcher. Setup and agents run in the invoking terminal.
+In-panel terminals are tracked in [#60](https://github.com/Coding-M8s/timber/issues/60).
 
 ## VS Code
 
-Decision recorded in [#61](https://github.com/Coding-M8s/timber/issues/61).
-
-VS Code (`code`) uses only the generic editor launcher: `timber new` / `open`
-opens the worktree window (`command = "code"`, typical `args = ["--new-window"]`).
-Setup and the assistant stay on the non-Orca path (invoking terminal or skip).
-Timber does not create VS Code integrated terminals, does not accept
-`integration = "vscode"` / `integration = "code"`, and does not modify user
-settings or task files.
-
-Stock `code` (checked at 1.142.0 on Linux x86_64) has no CLI to create an
-integrated terminal with literal argv or to acknowledge setup/agent handoff.
-In-panel terminals need a future Timber VS Code extension (or equivalent
-external bridge), tracked in [#75](https://github.com/Coding-M8s/timber/issues/75).
-Until that bridge exists, do not claim VS Code terminal support.
+VS Code uses the generic editor launcher with `command = "code"` and, typically,
+`args = ["--new-window"]`. Setup and agents run in the invoking terminal.
+In-panel terminals require a separate bridge, tracked in
+[#75](https://github.com/Coding-M8s/timber/issues/75). Only `integration = "orca"`
+is currently accepted; Timber does not edit editor settings or task files.

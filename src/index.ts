@@ -15,7 +15,7 @@ import { checkExecutable } from "./setup/executable";
 import { inspectSetupTarget, saveSetupConfig } from "./setup/storage";
 import { createJiraSetupSession } from "./setup/jira";
 import { launchAgent } from "./agent";
-import { placeholderHandlers, runCli } from "./cli";
+import { runCli } from "./cli";
 import { createRebaseHandler } from "./commands/rebase";
 import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
 import { createDoneHandler } from "./commands/done";
@@ -59,7 +59,6 @@ if (!completing) {
 
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
-    ...placeholderHandlers,
     arenaNew: createArenaNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveSource: resolveArenaSource, finalizeSource: finalizeArenaSource, createWorktree,
       planDraft: planArenaDraft, reserveArena, validateArenaAttempt, checkExecutable, runSetup, launchEditor, launchAgent,

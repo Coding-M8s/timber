@@ -18,7 +18,7 @@ import type { EditorTerminalLaunch } from "../src/services";
 import { withRepository, git } from "./helpers/git";
 
 test.each([false, true])("real Git creation retains setup edits, workflow and refs after editor-terminal setup failure, dependent=%s", async dependent => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     await writeFile(join(primary, ".timber.toml"), `[editor]\ncommand = "orca-ide"\nenabled = true\nintegration = "orca"\n` +
       `[agent]\ncommand = "/bin/sh"\nargs = ["-c", "printf started > agent-started"]\nenabled = true\nwait_for_setup = ${dependent}\n` +
       '[hooks]\npost_create = ["printf ordinary > setup-edits; sleep 0.1"]\n' +

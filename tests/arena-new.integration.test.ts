@@ -1,10 +1,9 @@
 import { resolveArenaSource, finalizeArenaSource } from "../src/arena/source";
 import { expect, test } from "bun:test";
-import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { readFile, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { withRepository, git } from "./helpers/git";
 import { discoverRepository } from "../src/git/repository";
-import { resolveBase } from "../src/git/branches";
 import { createWorktree } from "../src/git/create-worktree";
 import { planArenaDraft } from "../src/arena/plan";
 import {
@@ -14,7 +13,7 @@ import {
 } from "../src/arena/storage";
 import { collectArenaInput } from "../src/arena/input";
 import { runSetup } from "../src/hooks";
-import type { RepositoryConfig, AgentResult } from "../src/types";
+import type { RepositoryConfig } from "../src/types";
 import type { ArenaServices } from "../src/arena/services";
 
 const config: RepositoryConfig = {
@@ -38,7 +37,6 @@ async function fixture(
     output: () => string;
   }) => Promise<void>,
 ) {
-  const { createArenaNewHandler } = await import("../src/commands/arena-new");
   await withRepository(async (primary, directory) => {
     const taskFile = join(directory, "task.txt");
     await writeFile(taskFile, "Same private task\n' $(touch NEVER)\n");
@@ -158,7 +156,7 @@ test("all attempts use base resolved once even when branch moves; source files r
 
 test("all worktrees and setup finish before sequential editor/agent launch with literal task handoff", async () => {
   const { createArenaNewHandler } = await import("../src/commands/arena-new");
-  await fixture(async ({ primary, taskFile, services, context }) => {
+  await fixture(async ({ taskFile, services, context }) => {
     context.interactive = true;
     const calls: string[] = [],
       prompts: string[] = [];

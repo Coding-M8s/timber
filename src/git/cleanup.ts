@@ -97,7 +97,7 @@ function hardRefusal(inspection: CleanupInspection, options: CleanupOptions): st
   return null;
 }
 
-function refusal(inspection: CleanupInspection, options: CleanupOptions): string | null {
+function refusal(inspection: CleanupInspection): string | null {
   const worktree = inspection.worktree;
   if (worktree.status.kind === "unknown") {
     return `Cannot clean up worktree at ${worktree.path} because file status is unknown: ${worktree.status.reason}.`;
@@ -238,7 +238,7 @@ export async function cleanupWorktree(
   let discard = upstreamDeleted;
   // Capture before the prompt so an answer cannot authorize newly edited content.
   let fingerprint: string | null = null;
-  const initialFailure = refusal(evidence.inspection, options);
+  const initialFailure = refusal(evidence.inspection);
   if (discard || (initialFailure && confirmDiscard)) fingerprint = await discardFingerprint(evidence.inspection.worktree, options.discardIgnored);
   if (!discard && initialFailure) {
     if (!confirmDiscard) throw new Error(`${initialFailure} Rerun in an interactive terminal to choose whether to delete anyway.`);
@@ -294,7 +294,7 @@ export async function cleanupWorktree(
     ancestry: finalEvidence.inspection.ancestry,
     integration: finalEvidence.inspection.integration,
   };
-  const finalFailure = hardRefusal(finalInspection, options) ?? (discard ? null : refusal(finalInspection, options));
+  const finalFailure = hardRefusal(finalInspection, options) ?? (discard ? null : refusal(finalInspection));
   if (finalFailure) throw new Error(finalFailure);
 
   if (fingerprint !== null && await discardFingerprint(finalInspection.worktree, options.discardIgnored) !== fingerprint) {

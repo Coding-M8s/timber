@@ -68,7 +68,7 @@ test("new and repeated open preserve creation-only actions with global agent def
 });
 
 test("open materialization remembers workflow and explicit retries alone replay setup or agent", async () => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     await writeFile(join(primary, ".timber.toml"), settings());
     await git(primary, "branch", "coworkers-branch");
     const agents: string[] = [];
@@ -94,7 +94,7 @@ test("open materialization remembers workflow and explicit retries alone replay 
 });
 
 test("failed workflow setup retains refs and files; ordinary open never retries it", async () => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     const ordinary = `printf 'ordinary\\n' >> "$TIMBER_WORKTREE/steps.log"`;
     const workflow = `test -f "$TIMBER_WORKTREE/ready"`;
     await writeFile(join(primary, ".timber.toml"),

@@ -61,38 +61,9 @@ isolated checks, and the maintainer release process.
 
 ## Development
 
-Each developer needs Bun **1.4.2** (pinned in `.bun-version` and `package.json`)
-and Git on their `PATH`. Python 3 is needed for the Linux PTY integration tests. The version declarations do not install Bun. Linux
-x86_64 is the verified development target; Node is not required. Docker is
-needed only for isolated standalone verification, not the ordinary source suite.
-
-### Install prerequisites
-
-On Ubuntu/Debian, install Git and the utilities needed by Bun's installer:
-
-```bash
-sudo apt update
-sudo apt install git curl unzip
-```
-
-On other Linux distributions, install those packages with your distribution's
-package manager. Install the pinned Bun version using the
-[official Bun installer](https://bun.com/docs/installation):
-
-```bash
-curl -fsSL https://bun.com/install | bash -s "bun-v1.4.2"
-export PATH="$HOME/.bun/bin:$PATH"
-bun --version # expected: 1.4.2
-git --version
-```
-
-For Bash, add `export PATH="$HOME/.bun/bin:$PATH"` to `~/.bashrc` so new terminals
-can find Bun; use the equivalent startup file for your shell. Restart any running
-development or agent terminal after changing its environment.
-
-### Install dependencies and verify
-
-From the repository root:
+Use Bun 1.4.2 (pinned in `.bun-version`) and Git. Python 3 is needed for PTY tests;
+Zsh and Fish are needed for their completion suites. Docker is needed only for
+isolated standalone checks.
 
 ```bash
 bun install --frozen-lockfile
@@ -100,18 +71,10 @@ bun run dev --help
 bun run typecheck
 bun test
 bun run build
-bun dist/index.js --help
 ```
 
-`build` creates a Bun JavaScript bundle in `dist/index.js`; it is not a standalone
-release binary. `bun run build:release` additionally creates
-`dist/release/timber-v0.1.0-dev.0-linux-x64`, `build-info.json`, and `SHA256SUMS`.
-The binary name follows the version in `package.json`; `timber --version` reports
-that same version. `src/index.ts` also has a
-Bun shebang and is the package's `timber` bin entry. No global installation is
-needed for development. GitHub CI runs locked installation, typecheck, tests, build
-and bundled help on Ubuntu x86_64, then compiles and verifies the standalone
-executable in a container without Bun or Node. Other platforms are not verified.
+`build` creates `dist/index.js`, a Bun bundle. For standalone builds and release
+checks, see [releases.md](releases.md).
 
 ## Commands
 
@@ -430,7 +393,7 @@ startup files. See [activation, installation, and verified environment](completi
 
 ## Repository configuration
 
-Timber reads `.timber.toml` from the primary worktree root and machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml` on Linux. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent configuration from 0.1 also supports opt-in foreground launching in 0.2; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
+Timber reads `.timber.toml` from the primary worktree root and machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml` on Linux. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent launching is opt-in; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
 
 Editor opening stays off by default, even with a configured `[editor]` command. Set `enabled = true` in that table to open it automatically, or use `--editor` on `new` or `open` for one command. `--no-editor` suppresses launch. Both flags together are an error. An explicit `--editor` requires a configured command; a repository-level `editor = false` removes an inherited command. Timber starts the editor after required Git and setup work. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
 
@@ -827,38 +790,11 @@ follow the [local installation and smoke-test guide](local-install.md).
 
 ## Orca editor terminals
 
-**Support note:** Editor-owned setup and agent terminals currently support only
-`orca-ide`. Zed and VS Code (`code`) open the editor window only; setup and the
-assistant stay in the invoking terminal unless you use Orca.
-
-Opt into separate setup and agent terminals in the existing local Orca window.
-Run `timber setup` (or `timber setup --global`), choose "Orca terminals" as the
-editor, enable it, and answer whether the assistant waits for setup. The saved
-tables look like this:
-
-```toml
-[editor]
-command = "orca-ide"
-args = []
-enabled = true
-integration = "orca"
-
-[agent]
-command = "claude"
-args = []
-enabled = true
-wait_for_setup = false
-```
-
-Agents start in parallel with setup by default. Set `wait_for_setup = true` to
-require successful setup first. `--no-editor` preserves foreground behavior.
-See [prerequisites, workflows and recovery](editor-terminals.md). Zed remains
-tracked in [#60](https://github.com/Coding-M8s/timber/issues/60). VS Code stays
-on generic window open per [#61](https://github.com/Coding-M8s/timber/issues/61);
-in-panel terminals wait on [#75](https://github.com/Coding-M8s/timber/issues/75).
-
-This integration applies to ordinary `new` and `open`; Arena keeps its sequential
-foreground launches in the invoking terminal.
+Choose Orca terminals in setup to run setup and the assistant in separate terminals
+of the existing local Orca window. Agents start alongside setup unless
+`wait_for_setup = true`. `--no-editor` uses the invoking terminal instead.
+Zed and VS Code open windows through the generic launcher.
+See [configuration, prerequisites, and recovery](editor-terminals.md).
 
 ## Arena: multiple isolated attempts
 

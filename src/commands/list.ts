@@ -28,7 +28,6 @@ function statusSummary(tree: Worktree): string {
   return parts.join("; ");
 }
 
-/** Scoped validation and offline inventory; no Git mutation or launches. */
 export function createListHandler(
   services: Pick<CommandServices, "discoverRepository" | "listWorktrees" | "loadConfig" | "readWorkflowAssociation" | "readBaseAssociation">,
 ): CommandHandlers["list"] {

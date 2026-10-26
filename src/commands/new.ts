@@ -24,7 +24,6 @@ function normalizeBranchInput(branch: string): string {
   return normalized;
 }
 
-/** Create a new workspace, then optionally start its configured editor. */
 export function createNewHandler(services: NewServices): CommandHandlers["new"] {
   return async (branch, options, context) => {
     const branchInput = normalizeBranchInput(branch);

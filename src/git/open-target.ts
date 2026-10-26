@@ -61,7 +61,7 @@ function mappedTargets(
   return targets;
 }
 
-/** Resolve a registered worktree first, then TIM-2's exact and ticket-prefix branch policy. */
+/** Resolve a registered worktree first, then exact and ticket-prefix branch matching. */
 export async function resolveOpenTarget(
   repository: RepositoryContext,
   input: string,

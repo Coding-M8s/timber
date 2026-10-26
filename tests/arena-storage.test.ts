@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { lstat, readFile, writeFile, unlink, symlink } from "node:fs/promises";
+import { lstat, readFile, writeFile, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { withRepository, git } from "./helpers/git";
 import { discoverRepository } from "../src/git/repository";

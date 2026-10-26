@@ -277,7 +277,7 @@ test.each(["fetch-fails", "branch-moves", "files-change", "git-startup", "interr
   await withRepository(async (primary, directory) => {
     const { publisher, target } = await fixture(primary, directory);
     const original = await commit(target, "feature.txt", "feature\n");
-    const incoming = await advance(publisher);
+    await advance(publisher);
     const cached = await git(primary, "rev-parse", "origin/main");
     const body = scenario === "fetch-fails" ? 'if [ "$1" = fetch ]; then exit 19; fi' :
       scenario === "branch-moves" || scenario === "files-change" ? [
