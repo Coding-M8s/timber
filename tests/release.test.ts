@@ -3,7 +3,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
-import { validateReleaseTag, verifyTaggedCommit } from "../scripts/release";
+import { releaseTarget, validateReleaseTag, verifyTaggedCommit } from "../scripts/release";
+
+test("release targets keep Linux assets compatible and Windows assets distinct", () => {
+  expect(releaseTarget(undefined, "linux")).toMatchObject({ name: "linux-x64", compile: "bun-linux-x64", metadata: "build-info.json", checksums: "SHA256SUMS" });
+  expect(releaseTarget(undefined, "win32")).toEqual({ name: "windows-x64", compile: "bun-windows-x64", extension: ".exe", metadata: "build-info-windows-x64.json", checksums: "SHA256SUMS-windows-x64" });
+  expect(releaseTarget("linux-x64", "win32").name).toBe("linux-x64");
+  expect(() => releaseTarget("windows-arm64")).toThrow();
+  expect(() => releaseTarget("windows-x64;echo unsafe")).toThrow();
+});
 
 test("release tags accept matching stable and numbered release candidates", () => {
   expect(() => validateReleaseTag("v0.2.0", "0.2.0")).not.toThrow();

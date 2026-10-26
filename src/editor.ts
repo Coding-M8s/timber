@@ -1,5 +1,7 @@
 import { once } from "node:events";
 import { spawn } from "node:child_process";
+import { NativeExecutableError, resolveNativeCommand } from "./platform/executable";
+import { shellQuoteForDisplay } from "./display";
 import type { EditorResult, RepositoryConfig, Worktree } from "./types";
 
 const startupFailureReasons = new Map([
@@ -9,11 +11,8 @@ const startupFailureReasons = new Map([
   ["EINVAL", "The editor command or worktree path is invalid."],
 ]);
 
-function quotePosix(value: string): string {
-  return "'" + value.replaceAll("'", "'\\''") + "'";
-}
-
 function startupFailureReason(error: unknown): string {
+  if (error instanceof NativeExecutableError) return error.message;
   if (typeof error !== "object" || error === null || !("code" in error) || typeof error.code !== "string") {
     return "The editor process could not be started.";
   }
@@ -29,10 +28,10 @@ export async function launchEditor(
   const editor = config.editor;
   if (disabled || editor === null || !editor.enabled) return { kind: "skipped" };
 
-  const retryCommand = `timber open --editor -- ${quotePosix(worktree.path)}`;
+  const retryCommand = `timber open --editor -- ${shellQuoteForDisplay(worktree.path)}`;
 
   try {
-    const child = spawn(editor.command, [...editor.args, worktree.path], {
+    const child = spawn(await resolveNativeCommand(editor.command), [...editor.args, worktree.path], {
       cwd: worktree.path,
       shell: false,
       stdio: "ignore",

@@ -109,7 +109,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
 
   const arena = program.command("arena")
-    .description("Prepare isolated attempts with the same task and base (Linux; sequential agents)");
+    .description("Prepare isolated attempts with the same task and base; sequential agents");
   const arenaTokens: ArenaGroupToken[] = [];
   editorOptions(arena.command("new <name-or-ticket>"))
     .description("Create at least 2 attempts; task entry and tool/model/effort/run selection are interactive by default")

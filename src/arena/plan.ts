@@ -1,3 +1,4 @@
+import { pathKey } from "../platform/paths";
 import { lstat, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { planWorktree } from "../git/worktree-plan";
@@ -55,9 +56,9 @@ async function planDestinations(
       { kind: "new", branch },
       config,
     );
-    if (paths.has(planned.path))
+    if (paths.has(pathKey(planned.path)))
       throw new Error("Arena attempt destinations collide.");
-    paths.add(planned.path);
+    paths.add(pathKey(planned.path));
     attempts.push({ ...participant, branch, path: planned.path });
   }
   return { name, attempts };

@@ -1,3 +1,4 @@
+import { samePath } from "../platform/paths";
 import { isAbsolute, resolve } from "node:path";
 import { execa } from "execa";
 import { gitOperation } from "./operations";
@@ -203,10 +204,6 @@ async function publication(
   } catch {
     return { state: unknownPublication(), upstreamCommit: null };
   }
-}
-
-function samePath(left: string, right: string): boolean {
-  return resolve(left) === resolve(right);
 }
 
 /** Read fresh cleanup evidence. The selected Worktree is a lookup key, never authority. */

@@ -1,3 +1,5 @@
+import { pathKey, samePath } from "../platform/paths";
+import { assertPrivateStorage, protectNewStorage } from "../platform/private-storage";
 import { constants } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
@@ -152,16 +154,18 @@ async function privateDirectory(path: string, create: boolean): Promise<void> {
   if (create) {
     try {
       await mkdir(path, { mode: 0o700 });
+      await protectNewStorage(path);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST")
         throw new Error("Cannot create private arena metadata directory.");
     }
   }
   const info = await lstat(path);
-  if (!info.isDirectory() || (info.mode & 0o077) !== 0)
+  if (!info.isDirectory() || (process.platform !== "win32" && (info.mode & 0o077) !== 0))
     throw new Error(
       "Unsafe arena metadata directory; inspect Git directory permissions.",
     );
+  await assertPrivateStorage(path, info, true);
 }
 async function directory(
   repository: RepositoryContext,
@@ -178,13 +182,16 @@ async function directory(
   return dir;
 }
 async function readPrivate(path: string, max = Infinity): Promise<Buffer> {
+  const before = await lstat(path);
+  await assertPrivateStorage(path, before, false);
   const file = await open(
     path,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
   try {
     const stat = await file.stat();
-    if (!stat.isFile() || stat.size > max || (stat.mode & 0o077) !== 0)
+    if (!stat.isFile() || stat.size > max || stat.dev !== before.dev || stat.ino !== before.ino
+      || (process.platform !== "win32" && (stat.mode & 0o077) !== 0))
       throw new Error("Unsafe or oversized arena metadata file.");
     const bytes = await file.readFile();
     if (bytes.length > max)
@@ -204,6 +211,7 @@ async function writePrivate(path: string, bytes: Uint8Array): Promise<void> {
     0o600,
   );
   try {
+    await protectNewStorage(path);
     await file.writeFile(bytes);
     await file.sync();
   } finally {
@@ -232,11 +240,11 @@ function validateRecord(
 ): void {
   if (
     manifest.name !== name ||
-    manifest.commonGitDir !== common ||
-    manifest.primaryWorktreeRoot !== repository.primaryWorktreeRoot ||
+    !samePath(manifest.commonGitDir, common) ||
+    !samePath(manifest.primaryWorktreeRoot, repository.primaryWorktreeRoot) ||
     new Set(manifest.attempts.map((a) => a.id)).size !==
       manifest.attempts.length ||
-    new Set(manifest.attempts.map((a) => a.path)).size !==
+    new Set(manifest.attempts.map((a) => pathKey(a.path))).size !==
       manifest.attempts.length ||
     new Set(manifest.attempts.map((a) => a.label)).size !==
       manifest.attempts.length ||
@@ -352,6 +360,7 @@ async function acquireResumeLock(path: string, token: string): Promise<void> {
   let identity: { dev: number; ino: number } | undefined;
   try {
     identity = await file.stat();
+    await protectNewStorage(path);
     await file.writeFile(Buffer.from(token));
     await file.sync();
     await file.close();
@@ -408,6 +417,7 @@ export async function reserveArena(
   const dir = await directory(repository, plan.name, true);
   try {
     await mkdir(dir, { mode: 0o700 });
+    await protectNewStorage(dir);
   } catch {
     throw new Error(
       "Arena already exists or cannot be reserved; inspect retained state or choose another name.",
@@ -475,7 +485,7 @@ export async function reserveArena(
       const attempt = manifest.attempts.find((a) => a.id === attemptId);
       if (
         !attempt ||
-        attempt.path !== worktree.path ||
+        !samePath(attempt.path, worktree.path) ||
         attempt.branch !== worktree.branch ||
         worktree.head !== manifest.base.commit ||
         worktree.isPrimary
@@ -520,18 +530,18 @@ export async function validateArenaAttempt(
 ): Promise<Worktree> {
   try {
     if (
-      manifest.commonGitDir !== (await realpath(repository.commonGitDir)) ||
+      !samePath(manifest.commonGitDir, await realpath(repository.commonGitDir)) ||
       !manifest.attempts.some(
         (a) =>
           a.id === attempt.id &&
-          a.path === attempt.path &&
+          samePath(a.path, attempt.path) &&
           a.branch === attempt.branch,
       )
     )
       throw new Error("membership");
     const worktree = (await listWorktrees(repository)).find(
       (w) =>
-        w.path === attempt.path && w.branch === attempt.branch && !w.isPrimary,
+        samePath(w.path, attempt.path) && w.branch === attempt.branch && !w.isPrimary,
     );
     if (!worktree || attempt.worktreeGitDir === null)
       throw new Error("missing");
@@ -542,7 +552,7 @@ export async function validateArenaAttempt(
     });
     if (
       result.exitCode !== 0 ||
-      (await realpath(result.stdout)) !== attempt.worktreeGitDir
+      !samePath(await realpath(result.stdout), attempt.worktreeGitDir)
     )
       throw new Error("replaced");
     const markerDir = join(attempt.worktreeGitDir, "timber");
@@ -557,8 +567,8 @@ export async function validateArenaAttempt(
     if (
       marker.arenaId !== manifest.id ||
       marker.attemptId !== attempt.id ||
-      marker.commonGitDir !== manifest.commonGitDir ||
-      marker.path !== attempt.path ||
+      !samePath(marker.commonGitDir, manifest.commonGitDir) ||
+      !samePath(marker.path, attempt.path) ||
       marker.branch !== attempt.branch
     )
       throw new Error("marker");

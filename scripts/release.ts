@@ -9,7 +9,16 @@ import { packageManager, version } from "../package.json";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const number = "(?:0|[1-9][0-9]*)";
 const releaseVersion = new RegExp(`^${number}\\.${number}\\.${number}(?:-rc\\.${number})?$`, "u");
-const target = "bun-linux-x64";
+export function releaseTarget(input?: string, platform = process.platform) {
+  const name = input ?? (platform === "win32" ? "windows-x64" : "linux-x64");
+  if (name !== "linux-x64" && name !== "windows-x64") throw new Error("Release target must be linux-x64 or windows-x64.");
+  return {
+    name, compile: name === "windows-x64" ? "bun-windows-x64" : "bun-linux-x64",
+    extension: name === "windows-x64" ? ".exe" : "",
+    metadata: name === "windows-x64" ? "build-info-windows-x64.json" : "build-info.json",
+    checksums: name === "windows-x64" ? "SHA256SUMS-windows-x64" : "SHA256SUMS",
+  };
+}
 
 export function validateReleaseTag(tag: string, packageVersion: string): void {
   if (!releaseVersion.test(packageVersion) || tag !== `v${packageVersion}`) {
@@ -39,10 +48,11 @@ export async function verifyTaggedCommit(cwd: string, tag: string): Promise<stri
 async function build(): Promise<void> {
   const { values } = parseArgs({
     args: process.argv.slice(2),
-    options: { tag: { type: "string" }, outdir: { type: "string" } },
+    options: { tag: { type: "string" }, outdir: { type: "string" }, target: { type: "string" } },
     allowPositionals: false,
   });
   if (packageManager !== `bun@${Bun.version}`) throw new Error(`Build requires ${packageManager}.`);
+  const target = releaseTarget(values.target);
   const tag = values.tag;
   if (tag !== undefined) validateReleaseTag(tag, version);
   const sourceCommit = tag === undefined
@@ -50,21 +60,21 @@ async function build(): Promise<void> {
     : await verifyTaggedCommit(root, tag);
   const sourceDirty = (await git(root, ["status", "--porcelain", "--untracked-files=all"])) !== "";
   const outdir = resolve(root, values.outdir ?? "dist/release");
-  const binaryName = `timber-v${version}-linux-x64`;
+  const binaryName = `timber-v${version}-${target.name}${target.extension}`;
   await mkdir(outdir, { recursive: true });
   await execa(process.execPath, [
-    "--no-env-file", "build", "src/index.ts", "--compile", `--target=${target}`,
+    "--no-env-file", "build", "src/index.ts", "--compile", `--target=${target.compile}`,
     "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig",
     "--outfile", join(outdir, binaryName),
   ], { cwd: root, stdio: "inherit" });
-  await writeFile(join(outdir, "build-info.json"), `${JSON.stringify({
-    version, tag: tag ?? null, sourceCommit, sourceDirty, bunVersion: Bun.version, target,
+  await writeFile(join(outdir, target.metadata), `${JSON.stringify({
+    version, tag: tag ?? null, sourceCommit, sourceDirty, bunVersion: Bun.version, target: target.compile,
   }, null, 2)}\n`);
-  const sums = await Promise.all([binaryName, "build-info.json"].map(async name => {
+  const sums = await Promise.all([binaryName, target.metadata].map(async name => {
     const digest = createHash("sha256").update(await readFile(join(outdir, name))).digest("hex");
     return `${digest}  ${name}\n`;
   }));
-  await writeFile(join(outdir, "SHA256SUMS"), sums.join(""));
+  await writeFile(join(outdir, target.checksums), sums.join(""));
   process.stdout.write(`Release candidate: ${binaryName}\n`);
 }
 

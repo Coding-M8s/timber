@@ -1,3 +1,4 @@
+import { samePath } from "../platform/paths";
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
@@ -77,7 +78,7 @@ export async function assertWorktreeIdentity(
     );
   }
   if (identity.exitCode !== 0 || prefix.exitCode !== 0 || prefix.stdout !== "" ||
-      resolve(identity.stdout) !== resolve(repository.commonGitDir)) {
+      !samePath(identity.stdout, repository.commonGitDir)) {
     throw identityFailure(
       `Worktree at ${tree.path} no longer identifies this repository.`,
       "Path no longer identifies this Git worktree",
@@ -103,9 +104,9 @@ export async function assertWorktreeIdentity(
   let matchesWorktree: boolean;
   try {
     matchesWorktree = tree.isPrimary
-      ? resolve(gitDirectory.stdout) === resolve(repository.commonGitDir)
-      : resolve((await readFile(join(gitDirectory.stdout, "gitdir"), "utf8")).replace(/\r?\n$/, "")) ===
-        resolve(tree.path, ".git");
+      ? samePath(gitDirectory.stdout, repository.commonGitDir)
+      : samePath((await readFile(join(gitDirectory.stdout, "gitdir"), "utf8")).replace(/\r?\n$/, ""),
+        resolve(tree.path, ".git"));
   } catch {
     throw identityFailure(
       `Cannot verify Git metadata for worktree at ${tree.path}.`,
@@ -190,7 +191,7 @@ export async function listWorktreeInventory(
     const fields = record.split("\0");
     const pathField = fields[0];
     if (!pathField?.startsWith("worktree ")) throw new Error("Cannot read worktree paths from Git metadata.");
-    const listedPath = pathField.slice("worktree ".length);
+    const listedPath = resolve(pathField.slice("worktree ".length));
     // A separate Git directory is listed first instead of the primary working files.
     const isPrimary = trees.length === 0;
     const tree: WorktreeInventory = {

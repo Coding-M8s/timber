@@ -1,5 +1,16 @@
 # Timber CLI behavioral contract
 
+Windows x64 candidate additions are specified in [Windows support](windows.md).
+They retain the preservation rules below. On Windows, Git for Windows supplies
+the POSIX hook shell; native executable launch excludes command-script shims;
+PowerShell quoting renders retry commands; Windows ACLs replace private POSIX
+mode checks. Absolute XDG paths retain precedence, with HOME then USERPROFILE
+fallback. Filesystem path collision/identity comparisons normalize separators and
+case on Windows, while Git branch/ref names retain their exact spelling. Windows
+support and this change's Linux regression gates remain unverified until actual
+platform evidence is recorded. Existing Linux-specific promises below continue
+to describe Linux, including Orca and POSIX process-group behavior.
+
 1. Discover repositories from nested directories and linked worktrees; distinguish the current worktree root from the common Git directory.
 2. Git operations use the detected repository, not a hardcoded current directory.
 3. `new <branch...>` creates a new branch from the configured or explicit base. The CLI joins its positional words with literal spaces; if the joined input contains U+0020, trim surrounding U+0020, lowercase, and replace each internal run of U+0020 with one hyphen. If the branch exists, report it and suggest `open`.

@@ -55,7 +55,7 @@ export interface CommandServices {
     io?: CommandIO, confirmDiscard?: ConfirmCleanupDiscard): Promise<CleanupResult>;
   /** Executable + args, no shell; null config or disabled means skipped. */
   launchEditor(worktree: Worktree, config: RepositoryConfig, disabled: boolean): Promise<EditorResult>;
-  /** Sequential trusted /bin/sh hooks; rejection retains workspace and blocks launch. */
+  /** Sequential trusted POSIX hooks; rejection retains workspace and blocks launch. */
   runSetup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, io: CommandIO,
     workflowName?: string, workflowScripts?: readonly string[]): Promise<void>;
   /** Await the owned foreground child; null command skips launching. */

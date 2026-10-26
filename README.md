@@ -21,6 +21,9 @@ found, add `~/.bun/bin` to your PATH. For an executable without Bun, see
 [release downloads](docs/guide.md#install-the-standalone-cli) or
 [build and install locally](docs/local-install.md).
 
+Windows x64 candidate work and pending native checks are documented in the
+[Windows guide](docs/windows.md).
+
 Choose defaults in an interactive terminal:
 
 ```bash

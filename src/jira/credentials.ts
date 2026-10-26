@@ -1,3 +1,4 @@
+import { assertPrivateStorage, protectNewStorage, privateDirectory } from "../platform/private-storage";
 import { constants } from "node:fs";
 import type { Stats } from "node:fs";
 import { link, lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
@@ -45,7 +46,8 @@ export interface CredentialStore {
 
 const code = (error: unknown): unknown => typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
 const storeError = () => new Error("Cannot read Jira credential store. Check its format, ownership and permissions; repair it privately or restore a backup, then rerun setup. Never include its contents in reports.");
-function checkOwner(info: Stats, mode?: number): void {
+async function checkOwner(path: string, info: Stats, mode?: number): Promise<void> {
+  if (process.platform === "win32") { await assertPrivateStorage(path, info, info.isDirectory()); return; }
   if (info.uid !== process.getuid!() || (mode === undefined ? (info.mode & 0o022) !== 0 : (info.mode & 0o777) !== mode)) {
     throw new Error("Unsafe Jira credential store ownership or permissions. Use your own regular 0600 file and a private 0700 credentials directory, then rerun setup.");
   }
@@ -85,7 +87,7 @@ async function safePath(path: string): Promise<void> {
     try {
       const info = await lstat(directory);
       if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Jira credential directory must be a regular directory, never a symlink.");
-      checkOwner(info, privateMode);
+      await checkOwner(directory, info, privateMode);
     } catch (error) { if (code(error) !== "ENOENT") throw error; }
   }
 }
@@ -96,7 +98,7 @@ async function readSource(path: string): Promise<string | null> {
   try {
     const info = await lstat(path);
     if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) throw new Error("Jira credential store must be a regular file, never a symlink or hard link.");
-    checkOwner(info, 0o600);
+    await checkOwner(path, info, 0o600);
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const opened = await handle.stat();
     if (opened.ino !== info.ino || opened.dev !== info.dev) throw storeError();
@@ -154,7 +156,7 @@ export async function loadSavedCredentials(config: JiraConfig, env: NodeJS.Proce
 async function temporary(path: string, source: string): Promise<string> {
   const pathName = join(dirname(path), `.jira-${randomUUID()}.tmp`);
   const handle = await open(pathName, "wx", 0o600);
-  try { await handle.chmod(0o600); await handle.writeFile(source); await handle.sync(); }
+  try { await protectNewStorage(pathName); if (process.platform !== "win32") await handle.chmod(0o600); await handle.writeFile(source); await handle.sync(); }
   catch { await unlink(pathName).catch(() => {}); throw storeError(); }
   finally { await handle.close(); }
   return pathName;
@@ -180,6 +182,11 @@ export async function withCredentialSave(store: CredentialStore, publishConfig: 
   const emptied = emptyRecords(next);
   const publishLink = files.link ?? link;
   try {
+    if (process.platform === "win32") {
+      await mkdir(dirname(dirname(dirname(store.path))), { recursive: true });
+      await privateDirectory(dirname(dirname(store.path)));
+      await privateDirectory(dirname(store.path));
+    }
     await safePath(store.path);
     await mkdir(dirname(store.path), { recursive: true, mode: 0o700 });
     await safePath(store.path);

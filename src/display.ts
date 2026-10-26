@@ -56,11 +56,20 @@ export function bashAnsiCQuote(value: string): string {
 
 /** Quote one retry argument without exposing terminal controls or evaluating shell text. */
 export function shellQuoteForDisplay(value: string): string {
+  if (process.platform === "win32") return powershellQuote(value);
   return terminalControl.test(value) ? bashAnsiCQuote(value) : "'" + value.replaceAll("'", "'\\''") + "'";
+}
+
+export function powershellQuote(value: string): string {
+  if (terminalControl.test(value)) {
+    return "(" + value.split("").map((character, index) => `${index === 0 ? "[string]" : ""}[char]${character.charCodeAt(0)}`).join(" + ") + ")";
+  }
+  return "'" + value.replaceAll("'", "''") + "'";
 }
 
 /** Ordinary paths keep their POSIX-quoted retry; control characters need a printable Bash command. */
 export function retryForDisplay(path: string, ordinaryRetry: string, options = "", command = "open"): string {
+  if (process.platform === "win32") return `timber ${command} ${options ? options + " " : ""}-- ${powershellQuote(path)}`;
   return terminalControl.test(path)
     ? `timber ${command} ${options ? options + " " : ""}-- ${bashAnsiCQuote(path)}`
     : ordinaryRetry;

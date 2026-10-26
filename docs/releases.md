@@ -5,6 +5,11 @@ Standalone builds target Linux x86_64. The tested release environment is Ubuntu
 Users need Git and any configured editor, agent, or hook tools. The executable
 runs without a separate Bun or Node installation.
 
+Windows x64 candidate implementation, prepared CI gates and pending native
+verification are in the [Windows handoff](windows.md). No runtime checks were
+run for that implementation at the owner's request. Cross-compilation alone
+does not establish platform support.
+
 ## Build and check
 
 Use Bun 1.4.2 and the locked dependencies. Python 3 is needed for PTY tests;
@@ -27,6 +32,12 @@ bun run build:release
 | `timber-v<VERSION>-linux-x64` | Standalone executable, versioned from `package.json` |
 | `build-info.json` | Version, tag if supplied, source commit, dirty marker, Bun version, target |
 | `SHA256SUMS` | Executable and metadata checksums |
+
+`build:release --target windows-x64` selects Bun's `bun-windows-x64` compiler
+target and produces `timber-v<VERSION>-windows-x64.exe`,
+`build-info-windows-x64.json` and `SHA256SUMS-windows-x64` in the output directory.
+`--target linux-x64` preserves the Linux names above. Omitted target defaults to
+Windows x64 on Windows and Linux x64 elsewhere. Other targets are rejected.
 
 Use `--outdir <absolute-path>` for alternate output. Untagged builds allow local
 changes and mark them with `sourceDirty: true`. Tagged builds require clean source,
@@ -73,15 +84,22 @@ fixtures where a real external tool is unnecessary.
    release; record results in the PR or release notes.
 2. Create and push the matching tag when ready. The tag workflow runs the source
    checks, builds that exact tag, verifies checksums, and runs the container smoke.
-3. Its dependent draft job verifies the live GitHub tag still points to the built
-   commit, then creates a draft containing the three assets. Only that job has
-   write permission; PR CI is read-only.
+   A native Windows job also builds the tag and runs focused source tests and
+   PowerShell acceptance. Its automated scope and remaining human gates are in
+   the Windows handoff.
+3. The draft job depends on both platform candidates and verifies the live
+   GitHub tag still points to the built commit, then creates a draft containing
+   six platform assets. Only that job has write permission; PR CI is read-only.
 4. The job downloads the draft assets, compares metadata and checksums with the
    candidate, rechecks the tag, and reruns the container smoke on the download.
    Existing drafts must match; mismatched assets fail without replacement.
-   Published releases are never modified.
-5. Review the workflow results and `downloaded-release-verification` artifact,
-   installation instructions, and unresolved bugs. Publish the draft explicitly.
+   Published releases are never modified. A dependent native Windows job checks
+   downloaded Windows metadata/checksums and the live tag, then runs its
+   PowerShell harness against the downloaded executable.
+5. Review the workflow results, `downloaded-release-verification` and
+   `downloaded-windows-release-verification` artifacts, installation instructions,
+   and unresolved bugs. Windows clean-machine and interactive checks remain
+   separate owner gates. Publish the draft explicitly.
    Failed verification leaves the draft unpublished; inspect partial drafts before
    retrying.
 

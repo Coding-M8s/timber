@@ -1,3 +1,4 @@
+import { samePath } from "../platform/paths";
 import { mkdir } from "node:fs/promises";
 import { refreshRemoteBranch } from "./branches";
 import { exists, physicalPath, within, git, refExists, planWorktree } from "./worktree-plan";
@@ -19,12 +20,12 @@ export async function createWorktree(
 ): Promise<Worktree> {
   const { name, root, physicalRoot, path, primary, localRef } = await planWorktree(repository, request, config);
 
-  if (request.kind === "new" && request.expectedPath !== undefined && path !== request.expectedPath) {
+  if (request.kind === "new" && request.expectedPath !== undefined && !samePath(path, request.expectedPath)) {
     throw new Error("Worktree destination changed after arena preflight; no worktree was created.");
   }
   if (request.kind === "remote") await refreshRemoteBranch(repository, request.branch);
   await mkdir(physicalRoot, { recursive: true });
-  if (await physicalPath(physicalRoot) !== physicalRoot || within(await physicalPath(path), primary)) {
+  if (!samePath(await physicalPath(physicalRoot), physicalRoot) || within(await physicalPath(path), primary)) {
     throw new Error(`Worktree directory changed or would target the primary repository: ${root}`);
   }
   try {
@@ -37,7 +38,7 @@ export async function createWorktree(
     }
     throw error;
   }
-  if (await physicalPath(path) !== path || within(await physicalPath(path), primary)) {
+  if (!samePath(await physicalPath(path), path) || within(await physicalPath(path), primary)) {
     throw new Error(`Worktree destination changed or would target the primary repository: ${path}`);
   }
 
@@ -57,7 +58,7 @@ export async function createWorktree(
   }
 
   try {
-    const created = (await listWorktrees(repository)).find(tree => tree.path === path && tree.branch === name);
+    const created = (await listWorktrees(repository)).find(tree => samePath(tree.path, path) && tree.branch === name);
     if (created?.pathExists && created.status.kind === "known") return created;
   } catch {
     // Git succeeded, but verifying its inventory failed. Report actual retained state below.
