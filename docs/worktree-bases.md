@@ -49,10 +49,15 @@ fetch, pull, or advance the local base branch. `ls` shows local bases as
 
 ## Existing worktrees and recovery
 
-Worktrees created outside Timber or before this feature show `-` until a successful
-or conflict-paused rebase saves a base. Ordinary `open` does not guess a parent or
-overwrite the saved choice. Missing saved branches require an explicit replacement;
-Timber does not silently switch to a configured default.
+For a branch without a saved base, interactive `open` asks you to choose a local
+or cached remote branch. `Not assigned` is the default: press Enter to keep `-`
+in `ls`. A selection is saved for later `rebase` and `done`, without fetching or
+rebasing. Cancel stops before creating a worktree. Noninteractive opens leave the
+base unset; reopening an unassigned branch offers the choice again.
+
+`open` does not guess a parent or overwrite a saved or invalid association.
+Missing saved branches require an explicit replacement; Timber does not silently
+switch to a configured default.
 
 Saved bases live in private Git worktree metadata, alongside workflow associations,
 without changing TOML or tracked files. `ls` remains offline and shows `?` with a

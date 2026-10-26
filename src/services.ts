@@ -20,6 +20,8 @@ export interface CommandServices {
   findJiraSuggestions(config: JiraConfig, key: string): Promise<readonly JiraTicket[]>;
   /** TIM-1/TIM-4: installed Git is authoritative; include manual, detached, stale entries. */
   listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]>;
+  /** Local and cached remote branches, without fetching. */
+  listBranches(repository: RepositoryContext): Promise<readonly Branch[]>;
   /** TIM-2: exact local, exact remote, then delimiter-boundary prefix; no guessing. */
   resolveBranch(repository: RepositoryContext, input: string, config: RepositoryConfig): Promise<Resolution<Branch>>;
   /** TIM-2: explicit > config > selected remote default > unambiguous main/master. */

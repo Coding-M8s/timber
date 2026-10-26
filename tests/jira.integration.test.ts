@@ -1,4 +1,4 @@
-import { writeBaseAssociation } from "../src/git/base-metadata";
+import { readBaseAssociation, writeBaseAssociation } from "../src/git/base-metadata";
 import { expect, test } from "bun:test";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import { createOpenHandler } from "../src/commands/open";
 import { placeholderHandlers, runCli } from "../src/cli";
 import { loadRepositoryConfig } from "../src/config";
 import { launchEditor } from "../src/editor";
-import { resolveBase } from "../src/git/branches";
+import { listBranches, resolveBase } from "../src/git/branches";
 import { createWorktree } from "../src/git/create-worktree";
 import { resolveOpenTarget } from "../src/git/open-target";
 import { discoverRepository } from "../src/git/repository";
@@ -220,6 +220,7 @@ function handlersFor(
     open: createOpenHandler({
       ...shared,
       resolveOpenTarget,
+      listBranches, resolveBase, readBaseAssociation,
     }),
   };
 }

@@ -79,8 +79,16 @@ continuation/abort suffice; no Timber continuation flags or AI resolution.
 before setup or launches. Store the moving branch identity, not its creation commit.
 Metadata is bound to the canonical repository/worktree paths, validated like workflow
 associations, and published atomically with private permissions. Save failure retains
-the created worktree and reports recovery guidance. `open` does not infer or overwrite
-bases for existing or materialized branches. Arena creation is unchanged.
+the created worktree and reports recovery guidance. Interactive `open` offers a
+base chooser for branches without a saved base, before creation, setup or launches.
+The first and default option is `Not assigned`; Enter leaves metadata absent.
+Other choices are exact local and cached remote branch refs, excluding the target
+local branch and the selected source ref. Selection saves a canonical base before
+setup or launches, without fetching, rebasing or changing branch tips. Cancellation
+stops opening before creation. Noninteractive and detached opens do not prompt.
+Saved or invalid associations are left unchanged. Re-read metadata before saving;
+a detected association change stops assignment. `open` never infers a parent branch.
+Arena creation is unchanged.
 
 `ls` adds a BASE column before WORKFLOW: remote bases display `remote/branch`, local
 bases display `refs/heads/branch`, absent records display `-`, and invalid records
@@ -330,6 +338,10 @@ evidence, new modified/untracked files, and ignored files under `--keep-ignored`
 refuse cleanup. Leave the resulting files and refs intact; do not undo hook work.
 Ignored content otherwise follows the existing discard policy. Hooks never
 authorize bypassing cleanup safeguards.
+
+Discard revalidation compares file contents and staged index entries, including
+modes, conflict stages and assume-unchanged/skip-worktree flags in initialized
+submodules. Git stat-cache refreshes alone do not invalidate discard authorization.
 
 ## Editor terminals (TIM-27)
 

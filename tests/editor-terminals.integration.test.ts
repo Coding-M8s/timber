@@ -1,4 +1,4 @@
-import { writeBaseAssociation } from "../src/git/base-metadata";
+import { readBaseAssociation, writeBaseAssociation } from "../src/git/base-metadata";
 import { expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -6,7 +6,7 @@ import { execa } from "execa";
 import { createNewHandler } from "../src/commands/new";
 import { createOpenHandler } from "../src/commands/open";
 import { loadRepositoryConfig } from "../src/config";
-import { resolveBase } from "../src/git/branches";
+import { listBranches, resolveBase } from "../src/git/branches";
 import { createWorktree } from "../src/git/create-worktree";
 import { discoverRepository } from "../src/git/repository";
 import { resolveOpenTarget } from "../src/git/open-target";
@@ -33,7 +33,7 @@ test.each([false, true])("real Git creation retains setup edits, workflow and re
           return `term_${commands.length}`;
         }, select: async () => {} }) });
     const services = { discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, createWorktree, writeBaseAssociation,
-      resolveOpenTarget, readWorkflowAssociation, writeWorkflowAssociation,
+      resolveOpenTarget, listBranches, readBaseAssociation, readWorkflowAssociation, writeWorkflowAssociation,
       resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [],
       runSetup: async () => { throw new Error("foreground fallback"); },
       launchEditor: async () => { throw new Error("generic fallback"); },

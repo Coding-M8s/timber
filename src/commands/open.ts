@@ -108,6 +108,7 @@ function branchRequest(branch: Branch) {
 export function createOpenHandler(
   services: Pick<CommandServices,
     "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" |
+    "listBranches" | "resolveBase" | "readBaseAssociation" | "writeBaseAssociation" |
     "readWorkflowAssociation" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">,
 ): CommandHandlers["open"] {
   return async (input, options, context) => {
@@ -182,11 +183,45 @@ export function createOpenHandler(
     const canHostAgent = context.interactive === true
       || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
     const agentCommand = resolveWorkflowAgent(config, workflow, agentChoice, canHostAgent, created);
+    let baseRef: string | undefined;
+    const branchName = selected.kind === "branch" ? selected.branch.name : selected.worktree.branch;
+    if (context.interactive && context.choose && branchName !== null) {
+      const association = selected.kind === "worktree"
+        ? await services.readBaseAssociation(repository, selected.worktree) : { kind: "unassigned" as const };
+      if (association.kind === "unassigned") {
+        const branches = (await services.listBranches(repository))
+          .filter(branch => branch.ref !== `refs/heads/${branchName}`
+            && !(selected.kind === "branch" && branch.ref === selected.branch.ref))
+          .sort((a, b) => a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0);
+        const selection = await context.choose(
+          `Choose a base for ${safeDisplay(branchName)} (Enter leaves it not assigned). Used by rebase and done.`,
+          [{ value: "unassigned", label: "Not assigned (default)", default: true },
+            ...branches.map(branch => ({ value: branch.ref,
+              label: branch.kind === "local" ? `Local branch ${safeDisplay(branch.name)}`
+                : `Remote branch ${safeDisplay(`${branch.remote}/${branch.name}`)}` }))],
+        );
+        if (selection === null) {
+          context.io.stdout("Cancelled.\n");
+          return;
+        }
+        if (selection !== "unassigned") {
+          if (!branches.some(branch => branch.ref === selection)) throw new Error("Invalid base selection; choose one of the displayed branches.");
+          baseRef = (await services.resolveBase(repository, config, selection)).ref;
+        }
+      }
+    }
     let worktree: Worktree;
     if (selected.kind === "branch") {
       worktree = await services.createWorktree(repository, branchRequest(selected.branch), config);
     } else {
       worktree = selected.worktree;
+    }
+
+    if (baseRef !== undefined) {
+      if ((await services.readBaseAssociation(repository, worktree)).kind !== "unassigned") {
+        throw new Error("Base association changed while opening; worktree retained. Rerun timber open.");
+      }
+      await services.writeBaseAssociation(repository, worktree, baseRef);
     }
 
     if (options.workflow !== undefined && (created || savedName !== options.workflow)) {

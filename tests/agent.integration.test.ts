@@ -15,7 +15,8 @@ async function pty(
   options: { env?: Record<string, string>; input?: string; interrupt?: boolean } = {},
 ): Promise<{ exitCode: number; output: string }> {
   const payload = join(directory, `pty-${serial++}.json`);
-  await writeFile(payload, JSON.stringify({ cwd, command: [process.execPath, entry, ...args], ...options }));
+  await writeFile(payload, JSON.stringify({ cwd, command: [process.execPath, entry, ...args],
+    ...(args[0] === "open" ? { baseInput: "\n" } : {}), ...options }));
   const result = await execa("python3", ["-B", terminal, payload], { timeout: 8000 });
   return JSON.parse(result.stdout);
 }
@@ -74,6 +75,7 @@ test("open reuses dirty workspace and propagates nonzero agent exit without chan
     const before = await snapshot(primary);
     const result = await pty(primary, directory, ["open", tree, "--no-editor"]);
     expect(result.exitCode).toBe(23);
+    expect(result.output).toContain("Not assigned (default)");
     expect(result.output).toContain("Workspace retained");
     expect(await snapshot(primary)).toEqual(before);
     expect(await readFile(join(tree, "tracked.txt"), "utf8")).toBe("modified\n");

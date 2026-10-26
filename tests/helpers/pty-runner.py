@@ -20,6 +20,7 @@ if pid == 0:
 
 output = bytearray()
 sent = False
+base_sent = False
 status = None
 eof = False
 deadline = time.monotonic() + 6
@@ -37,6 +38,9 @@ try:
                 output.extend(chunk)
             else:
                 eof = True
+        if not eof and not base_sent and "baseInput" in payload and b"Not assigned (default)" in output:
+            os.write(master, payload["baseInput"].encode())
+            base_sent = True
         if not eof and not sent and payload.get("sendAt", "AGENT_READY").encode() in output:
             if payload.get("interrupt"):
                 os.write(master, b"\x03")

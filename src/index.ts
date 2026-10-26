@@ -25,7 +25,7 @@ import { createOpenHandler } from "./commands/open";
 import { loadRepositoryConfig } from "./config";
 import { launchEditor } from "./editor";
 import { runSetup } from "./hooks";
-import { resolveBase } from "./git/branches";
+import { listBranches, resolveBase } from "./git/branches";
 import { cleanupWorktree } from "./git/cleanup";
 import { createWorktree } from "./git/create-worktree";
 import { resolveOpenTarget } from "./git/open-target";
@@ -86,6 +86,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
       discoverRepository,
       loadConfig: loadRepositoryConfig,
       resolveOpenTarget,
+      listBranches, resolveBase, readBaseAssociation, writeBaseAssociation,
       createWorktree, readWorkflowAssociation, writeWorkflowAssociation,
       runSetup,
       launchEditor,
