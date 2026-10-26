@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
 import { createTerminalRequest, RunnerStartupFailure } from "../src/editor-terminals/request";
@@ -8,7 +8,7 @@ import * as protocol from "../src/editor-terminals/protocol";
 const self = { executable: process.execPath, entry: resolve("src/index.ts") };
 
 test("runner executes literal agent argv/context in exact cwd and acknowledges spawn before exit", async () => {
-  const cwd = await mkdtemp('/tmp/timber-runner spaces $()-');
+  const cwd = await realpath(await mkdtemp('/tmp/timber-runner spaces $()-'));
   const capture = join(cwd, "capture.json");
   const fixture = join(cwd, "fixture.ts");
   await writeFile(fixture, 'await Bun.write(process.argv[2]!, JSON.stringify({cwd:process.cwd(),args:process.argv.slice(3),repo:process.env.TIMBER_REPO,branch:process.env.TIMBER_BRANCH,workflow:process.env.TIMBER_WORKFLOW,task:process.env.TIMBER_TASK_ID,orca:process.env.ORCA_WORKTREE_ID})); await Bun.sleep(500);');

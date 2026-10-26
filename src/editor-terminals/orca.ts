@@ -1,6 +1,7 @@
 import { execa } from "execa";
 import { z } from "zod";
 import type { EditorConfig, Worktree } from "../types";
+import { supportsEditorTerminals } from "./process-identity";
 
 export type OrcaCall = (args: readonly string[], timeoutMs: number) => Promise<unknown>;
 /** Terminal creation succeeded; selection failure must never trigger another create. */
@@ -32,7 +33,9 @@ function failure(code: string): Error {
 
 /** Only read-only discovery is retried. Terminal mutations are attempted exactly once. */
 export async function createOrcaSession(editor: EditorConfig, worktree: Worktree, options: Options = {}) {
-  if (process.platform !== "linux" || process.arch !== "x64") throw new Error("Orca terminal integration currently requires Linux x86_64.");
+  if (!supportsEditorTerminals(process.platform, process.arch)) {
+    throw new Error("Orca terminal integration requires Linux x86_64 or experimental macOS arm64/x86_64.");
+  }
   const env = options.env ?? process.env;
   if (env.ORCA_ENVIRONMENT || env.ORCA_PAIRING_CODE
     || editor.args.some(arg => /^--(?:environment|pairing-code)(?:=|$)/u.test(arg))) {

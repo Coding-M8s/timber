@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -8,7 +8,7 @@ export async function git(cwd: string, ...args: string[]): Promise<string> {
 }
 
 export async function withRepository(run: (primary: string, directory: string) => Promise<void>): Promise<void> {
-  const directory = await mkdtemp(join(tmpdir(), "timber list "));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "timber list ")));
   const primary = join(directory, "primary repo");
   try {
     await mkdir(primary);

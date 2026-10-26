@@ -26,3 +26,7 @@ Thumbs.db
 
 # Local demos pending team review
 /scripts/demo/
+
+# Local research notes
+/docs/rebase-ai-resolution-research.md
+/docs/worktrunk-comparison-research.md

@@ -1,0 +1,53 @@
+name: macOS beta verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+            suffix: darwin-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+            suffix: darwin-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - name: Verify source lifecycle, preservation and runner
+        run: >-
+          bun test tests/repository.test.ts tests/worktrees.test.ts
+          tests/new.integration.test.ts tests/open.integration.test.ts
+          tests/done.integration.test.ts tests/rebase.integration.test.ts
+          tests/process-identity.test.ts tests/editor-terminal-runner.test.ts
+          tests/editor-terminals.integration.test.ts tests/editor-terminal-compiled.test.ts tests/orca.test.ts
+          tests/release.test.ts tests/release.integration.test.ts
+          tests/smoke-platform.test.ts
+      - run: bun run build
+      - run: bun dist/index.js --help
+      - name: Build native candidate
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: bun run build:release --target "$BUILD_TARGET"
+      - name: Verify checksum and standalone lifecycle
+        env:
+          BINARY_SUFFIX: ${{ matrix.suffix }}
+        run: |
+          (cd dist/release && shasum -a 256 -c "SHA256SUMS-$BINARY_SUFFIX")
+          VERSION="$(bun --no-env-file -p 'require("./package.json").version')"
+          python3 -B scripts/smoke-release.py \
+            --binary "$PWD/dist/release/timber-v$VERSION-$BINARY_SUFFIX" \
+            --expected-version "$VERSION"

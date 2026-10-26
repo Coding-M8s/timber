@@ -1,6 +1,7 @@
 import { lstat, readFile, rename, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
+import { processIdentity as readProcessIdentity } from "./process-identity";
 
 const literal = z.string().refine(value => !value.includes("\0"));
 const context = { cwd: literal.refine(isAbsolute), repositoryRoot: literal.refine(isAbsolute),
@@ -21,13 +22,9 @@ export const resultSchema = z.discriminatedUnion("kind", [
 ]);
 export type TaskResult = z.infer<typeof resultSchema>;
 
-/** Linux start time prevents treating a reused PID as the runner. Zombies are gone. */
+/** Kernel start time prevents treating a reused PID as the runner. */
 export async function processIdentity(pid = process.pid): Promise<ProcessIdentity | null> {
-  try {
-    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-    return fields[0] === "Z" || fields[0] === "X" || !fields[19] ? null : { pid, start: fields[19] };
-  } catch { return null; }
+  return readProcessIdentity(pid);
 }
 
 export async function assertPrivate(path: string, directory = false): Promise<void> {

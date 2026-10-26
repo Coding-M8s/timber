@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -11,6 +11,30 @@ test("release targets keep Linux assets compatible and Windows assets distinct",
   expect(releaseTarget("linux-x64", "win32").name).toBe("linux-x64");
   expect(() => releaseTarget("windows-arm64")).toThrow();
   expect(() => releaseTarget("windows-x64;echo unsafe")).toThrow();
+});
+
+test("macOS beta targets bind distinct release assets to each Bun platform", () => {
+  expect(releaseTarget(undefined, "darwin", "arm64")).toEqual({ name: "darwin-arm64", compile: "bun-darwin-arm64", extension: "", metadata: "build-info-darwin-arm64.json", checksums: "SHA256SUMS-darwin-arm64" });
+  expect(releaseTarget(undefined, "darwin", "x64")).toMatchObject({ name: "darwin-x64", compile: "bun-darwin-x64" });
+  expect(releaseTarget("darwin-x64", "linux").compile).toBe("bun-darwin-x64");
+  const targets = ["linux-x64", "windows-x64", "darwin-arm64", "darwin-x64"].map(name => releaseTarget(name));
+  expect(new Set(targets.map(target => target.metadata)).size).toBe(4);
+  expect(new Set(targets.map(target => target.checksums)).size).toBe(4);
+  for (const target of ["darwin-ia32", "bun-darwin-arm64", "darwin-arm64;touch sentinel", ""]) {
+    expect(() => releaseTarget(target)).toThrow(/target/i);
+  }
+  expect(() => releaseTarget(undefined, "darwin", "ia32")).toThrow(/target/i);
+});
+
+test("release CLI rejects an unsupported target before creating output", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "timber-invalid-target-"));
+  try {
+    const outdir = join(cwd, "output");
+    const result = await execa(process.execPath, ["--no-env-file", "scripts/release.ts", "--target", "darwin-ia32", "--outdir", outdir], { reject: false });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Release target must be");
+    await expect(lstat(outdir)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
 test("release tags accept matching stable and numbered release candidates", () => {
