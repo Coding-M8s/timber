@@ -34,9 +34,9 @@ export async function collectParticipants(
   while (true) {
     const tools = [
       { value: "manual", label: "Manual worktrees (no automatic agent)" },
-      { value: "codex", label: "Codex CLI — select model" },
-      { value: "claude", label: "Claude Code — select model" },
-      { value: "cursor", label: "Cursor CLI — select model" },
+      { value: "codex", label: "Codex CLI: select model" },
+      { value: "claude", label: "Claude Code: select model" },
+      { value: "cursor", label: "Cursor CLI: select model" },
       ...(Object.keys(agents).length
         ? [
             {

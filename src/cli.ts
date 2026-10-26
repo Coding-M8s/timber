@@ -1,7 +1,7 @@
 import { parseArenaGroups } from "./arena/participants";
 import type { ArenaGroupToken } from "./arena/types";
 import type { ArenaNewOptions, ArenaResumeOptions } from "./arena/types";
-import { Command, CommanderError, Option } from "commander";
+import { Command, CommanderError } from "commander";
 import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
 import type { CommandContext, CommandHandlers, NewOptions, OpenOptions } from "./services";

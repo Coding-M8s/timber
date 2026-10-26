@@ -22,18 +22,13 @@ jobs:
       - name: Reject AI commit attribution
         run: bun --no-env-file scripts/check-commit-attribution.ts --event "$GITHUB_EVENT_PATH"
       - run: bun install --frozen-lockfile
-      - name: Install Zsh
+      - name: Install completion shells
         run: |
           sudo apt-get update
-          sudo apt-get install --yes zsh
+          sudo apt-get install --yes --no-install-recommends zsh fish
           zsh --version
-      - run: bun run typecheck
-      - name: Install Fish for completion tests
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends fish
           fish --version
-          test "$(fish --version)" = "fish, version 3.7.0"
+      - run: bun run typecheck
       - run: bun test
       - run: bun run build
       - run: bun dist/index.js --help

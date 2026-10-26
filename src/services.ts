@@ -8,25 +8,24 @@ import type { BaseAssociationRead } from "./git/base-metadata";
 import type { WorkflowAssociationRead } from "./git/workflow-metadata";
 import type { TerminalChooser } from "./selection";
 
-/** Function seams for command implementations; no concrete Git engine in TIM-11. */
 export interface CommandServices {
-  /** TIM-1: discover from nested/linked cwd; reject non-repositories and bare repos. */
+  /** Discover from nested/linked cwd; reject non-repositories and bare repos. */
   discoverRepository(cwd: string): Promise<RepositoryContext>;
   /** Defaults + validated global/repository config; never search relative to caller cwd. */
   loadConfig(repository: RepositoryContext): Promise<RepositoryConfig>;
-  /** TIM-10: resolve one configured Jira Cloud issue; never fall back to a literal branch. */
+  /** Resolve one configured Jira Cloud issue; never fall back to a literal branch. */
   resolveJiraTicket(config: JiraConfig, key: string): Promise<JiraTicket>;
-  /** TIM-10: return only validated active ticket alternatives for an exact missing/done key. */
+  /** Return only validated active ticket alternatives for an exact missing/done key. */
   findJiraSuggestions(config: JiraConfig, key: string): Promise<readonly JiraTicket[]>;
-  /** TIM-1/TIM-4: installed Git is authoritative; include manual, detached, stale entries. */
+  /** Installed Git is authoritative; include manual, detached, stale entries. */
   listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]>;
   /** Local and cached remote branches, without fetching. */
   listBranches(repository: RepositoryContext): Promise<readonly Branch[]>;
-  /** TIM-2: exact local, exact remote, then delimiter-boundary prefix; no guessing. */
+  /** Exact local, exact remote, then delimiter-boundary prefix; no guessing. */
   resolveBranch(repository: RepositoryContext, input: string, config: RepositoryConfig): Promise<Resolution<Branch>>;
-  /** TIM-2: explicit > config > selected remote default > unambiguous main/master. */
+  /** Explicit > config > selected remote default > unambiguous main/master. */
   resolveBase(repository: RepositoryContext, config: RepositoryConfig, explicitBase?: string): Promise<ValidatedBase>;
-  /** TIM-4: existing worktree > local branch > remote branch; existing worktrees work offline. */
+  /** Existing worktree > local branch > remote branch; existing worktrees work offline. */
   resolveOpenTarget(
     repository: RepositoryContext,
     input: string,
@@ -34,7 +33,7 @@ export interface CommandServices {
     options?: ResolveOpenTargetOptions,
   ): Promise<Resolution<OpenTarget>>;
   /**
-   * TIM-3: validate refs/path and reject collisions; refresh the selected remote before
+   * Validate refs/path and reject collisions; refresh the selected remote before
    * remote creation. Failed refresh must reject. Never remove pre-existing files/refs.
    * Default path: ../<repository-name>-worktrees/<safe-branch-slug>.
    */
@@ -43,10 +42,10 @@ export interface CommandServices {
   writeBaseAssociation(repository: RepositoryContext, worktree: Worktree, ref: string): Promise<void>;
   readWorkflowAssociation(repository: RepositoryContext, worktree: Worktree): Promise<WorkflowAssociationRead>;
   writeWorkflowAssociation(repository: RepositoryContext, worktree: Worktree, name: string): Promise<void>;
-  /** TIM-28: select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
+  /** Select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     explicitBase: string | undefined, io: CommandIO): Promise<number>;
-  /** TIM-5: inspect all file classes and publication/validated-base integration. */
+  /** Inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
   /** Recheck identity and safety at mutation time. Confirmed upstream absence or
    * explicit interactive discard can authorize loss of local commits and files.
@@ -54,14 +53,14 @@ export interface CommandServices {
    */
   cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions,
     io?: CommandIO, confirmDiscard?: ConfirmCleanupDiscard): Promise<CleanupResult>;
-  /** TIM-8: executable + args, no shell; null config or disabled means skipped. */
+  /** Executable + args, no shell; null config or disabled means skipped. */
   launchEditor(worktree: Worktree, config: RepositoryConfig, disabled: boolean): Promise<EditorResult>;
-  /** TIM-7: sequential trusted /bin/sh hooks; rejection retains workspace and blocks launch. */
+  /** Sequential trusted /bin/sh hooks; rejection retains workspace and blocks launch. */
   runSetup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, io: CommandIO,
     workflowName?: string, workflowScripts?: readonly string[]): Promise<void>;
-  /** TIM-9: await the owned foreground child; null command skips launching. */
+  /** Await the owned foreground child; null command skips launching. */
   launchAgent(worktree: Worktree, command: ExecutableCommand | null, environment?: NodeJS.ProcessEnv): Promise<AgentResult>;
-  /** TIM-27: exact local editor terminals, required setup and startup acknowledgements only. */
+  /** Exact local editor terminals, required setup and startup acknowledgements only. */
   launchEditorTerminals?(launch: EditorTerminalLaunch, io: CommandIO): Promise<void>;
 }
 

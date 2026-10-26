@@ -132,7 +132,7 @@ test("an unborn primary branch resolves by name with a null HEAD", async () => {
 });
 
 test("an unchecked local branch returns its full local ref", async () => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     await git(primary, "branch", "feature/one");
     const repository = await discoverRepository(primary);
 
@@ -213,7 +213,7 @@ test("a checked-out ticket prefix and an unchecked prefix branch stay fully ambi
 });
 
 test("ticket matching includes every delimiter boundary in stable ref order", async () => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     const names = ["ABU-834-one", "ABU-834_two", "ABU-834.three", "ABU-834/four"];
     for (const name of names) await git(primary, "branch", name);
     const repository = await discoverRepository(primary);
@@ -232,7 +232,7 @@ test("ticket matching includes every delimiter boundary in stable ref order", as
 });
 
 test("ticket matching rejects numeric, nested, and leading substring collisions", async () => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     for (const name of ["ABU-8342-wrong", "feature/ABU-834-one", "XABU-834-one"]) {
       await git(primary, "branch", name);
     }
@@ -385,7 +385,7 @@ test("an absolute symlink path does not alias a registered worktree path", async
 });
 
 test("empty and unknown branch inputs return not-found", async () => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     const repository = await discoverRepository(primary);
     expect(await resolveOpenTarget(repository, "", config)).toEqual({ kind: "not-found" });
     expect(await resolveOpenTarget(repository, "not-a-branch", config)).toEqual({ kind: "not-found" });

@@ -1,6 +1,6 @@
 # Timber development guidance
 
-This is a small TypeScript CLI using Bun for development, tests, and optional standalone builds. Read docs/cli-contract.md and the assigned ticket before implementation. The initial setup is documentation only; TIM-11 establishes the scaffold, verifies dependency compatibility, and commits the lockfile.
+This is a small TypeScript CLI using Bun for development, tests, and optional standalone builds. Read docs/cli-contract.md and the assigned ticket before implementation.
 
 - Keep README.md short, tidy, and useful: quick start, everyday commands, and links. Put detailed explanations in focused docs and link to them instead of expanding the README.
 - Prefer small modules and plain functions. Use Commander, Execa, Zod, and smol-toml after verifying supported versions.

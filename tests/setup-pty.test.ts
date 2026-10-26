@@ -126,7 +126,7 @@ test("number shortcuts advance immediately alongside arrows", async () => {
 });
 
 test("long keyboard menus support arrows and preserve literal text and terminal mode", async () => {
-  await withRepository(async (primary, directory) => {
+  await withRepository(async (primary) => {
     const fixture = fileURLToPath(new URL("./fixtures/setup-prompt-parent.ts", import.meta.url));
     let output = ""; let sent = false;
     const child = Bun.spawn([process.execPath, fixture], {

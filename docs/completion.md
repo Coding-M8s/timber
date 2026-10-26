@@ -141,32 +141,11 @@ checking the resulting argument bytes. Other shell versions and operating
 systems have not been verified. All adapters use the same shell-independent
 repository candidate service.
 
-From a checkout with the pinned Bun toolchain selected:
-
-```bash
-bun --version
-bash --version
-zsh --version
-fish --version
-git --version
-bun test tests/completion.test.ts tests/completion.integration.test.ts tests/completion-bash.test.ts tests/completion-zsh.test.ts tests/completion-fish.test.ts
-bun run typecheck
-bun test
-bun run build
-bun run build:release
-TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v0.1.0-dev.0-linux-x64" \
-  bun test tests/completion-bash.test.ts tests/completion-zsh.test.ts tests/completion-fish.test.ts
-```
-
-`TIMBER_COMPLETION_EXECUTABLE` is a test-harness selector, not a Timber CLI
-option. It makes the shell suites generate their scripts from, and send queries
-to, the built executable instead of the source entry.
-
-Install Fish before verification. Fish tests report a skip when it is missing
-locally, and fail when it is missing in CI. CI installs Fish before the full
-suite and runs the Bash and Fish suites against the standalone executable.
-
-Release builds require exactly the packageManager version in package.json.
+The shell suites in `bun test` load generated scripts in controlling terminals and
+check inserted argument bytes. Install Zsh and Fish to run all adapters locally.
+The Fish suite skips when Fish is missing locally and fails if it is missing in CI. To test the standalone executable,
+set `TIMBER_COMPLETION_EXECUTABLE` to its absolute path when running
+`tests/completion-{bash,zsh,fish}.test.ts`. See [release checks](releases.md).
 
 Arena completion follows the same Commander definitions: `timber arena <Tab>`
 suggests subcommands, and `timber arena new --<Tab>` suggests creation flags.
