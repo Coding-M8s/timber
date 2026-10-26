@@ -9,6 +9,7 @@ and launch your editor or coding assistant.
 ## Quick start
 
 You need Git and Bun 1.4.2. Linux x86_64 is the tested platform.
+macOS is available in [beta for Apple Silicon and Intel](docs/releases.md#macos-beta).
 
 ```bash
 git clone https://github.com/Coding-M8s/timber.git

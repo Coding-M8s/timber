@@ -93,8 +93,64 @@ jobs:
             candidate-smoke-windows.json
           if-no-files-found: error
 
+  verify-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - name: Verify source lifecycle, preservation and runner
+        run: >-
+          bun test tests/repository.test.ts tests/worktrees.test.ts
+          tests/new.integration.test.ts tests/open.integration.test.ts
+          tests/done.integration.test.ts tests/rebase.integration.test.ts
+          tests/process-identity.test.ts tests/editor-terminal-runner.test.ts
+          tests/editor-terminals.integration.test.ts tests/editor-terminal-compiled.test.ts tests/orca.test.ts
+          tests/release.test.ts tests/release.integration.test.ts
+          tests/smoke-platform.test.ts
+      - name: Build exact tagged macOS beta source
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: bun run build:release --target "$BUILD_TARGET" --tag "$RELEASE_TAG"
+      - name: Verify checksum and native standalone lifecycle
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          (cd dist/release && shasum -a 256 -c "SHA256SUMS-$BUILD_TARGET")
+          python3 -B scripts/smoke-release.py \
+            --binary "$PWD/dist/release/timber-$RELEASE_TAG-$BUILD_TARGET" \
+            --expected-version "${RELEASE_TAG#v}" | tee candidate-smoke-macos.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-${{ matrix.target }}
+          path: |
+            dist/release/timber-*-${{ matrix.target }}
+            dist/release/build-info-${{ matrix.target }}.json
+            dist/release/SHA256SUMS-${{ matrix.target }}
+            dist/release/LICENSE
+            dist/release/THIRD_PARTY_NOTICES.txt
+            candidate-smoke-macos.json
+          if-no-files-found: error
+
   draft:
-    needs: [verify, verify-windows]
+    needs: [verify, verify-windows, verify-macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -111,6 +167,10 @@ jobs:
         with:
           name: verified-windows-x64
           path: candidate-windows
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: verified-darwin-*
+          path: candidate-macos
       - name: Create or verify matching draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -122,6 +182,12 @@ jobs:
             --tag "$RELEASE_TAG" --build-info candidate-windows/dist/release/build-info-windows-x64.json
           cmp candidate/dist/release/LICENSE candidate-windows/dist/release/LICENSE
           cmp candidate/dist/release/THIRD_PARTY_NOTICES.txt candidate-windows/dist/release/THIRD_PARTY_NOTICES.txt
+          for target in darwin-arm64 darwin-x64; do
+            python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
+              --tag "$RELEASE_TAG" --build-info "candidate-macos/verified-$target/dist/release/build-info-$target.json"
+            cmp candidate/dist/release/LICENSE "candidate-macos/verified-$target/dist/release/LICENSE"
+            cmp candidate/dist/release/THIRD_PARTY_NOTICES.txt "candidate-macos/verified-$target/dist/release/THIRD_PARTY_NOTICES.txt"
+          done
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --json isDraft --jq .isDraft > draft-state; then
             test "$(cat draft-state)" = true || {
@@ -131,7 +197,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --draft --title "$RELEASE_TAG" \
-              --notes "Linux x86_64 and provisional Windows x64 candidates. Windows clean-machine and interactive acceptance remain owner gates. Verify platform checksums before installation. Timber CLI is source-available under MIT License + Commons Clause v1.0, not MIT-only or OSI-approved open source. Keep LICENSE and THIRD_PARTY_NOTICES.txt with distributions. Publication requires release-owner review of docs/releases.md, docs/licensing.md and docs/windows.md." \
+              --notes "Linux x86_64, macOS beta (Apple Silicon and Intel), and provisional Windows x64 candidates. macOS beta binaries are unsigned and not notarized; compatibility and editor integration testing is ongoing. Report macOS version, processor, Timber version and failing command. Windows clean-machine and interactive acceptance remain owner gates. Verify platform checksums before installation. Timber CLI is source-available under MIT License + Commons Clause v1.0, not MIT-only or OSI-approved open source. Keep LICENSE and THIRD_PARTY_NOTICES.txt with distributions. Publication requires release-owner review of docs/releases.md, docs/licensing.md and docs/windows.md." \
               "candidate/dist/release/timber-$RELEASE_TAG-linux-x64" \
               candidate/dist/release/build-info.json \
               candidate/dist/release/SHA256SUMS \
@@ -139,7 +205,13 @@ jobs:
               candidate/dist/release/THIRD_PARTY_NOTICES.txt \
               "candidate-windows/dist/release/timber-$RELEASE_TAG-windows-x64.exe" \
               candidate-windows/dist/release/build-info-windows-x64.json \
-              candidate-windows/dist/release/SHA256SUMS-windows-x64
+              candidate-windows/dist/release/SHA256SUMS-windows-x64 \
+              "candidate-macos/verified-darwin-arm64/dist/release/timber-$RELEASE_TAG-darwin-arm64" \
+              candidate-macos/verified-darwin-arm64/dist/release/build-info-darwin-arm64.json \
+              candidate-macos/verified-darwin-arm64/dist/release/SHA256SUMS-darwin-arm64 \
+              "candidate-macos/verified-darwin-x64/dist/release/timber-$RELEASE_TAG-darwin-x64" \
+              candidate-macos/verified-darwin-x64/dist/release/build-info-darwin-x64.json \
+              candidate-macos/verified-darwin-x64/dist/release/SHA256SUMS-darwin-x64
           fi
           mkdir downloaded
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
@@ -160,6 +232,19 @@ jobs:
           (cd downloaded-windows && sha256sum -c SHA256SUMS-windows-x64)
           python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
             --tag "$RELEASE_TAG" --build-info downloaded-windows/build-info-windows-x64.json
+          for target in darwin-arm64 darwin-x64; do
+            destination="downloaded-$target"
+            candidate="candidate-macos/verified-$target/dist/release"
+            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --dir "$destination" --pattern "timber-$RELEASE_TAG-$target" \
+              --pattern "build-info-$target.json" --pattern "SHA256SUMS-$target" \
+              --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt
+            cmp "$candidate/SHA256SUMS-$target" "$destination/SHA256SUMS-$target"
+            cmp "$candidate/build-info-$target.json" "$destination/build-info-$target.json"
+            (cd "$destination" && sha256sum -c "SHA256SUMS-$target")
+            python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
+              --tag "$RELEASE_TAG" --build-info "$destination/build-info-$target.json"
+          done
       - run: docker build -f tests/release/Dockerfile -t timber-release-smoke .
       - name: Smoke downloaded GitHub release assets
         env:
@@ -177,6 +262,54 @@ jobs:
         with:
           name: downloaded-release-verification
           path: downloaded-smoke.json
+          if-no-files-found: ignore
+
+  downloaded-macos:
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-${{ matrix.target }}
+          path: candidate
+      - name: Download and verify actual macOS beta draft assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" --build-info "candidate/dist/release/build-info-$BUILD_TARGET.json"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir downloaded --pattern "timber-$RELEASE_TAG-$BUILD_TARGET" \
+            --pattern "build-info-$BUILD_TARGET.json" --pattern "SHA256SUMS-$BUILD_TARGET" \
+            --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt
+          cmp "candidate/dist/release/SHA256SUMS-$BUILD_TARGET" "downloaded/SHA256SUMS-$BUILD_TARGET"
+          cmp "candidate/dist/release/build-info-$BUILD_TARGET.json" "downloaded/build-info-$BUILD_TARGET.json"
+          (cd downloaded && shasum -a 256 -c "SHA256SUMS-$BUILD_TARGET")
+          python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" --build-info "downloaded/build-info-$BUILD_TARGET.json"
+          chmod +x "downloaded/timber-$RELEASE_TAG-$BUILD_TARGET"
+          python3 -B scripts/smoke-release.py \
+            --binary "$PWD/downloaded/timber-$RELEASE_TAG-$BUILD_TARGET" \
+            --expected-version "${RELEASE_TAG#v}" | tee downloaded-smoke-macos.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: downloaded-${{ matrix.target }}-release-verification
+          path: downloaded-smoke-macos.json
           if-no-files-found: ignore
 
   downloaded-windows:

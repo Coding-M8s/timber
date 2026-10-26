@@ -22,17 +22,21 @@ Timber refreshes selected remote bases automatically and never infers a parent.
 
 Release assets run without Bun or Node. Git must be installed and available on
 `PATH`; configured editors, agents, and hook tools must be installed separately.
-Only Linux x86_64 is packaged. The verified standalone environment is Ubuntu
-24.04 with glibc 2.39 and Git 2.43.0; other distributions, architectures, macOS,
-Windows, and musl/Alpine are not verified.
+Linux x86_64 is the verified standalone platform, tested on Ubuntu 24.04 with
+glibc 2.39 and Git 2.43.0. Apple Silicon and Intel macOS downloads are available
+in [beta](releases.md#macos-beta); a minimum macOS version is not established.
+Other Linux distributions, architectures and musl/Alpine are not verified.
+See the [Windows guide](windows.md) for provisional Windows x64 downloads.
 
 Tagged downloads become available after the release owner publishes a verified
 release. Until then, use the source checkout below. This repository is private:
 authenticate [GitHub CLI](https://cli.github.com/) with repository read access,
-or download the three assets from the authenticated GitHub Releases page.
+or download the executable, build-info, checksum, `LICENSE` and
+`THIRD_PARTY_NOTICES.txt` assets for your platform from the authenticated GitHub
+Releases page. The checksum file covers all four other files.
 GitHub CLI is a download tool, not a Timber runtime dependency.
 
-Choose a published tag in place of `vX.Y.Z`. Run the download, verification, and
+For Linux, choose a published tag in place of `vX.Y.Z`. Run the download, verification, and
 installation chain together; installation runs only when all checks pass:
 
 ```bash
@@ -42,14 +46,36 @@ gh release download "$TIMBER_TAG" --repo Coding-M8s/timber \
   --dir "$DOWNLOAD_DIR" \
   --pattern "timber-$TIMBER_TAG-linux-x64" \
   --pattern build-info.json --pattern SHA256SUMS \
+  --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt \
   && (cd "$DOWNLOAD_DIR" && sha256sum -c SHA256SUMS) \
   && install -Dm755 "$DOWNLOAD_DIR/timber-$TIMBER_TAG-linux-x64" "$HOME/.local/bin/timber" \
   && "$HOME/.local/bin/timber" --version
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Add that PATH export to your shell's startup file if needed. Keep the downloaded
-`build-info.json` and checksum result when reporting a release problem. Checksums
+For macOS beta, choose `darwin-arm64` for Apple Silicon or `darwin-x64` for Intel
+(check `uname -m`: `arm64` or `x86_64`). These binaries are unsigned and not notarized.
+Use a published tag and run this download, verification and installation chain:
+
+```bash
+TIMBER_TAG=vX.Y.Z
+TIMBER_TARGET=darwin-arm64
+DOWNLOAD_DIR="$(mktemp -d "timber-download.XXXXXX")"
+gh release download "$TIMBER_TAG" --repo Coding-M8s/timber \
+  --dir "$DOWNLOAD_DIR" \
+  --pattern "timber-$TIMBER_TAG-$TIMBER_TARGET" \
+  --pattern "build-info-$TIMBER_TARGET.json" --pattern "SHA256SUMS-$TIMBER_TARGET" \
+  --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt \
+  && (cd "$DOWNLOAD_DIR" && shasum -a 256 -c "SHA256SUMS-$TIMBER_TARGET") \
+  && mkdir -p "$HOME/.local/bin" \
+  && install -m755 "$DOWNLOAD_DIR/timber-$TIMBER_TAG-$TIMBER_TARGET" "$HOME/.local/bin/timber" \
+  && "$HOME/.local/bin/timber" --version
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+If macOS blocks the executable, see the [beta notes and reporting steps](releases.md#macos-beta).
+Add the PATH export to your shell's startup file if needed. Keep the downloaded
+build-info file and checksum result when reporting a release problem. Checksums
 detect altered downloads; they are not an independent signature. Update by
 repeating the same steps with another verified tag. Installation does not create
 repository defaults. Before using Timber, run `timber setup` inside your repository,

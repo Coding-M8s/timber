@@ -376,12 +376,12 @@ test("interrupting Timber stops its owned Git hook descendants without later sid
       for (let i = 0; i < 200 && !await Bun.file(started).exists(); i++) await new Promise(resolve => setTimeout(resolve, 10));
       expect(await Bun.file(started).exists()).toBe(true);
       // Hook startup alone does not prove native signal readiness. Wait until
-      // Linux reports a caught SIGTERM; do not rely on a fixed startup delay.
+      // ps reports a caught SIGTERM; do not rely on a fixed startup delay.
       const deadline = Date.now() + 2_000;
       let handlesTermination = false;
       while (Date.now() < deadline) {
-        const status = await readFile(`/proc/${child.pid}/status`, "utf8");
-        const caught = /^SigCgt:\s*([0-9a-f]+)$/mi.exec(status)?.[1];
+        const status = await execa("/bin/ps", ["-p", String(child.pid), "-o", "sigcatch="], { reject: false });
+        const caught = /^[0-9a-f]+$/i.test(status.stdout.trim()) ? status.stdout.trim() : undefined;
         handlesTermination = caught !== undefined && (BigInt(`0x${caught}`) & (1n << BigInt(constants.signals.SIGTERM - 1))) !== 0n;
         if (handlesTermination) break;
         await new Promise(resolve => setTimeout(resolve, 10));

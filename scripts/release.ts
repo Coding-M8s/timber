@@ -9,14 +9,18 @@ import { license, packageManager, version } from "../package.json";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const number = "(?:0|[1-9][0-9]*)";
 const releaseVersion = new RegExp(`^${number}\\.${number}\\.${number}(?:-rc\\.${number})?$`, "u");
-export function releaseTarget(input?: string, platform = process.platform) {
-  const name = input ?? (platform === "win32" ? "windows-x64" : "linux-x64");
-  if (name !== "linux-x64" && name !== "windows-x64") throw new Error("Release target must be linux-x64 or windows-x64.");
+const releaseTargets = ["linux-x64", "windows-x64", "darwin-arm64", "darwin-x64"];
+
+export function releaseTarget(input?: string, platform = process.platform, arch = process.arch) {
+  const name = input ?? (platform === "win32" ? "windows-x64" : platform === "darwin" ? `darwin-${arch}` : "linux-x64");
+  if (!releaseTargets.includes(name)) {
+    throw new Error("Release target must be linux-x64, windows-x64, darwin-arm64 or darwin-x64.");
+  }
   return {
-    name, compile: name === "windows-x64" ? "bun-windows-x64" : "bun-linux-x64",
+    name, compile: `bun-${name}`,
     extension: name === "windows-x64" ? ".exe" : "",
-    metadata: name === "windows-x64" ? "build-info-windows-x64.json" : "build-info.json",
-    checksums: name === "windows-x64" ? "SHA256SUMS-windows-x64" : "SHA256SUMS",
+    metadata: name === "linux-x64" ? "build-info.json" : `build-info-${name}.json`,
+    checksums: name === "linux-x64" ? "SHA256SUMS" : `SHA256SUMS-${name}`,
   };
 }
 

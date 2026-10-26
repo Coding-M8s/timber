@@ -10,21 +10,24 @@ import { execa } from "execa";
 import { version } from "../package.json";
 import { readCredentialStore, withCredentialSave } from "../src/jira/credentials";
 import { git, withRepository } from "./helpers/git";
+import { releaseTarget } from "../scripts/release";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const runner = join(root, "scripts/smoke-release.py");
 let directory: string;
 let binary: string;
+const suffix = process.platform === "darwin" ? `darwin-${process.arch}` : "linux-x64";
+const target = releaseTarget(suffix);
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "timber release test "));
-  binary = join(directory, `timber-v${version}-linux-x64`);
+  binary = join(directory, `timber-v${version}-${suffix}`);
   await execa(process.execPath, ["--no-env-file", "scripts/release.ts", "--outdir", directory], {
     cwd: root, timeout: 60_000,
   });
 }, 65_000);
 afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
 
-test("installed Linux standalone resolves Jira using saved credentials without .env or Jira environment (mocked HTTPS)", async () => {
+test("installed standalone resolves Jira using saved credentials without .env or Jira environment (mocked HTTPS)", async () => {
   await withRepository(async (primary, workspace) => {
     const bin = join(workspace, "installed/bin"); await mkdir(bin, { recursive: true });
     const installed = join(bin, "timber"); await copyFile(binary, installed); await chmod(installed, 0o755);
@@ -81,32 +84,33 @@ test("installed Linux standalone resolves Jira using saved credentials without .
 }, 25_000);
 
 test("release output identifies source and passes checksum validation", async () => {
-  const info = JSON.parse(await readFile(join(directory, "build-info.json"), "utf8"));
+  const info = JSON.parse(await readFile(join(directory, target.metadata), "utf8"));
   expect(info.version).toBe(version);
   expect(info.license).toBe("SEE LICENSE IN LICENSE");
   for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
     expect(await readFile(join(directory, name), "utf8")).toBe(await readFile(join(root, name), "utf8"));
   }
-  const sums = await readFile(join(directory, "SHA256SUMS"), "utf8");
+  const sums = await readFile(join(directory, target.checksums), "utf8");
   expect(sums).toContain("  LICENSE\n");
   expect(sums).toContain("  THIRD_PARTY_NOTICES.txt\n");
   expect(info.sourceCommit).toBe((await execa("git", ["rev-parse", "HEAD"], { cwd: root })).stdout);
-  expect(info.target).toBe("bun-linux-x64");
+  expect(info.target).toBe(`bun-${suffix}`);
   expect(info.bunVersion).toBe("1.4.2");
   expect(info.tag).toBeNull();
   expect(typeof info.sourceDirty).toBe("boolean");
-  await execa("sha256sum", ["-c", "SHA256SUMS"], { cwd: directory });
+  await execa(process.platform === "darwin" ? "shasum" : "sha256sum",
+    process.platform === "darwin" ? ["-a", "256", "-c", target.checksums] : ["-c", target.checksums], { cwd: directory });
 });
 
 test("standalone rebuild produces identical bytes with the same inputs", async () => {
   const hash = async () => createHash("sha256").update(await readFile(binary)).digest("hex");
   const first = await hash();
-  const metadata = await readFile(join(directory, "build-info.json"), "utf8");
+  const metadata = await readFile(join(directory, target.metadata), "utf8");
   await execa(process.execPath, ["--no-env-file", "scripts/release.ts", "--outdir", directory], {
     cwd: root, timeout: 60_000,
   });
   expect(await hash()).toBe(first);
-  expect(await readFile(join(directory, "build-info.json"), "utf8")).toBe(metadata);
+  expect(await readFile(join(directory, target.metadata), "utf8")).toBe(metadata);
 }, 65_000);
 
 test("compiled CLI passes real lifecycle, preservation, setup and terminal checks", async () => {

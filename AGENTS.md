@@ -11,7 +11,7 @@ This is a small TypeScript CLI using Bun for development, tests, and optional st
 - Preserve local work according to the contract. `done` may discard modified/untracked files and unpreserved commits when the configured upstream is confirmed deleted or the user explicitly confirms interactive deletion. Keep identity, primary-worktree, operation, and keep-option protections. No noninteractive force flag.
 - Keep editor and agent launching separate. Agents run interactively in the invoking terminal unless an enabled, explicitly selected editor integration owns their terminal. Orca uses the existing local window and exact worktree, with separate setup and agent terminals; never silently fall back after handoff failure. Trusted shell hooks receive context through environment variables, never shell source substitution.
 - Keep secrets out of repository config, logs, tickets, and commits.
-- Linux x86_64 is the initial release target. Claim other platforms only after actual testing.
+- Linux x86_64 is the initial release target. macOS arm64 and x86_64 are beta targets with native release checks and community compatibility testing. Claim stable support or minimum OS versions only after actual testing.
 - Work in independent ticket branches and PRs with one implementer and one reviewer. Review shared-contract changes before incompatible work. Logical lanes do not imply GitHub assignees.
 - Record exact verification commands and observed results. Do not claim passing builds before a scaffold exists.
 - Ship 0.1 before waiting on 0.2 integrations. Measure demonstrated performance problems before considering language changes.
