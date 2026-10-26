@@ -1,3 +1,4 @@
+import { samePath } from "../platform/paths";
 import { CleanupCancelled, discardFingerprint } from "./cleanup-discard";
 import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -44,7 +45,7 @@ async function pathExists(path: string): Promise<boolean | null> {
 
 async function registered(repository: RepositoryContext, path: string): Promise<boolean | null> {
   try {
-    return (await listWorktrees(repository)).some(tree => resolve(tree.path) === resolve(path));
+    return (await listWorktrees(repository)).some(tree => samePath(tree.path, path));
   } catch {
     return null;
   }
@@ -216,8 +217,8 @@ export async function cleanupWorktree(
   } catch {
     throw new Error("Cannot verify the primary repository for cleanup; repair it and retry.");
   }
-  if (resolve(primaryRepository.primaryWorktreeRoot) !== resolve(repository.primaryWorktreeRoot) ||
-      resolve(primaryRepository.commonGitDir) !== resolve(repository.commonGitDir)) {
+  if (!samePath(primaryRepository.primaryWorktreeRoot, repository.primaryWorktreeRoot) ||
+      !samePath(primaryRepository.commonGitDir, repository.commonGitDir)) {
     throw new Error("Repository identity changed since selection; rediscover the repository and retry cleanup.");
   }
   let evidence = await readCleanupEvidence(primaryRepository, worktree, config, options.base);

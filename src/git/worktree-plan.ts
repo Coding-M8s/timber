@@ -1,3 +1,5 @@
+import { pathKey, samePath, validateWindowsComponent } from "../platform/paths";
+import { win32 } from "node:path";
 import { lstat, realpath } from "node:fs/promises";
 import {
   basename,
@@ -44,7 +46,7 @@ function slug(name: string): string {
 }
 
 export function within(path: string, parent: string): boolean {
-  const offset = relative(parent, path);
+  const offset = relative(pathKey(parent), pathKey(path));
   return (
     offset === "" ||
     (offset !== ".." &&
@@ -122,6 +124,9 @@ export async function planWorktree(
       : resolve(repository.primaryWorktreeRoot, config.worktreeDir);
   const physicalRoot = await physicalPath(root);
   const path = join(physicalRoot, slug(name));
+  if (process.platform === "win32") {
+    for (const part of path.slice(win32.parse(path).root.length).split(/[\\/]/u)) validateWindowsComponent(part);
+  }
   const primary = await physicalPath(repository.primaryWorktreeRoot);
   if (
     within(physicalRoot, primary) ||
@@ -139,6 +144,16 @@ export async function planWorktree(
     );
 
   const localRef = `refs/heads/${name}`;
+  if (process.platform === "win32") {
+    const refs = (await execa("git", ["for-each-ref", "--format=%(refname)", "refs/heads/"], {
+      cwd: repository.primaryWorktreeRoot, env: { GIT_OPTIONAL_LOCKS: "0" }, stdin: "ignore",
+    })).stdout.split("\n").filter(Boolean);
+    const folded = localRef.toLowerCase();
+    if (refs.some(ref => (ref !== localRef && ref.toLowerCase() === folded)
+      || ref.toLowerCase().startsWith(folded + "/") || folded.startsWith(ref.toLowerCase() + "/"))) {
+      throw new Error("Case-insensitive Git branch namespace collision; choose another branch name.");
+    }
+  }
   if (request.kind === "local") {
     if (
       request.branch.ref !== localRef ||
@@ -181,7 +196,7 @@ export async function planWorktree(
     throw new Error(
       `Worktree path already exists: ${path}. Choose another branch or worktree directory.`,
     );
-  const occupied = trees.find((tree) => tree.path === path);
+  const occupied = trees.find((tree) => samePath(tree.path, path));
   if (occupied)
     throw new Error(
       `Worktree path is already registered in Git: ${path}. Inspect the existing worktree before retrying.`,

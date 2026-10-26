@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { constants } from "node:os";
-import { failureWithRetry, safeDisplay } from "./display";
+import { failureWithRetry, safeDisplay, shellQuoteForDisplay } from "./display";
+import { NativeExecutableError, resolveNativeCommand } from "./platform/executable";
+import { childExitCode } from "./platform/signals";
 import type { CommandIO } from "./services";
 import type { AgentCommand, AgentResult, ExecutableCommand, RepositoryConfig, Worktree } from "./types";
 
@@ -21,11 +22,11 @@ export function resolveAgentCommand(
 
 function failure(worktree: Worktree, error: unknown): AgentResult {
   const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
-  const reason = code === "ENOENT" ? "The agent executable or worktree path was not found."
+  const reason = error instanceof NativeExecutableError ? error.message : code === "ENOENT" ? "The agent executable or worktree path was not found."
     : code === "EACCES" ? "Permission was denied while starting the agent."
     : code === "ENOTDIR" ? "An executable or worktree path component is not a directory."
     : "The agent command or worktree path could not be used.";
-  const quoted = "'" + worktree.path.replaceAll("'", "'\\''") + "'";
+  const quoted = shellQuoteForDisplay(worktree.path);
   const retryCommand = `timber open --agent --no-editor -- ${quoted}`;
   return {
     kind: "failed",
@@ -40,7 +41,7 @@ export async function launchAgent(
 ): Promise<AgentResult> {
   if (command === null) return { kind: "skipped" };
   try {
-    const child = spawn(command.command, [...command.args], {
+    const child = spawn(await resolveNativeCommand(command.command), [...command.args], {
       cwd: worktree.path, shell: false, stdio: "inherit", detached: false,
       ...(environment === undefined ? {} : { env: { ...process.env, ...environment } }),
     });
@@ -67,7 +68,7 @@ export async function launchAgent(
         const signal = childSignal;
         resolve({
           kind: "exited",
-          exitCode: signal === null ? code ?? 1 : 128 + constants.signals[signal],
+          exitCode: childExitCode(code, signal),
           signal,
         });
       });

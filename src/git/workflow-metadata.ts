@@ -1,6 +1,8 @@
+import { samePath } from "../platform/paths";
+import { assertPrivateStorage, protectNewStorage } from "../platform/private-storage";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readFile, realpath, rename, unlink } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { execa } from "execa";
 import { retryForDisplay } from "../display";
 import type { RepositoryContext, Worktree } from "../types";
@@ -46,7 +48,8 @@ function validRecord(value: unknown): value is Record<string, unknown> & {
       "commonGitDir,name,version,worktreeGitDir,worktreePath"
     && record.version === 1 && typeof record.name === "string" && namePattern.test(record.name)
     && typeof record.worktreePath === "string" && typeof record.commonGitDir === "string"
-    && typeof record.worktreeGitDir === "string";
+    && typeof record.worktreeGitDir === "string"
+    && isAbsolute(record.worktreePath) && isAbsolute(record.commonGitDir) && isAbsolute(record.worktreeGitDir);
 }
 
 async function readAt(place: Location): Promise<WorkflowAssociationRead> {
@@ -55,10 +58,14 @@ async function readAt(place: Location): Promise<WorkflowAssociationRead> {
     if (!directory.isDirectory()) return { kind: "invalid", reason: "malformed" };
     const stat = await lstat(place.file);
     if (!stat.isFile() || stat.size > maxRecordBytes) return { kind: "invalid", reason: "malformed" };
+    if (process.platform === "win32") {
+      await assertPrivateStorage(place.directory, directory, true);
+      await assertPrivateStorage(place.file, stat, false);
+    }
     const parsed: unknown = JSON.parse(await readFile(place.file, "utf8"));
     if (!validRecord(parsed)) return { kind: "invalid", reason: "malformed" };
-    if (parsed.worktreePath !== place.worktreePath || parsed.commonGitDir !== place.commonGitDir
-      || parsed.worktreeGitDir !== place.worktreeGitDir) return { kind: "invalid", reason: "stale" };
+    if (!samePath(parsed.worktreePath, place.worktreePath) || !samePath(parsed.commonGitDir, place.commonGitDir)
+      || !samePath(parsed.worktreeGitDir, place.worktreeGitDir)) return { kind: "invalid", reason: "stale" };
     return { kind: "assigned", name: parsed.name };
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
@@ -101,19 +108,22 @@ export async function writeWorkflowAssociation(
   }
   try {
     await mkdir(place.directory, { mode: 0o700 });
+    await protectNewStorage(place.directory);
   } catch (error) {
     if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST")) {
       throw new Error("Cannot create private workflow metadata; worktree retained. Check Git directory permissions.");
     }
   }
   const directoryInfo = await lstat(place.directory);
-  if (!directoryInfo.isDirectory() || (directoryInfo.mode & 0o077) !== 0) {
+  if (!directoryInfo.isDirectory() || (process.platform !== "win32" && (directoryInfo.mode & 0o077) !== 0)) {
     throw new Error("Workflow metadata directory is unsafe; no association saved.");
   }
+  await assertPrivateStorage(place.directory, directoryInfo, true);
   const temporary = join(place.directory, `.workflow-${randomUUID()}.tmp`);
   try {
     const file = await open(temporary, "wx", 0o600);
     try {
+      await protectNewStorage(temporary);
       await file.writeFile(record);
       await file.sync();
     } finally { await file.close(); }

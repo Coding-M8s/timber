@@ -31,7 +31,9 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
     async edit(config, prompt, io) {
       store ??= await readCredentialStore(env);
       io.stdout(`Personal credentials: ${safeDisplay(store.path)}\n`);
-      io.stdout("Plaintext, owner-only storage shared across repositories. Changes apply on Save.\n");
+      io.stdout(process.platform === "win32"
+        ? "Plaintext storage limited by Windows ACLs to your account, SYSTEM and Administrators, shared across repositories. Changes apply on Save.\n"
+        : "Plaintext, owner-only storage shared across repositories. Changes apply on Save.\n");
       if (env.JIRA_EMAIL !== undefined || env.JIRA_API_TOKEN !== undefined) {
         io.stdout("Jira environment overrides are present. Runtime requires both nonblank variables; unset both to use saved credentials. This connection check uses the draft pair.\n");
       }

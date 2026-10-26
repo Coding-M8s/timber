@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { samePath } from "../platform/paths";
 import { stat } from "node:fs/promises";
 import { execa } from "execa";
 import type { GitReadOptions, Remote, RepositoryContext } from "../types";
@@ -58,19 +60,19 @@ export async function discoverRepository(cwd: string, options?: GitReadOptions):
     throw new Error(`Not inside a Git worktree: ${cwd}`);
   }
 
-  const currentWorktreeRoot = await gitOutput(cwd, ["rev-parse", "--show-toplevel"], "worktree root", options);
-  const commonGitDir = await gitOutput(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"], "common Git directory", options);
+  const currentWorktreeRoot = resolve(await gitOutput(cwd, ["rev-parse", "--show-toplevel"], "worktree root", options));
+  const commonGitDir = resolve(await gitOutput(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"], "common Git directory", options));
   const worktreeList = await gitOutput(cwd, ["worktree", "list", "--porcelain", "-z"], "primary worktree", options);
   const firstTerminator = worktreeList.indexOf("\0");
   if (firstTerminator < 0) throw new Error("Could not find primary worktree in Git metadata.");
   const firstField = worktreeList.slice(0, firstTerminator);
   if (!firstField.startsWith("worktree ")) throw new Error("Could not find primary worktree in Git metadata.");
-  let primaryWorktreeRoot = firstField.slice("worktree ".length);
-  if (primaryWorktreeRoot === commonGitDir) {
+  let primaryWorktreeRoot = resolve(firstField.slice("worktree ".length));
+  if (samePath(primaryWorktreeRoot, commonGitDir)) {
     // Git lists a separate Git directory as the primary worktree, although it
     // contains metadata rather than working files. The primary's own cwd resolves it.
     const currentGitDir = await gitOutput(cwd, ["rev-parse", "--path-format=absolute", "--git-dir"], "current Git directory", options);
-    if (currentGitDir !== commonGitDir) {
+    if (!samePath(currentGitDir, commonGitDir)) {
       throw new Error("Could not locate primary worktree for linked checkout with separate Git metadata. Run Timber from the primary checkout.");
     }
     primaryWorktreeRoot = currentWorktreeRoot;

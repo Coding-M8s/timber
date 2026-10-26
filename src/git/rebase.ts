@@ -1,3 +1,5 @@
+import { samePath } from "../platform/paths";
+import { cancelGitTree, childExitCode } from "../platform/signals";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { constants } from "node:os";
@@ -34,8 +36,7 @@ async function output(cwd: string, args: readonly string[], timeout?: number): P
 }
 
 function recovery(path: string): string {
-  const quoted = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(path)
-    ? bashAnsiCQuote(path) : "'" + path.replaceAll("'", "'\\''") + "'";
+  const quoted = shellQuoteForDisplay(path);
   return `Inspect Git state. Resolve and stage conflicts, then run: git -C ${quoted} rebase --continue\nContinuing can reveal conflicts in later commits. To restore the original branch state explicitly: git -C ${quoted} rebase --abort`;
 }
 
@@ -49,7 +50,7 @@ async function assertIdle(path: string): Promise<void> {
 async function preflight(repository: RepositoryContext, selected: Worktree, gitDirectory?: string): Promise<Worktree> {
   if (!isAbsolute(selected.path)) throw new Error("Rebase requires an absolute registered worktree path.");
   const trees = await listWorktrees(repository);
-  const matches = trees.filter(tree => resolve(tree.path) === resolve(selected.path));
+  const matches = trees.filter(tree => samePath(tree.path, selected.path));
   if (matches.length !== 1) throw new Error("Selected worktree is no longer uniquely registered.");
   const tree = matches[0]!;
   if (!tree.pathExists || tree.prunable !== null || tree.locked !== null) throw new Error("Selected worktree is missing, stale or locked; repair it explicitly before rebase.");
@@ -57,10 +58,10 @@ async function preflight(repository: RepositoryContext, selected: Worktree, gitD
   // Paused rebase usually has detached HEAD; explain recovery before detached refusal.
   await assertIdle(tree.path);
   if (tree.branch === null || tree.head === null) throw new Error("Cannot rebase a detached or unborn worktree; check out an existing branch explicitly.");
-  if (trees.some(other => other.path !== tree.path && other.branch === tree.branch)) throw new Error("Selected branch is checked out in another worktree; rebase would change its shared branch ref.");
+  if (trees.some(other => !samePath(other.path, tree.path) && other.branch === tree.branch)) throw new Error("Selected branch is checked out in another worktree; rebase would change its shared branch ref.");
   if (tree.branch !== selected.branch || tree.head !== selected.head) throw new Error("Selected worktree branch or original tip changed; rerun timber rebase.");
   const actualGitDirectory = await output(tree.path, ["rev-parse", "--absolute-git-dir"]);
-  if (gitDirectory !== undefined && actualGitDirectory !== gitDirectory) throw new Error("Selected worktree Git identity changed; rebase was not started.");
+  if (gitDirectory !== undefined && !samePath(actualGitDirectory, gitDirectory)) throw new Error("Selected worktree Git identity changed; rebase was not started.");
   if (await output(tree.path, ["symbolic-ref", "--quiet", "HEAD"]) !== `refs/heads/${tree.branch}`
     || await output(tree.path, ["rev-parse", "--verify", "HEAD^{commit}"]) !== selected.head) {
     throw new Error("Selected worktree branch or original tip changed; rebase was not started.");
@@ -114,7 +115,9 @@ async function preserveIgnored(tree: Worktree, base: string): Promise<void> {
     for (const tracked of result.stdout.split("\0").filter(Boolean)) {
       for (const ignoredPath of tree.status.ignored) {
         const ignored = ignoredPath.replace(/\/$/u, "");
-        if (tracked === ignored || tracked.startsWith(ignored + "/") || ignored.startsWith(tracked + "/")) {
+        const trackedKey = process.platform === "win32" ? tracked.toLowerCase() : tracked;
+        const ignoredKey = process.platform === "win32" ? ignored.toLowerCase() : ignored;
+        if (trackedKey === ignoredKey || trackedKey.startsWith(ignoredKey + "/") || ignoredKey.startsWith(trackedKey + "/")) {
           throw new Error(`Rebase could overwrite ignored content at ${jsonDisplay(ignoredPath)}; move or preserve it elsewhere before retrying.`);
         }
       }
@@ -176,7 +179,7 @@ export async function rebaseWorktree(
   }
   async function saveBase(paused: boolean) {
     try {
-      if (await output(selected.path, ["rev-parse", "--absolute-git-dir"]) !== gitDirectory) throw new Error("Git identity changed");
+      if (!samePath(await output(selected.path, ["rev-parse", "--absolute-git-dir"]), gitDirectory)) throw new Error("Git identity changed");
       const branch = paused
         ? (await readFile(join(gitDirectory, "rebase-merge", "head-name"), "utf8")).trim()
         : await output(selected.path, ["symbolic-ref", "--quiet", "HEAD"]);
@@ -196,21 +199,26 @@ export async function rebaseWorktree(
   await preflight(repository, selected, gitDirectory);
   await revalidateLocal();
   let result;
+  let requestedSignal: NodeJS.Signals | null = null;
   try {
     const child = execa("git", ["-c", "rebase.autoStash=false", "-c", "rebase.updateRefs=false",
       "-c", "rebase.autoSquash=false", "-c", "rebase.abbreviateCommands=false",
       "rebase", "--no-autostash", "--no-update-refs", "--no-autosquash", "--merge", "--no-rebase-merges", "--empty=keep", "--no-fork-point", "--", commit], {
-      cwd: selected.path, stdin: "ignore", reject: false, env: environment, detached: true,
+      cwd: selected.path, stdin: "ignore", reject: false, env: environment, detached: process.platform !== "win32",
     });
-    // Own one process group so cancellation reaches Git's hook descendants too.
+    // POSIX owns a process group. Windows shares the console for Ctrl-C and
+    // uses an explicitly cancelled child tree for process-directed shutdown.
+    let cancellation: Promise<void> | undefined;
     const forward = (signal: NodeJS.Signals) => {
-      try { if (child.pid !== undefined) process.kill(-child.pid, signal); } catch { /* The owned group may already have exited. */ }
+      requestedSignal = signal;
+      if (process.platform === "win32" && signal === "SIGINT" && process.stdin.isTTY) return;
+      cancellation ??= cancelGitTree(child.pid, signal).catch(() => {});
     };
     const interrupt = () => forward("SIGINT");
     const terminate = () => forward("SIGTERM");
     process.on("SIGINT", interrupt); process.on("SIGTERM", terminate);
     try { result = await child; }
-    finally { process.removeListener("SIGINT", interrupt); process.removeListener("SIGTERM", terminate); }
+    finally { process.removeListener("SIGINT", interrupt); process.removeListener("SIGTERM", terminate); await cancellation; }
   } catch {
     throw new FormattedError(`Git rebase could not start or finish. Original branch tip: ${selected.head}. Workspace retained; no automatic abort/reset.\n${recovery(selected.path)}`);
   }
@@ -220,7 +228,7 @@ export async function rebaseWorktree(
     const unmerged = await git(selected.path, ["diff", "--name-only", "--diff-filter=U", "-z"]);
     if (unmerged.exitCode === 0) conflicts = unmerged.stdout.split("\0").filter(Boolean);
   } catch { /* Recovery guidance still applies when inspection fails. */ }
-  const status = result.signal ? 128 + constants.signals[result.signal] : result.exitCode ?? 1;
+  const status = childExitCode(result.exitCode, result.signal ?? (process.platform === "win32" ? requestedSignal : null));
   io.stderr(`error: ${conflicts.length ? "Rebase paused with conflicts" : result.signal ? `Rebase interrupted by ${result.signal}` : "Git rebase failed (hook rejection or another non-conflict error)"}. Workspace retained at ${safeDisplay(selected.path)}; branch ${safeDisplay(selected.branch!)}, base ${safeDisplay(label)}, original tip ${selected.head}.\n`);
   for (const path of conflicts) io.stderr(`  ${jsonDisplay(path)}\n`);
   let operation: string | null;

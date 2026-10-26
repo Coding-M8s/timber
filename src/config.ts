@@ -38,7 +38,7 @@ const arenaPresetSchema = z.strictObject({
 }).superRefine((preset, context) => {
   try { validateParticipant(preset); }
   catch {
-    const field = preset.command.includes("/") && !isAbsolute(preset.command) ? "command" : "args";
+    const field = (preset.command.includes("/") || (process.platform === "win32" && preset.command.includes("\\"))) && !isAbsolute(preset.command) ? "command" : "args";
     context.addIssue({ code: "custom", path: [field], message: "Invalid arena executable or native arguments." });
   }
 });

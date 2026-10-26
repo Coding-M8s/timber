@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { hookShell } from "./platform/hook-shell";
 import { retryForDisplay, shellQuoteForDisplay } from "./display";
 import type { CommandIO } from "./services";
 import type { CleanupOptions, RepositoryConfig, RepositoryContext, Worktree } from "./types";
@@ -48,7 +49,7 @@ export function taskEnvironment(task: Pick<SetupTask, "cwd" | "repositoryRoot" |
 }
 
 async function runHook(source: string, cwd: string, env: ReturnType<typeof taskEnvironment>, io: CommandIO): Promise<void> {
-  const child = execa("/bin/sh", ["-c", source], { cwd, env, stdin: "ignore", buffer: false });
+  const child = execa(await hookShell(), ["-c", source], { cwd, env, stdin: "ignore", buffer: false });
   child.stdout?.setEncoding("utf8").on("data", (chunk: string) => io.stdout(chunk));
   child.stderr?.setEncoding("utf8").on("data", (chunk: string) => io.stderr(chunk));
   await child;
@@ -77,7 +78,7 @@ export async function runPreDelete(
   }
 }
 
-/** Linux setup uses fixed /bin/sh and unchanged trusted source; context is environment data only. */
+/** POSIX hook source is unchanged on every platform; context is environment data only. */
 export async function runSetup(
   repository: RepositoryContext,
   worktree: Worktree,

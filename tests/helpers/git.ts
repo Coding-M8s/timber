@@ -13,6 +13,7 @@ export async function withRepository(run: (primary: string, directory: string) =
   try {
     await mkdir(primary);
     await git(primary, "init", "-b", "trunk");
+    if (process.platform === "win32") await git(primary, "config", "core.autocrlf", "false");
     await writeFile(join(primary, "tracked.txt"), "original\n");
     await writeFile(join(primary, "old name.txt"), "rename me\n");
     await writeFile(join(primary, ".gitignore"), ".env\n");

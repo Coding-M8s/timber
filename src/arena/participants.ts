@@ -28,7 +28,7 @@ export function validateParticipant(config: ArenaParticipantConfig): void {
   if (
     !config.command.trim() ||
     config.command.includes("\0") ||
-    (config.command.includes("/") && !isAbsolute(config.command)) ||
+    ((config.command.includes("/") || (process.platform === "win32" && config.command.includes("\\"))) && !isAbsolute(config.command)) ||
     config.args.some((arg) => arg.includes("\0"))
   )
     throw new Error(

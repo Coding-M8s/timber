@@ -1,3 +1,4 @@
+import { samePath, pathKey } from "../platform/paths";
 import { isAbsolute, resolve } from "node:path";
 import { listBranches, listLiveRemoteBranches, resolveBranch } from "./branches";
 import { assertOpenableWorktree, listWorktrees } from "./worktrees";
@@ -8,7 +9,7 @@ import type {
 
 function targetKey(target: OpenTarget): string {
   return target.kind === "worktree"
-    ? `worktree:${target.worktree.path}` : `branch:${target.branch.ref}`;
+    ? `worktree:${pathKey(target.worktree.path)}` : `branch:${target.branch.ref}`;
 }
 
 function compareTargets(left: OpenTarget, right: OpenTarget): number {
@@ -73,7 +74,7 @@ export async function resolveOpenTarget(
 
   if (isAbsolute(input)) {
     const path = resolve(input);
-    return finish(repository, worktrees.filter(worktree => resolve(worktree.path) === path)
+    return finish(repository, worktrees.filter(worktree => samePath(worktree.path, path))
       .map(worktree => ({ kind: "worktree", worktree })), options);
   }
 

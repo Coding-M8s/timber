@@ -119,7 +119,7 @@ async function launcher(
         io.stderr("Enter a nonempty executable and a JSON array containing only strings.\n");
         continue;
       }
-      if (executable.includes("/") && !isAbsolute(executable)) {
+      if ((executable.includes("/") || (process.platform === "win32" && executable.includes("\\"))) && !isAbsolute(executable)) {
         io.stderr("Use a program name on PATH or an absolute path. Relative executable paths change meaning in another workspace.\n");
         continue;
       }
@@ -128,6 +128,7 @@ async function launcher(
       command = presets[selected]!;
     }
     if (!await available(command.command)) {
+      if (process.platform === "win32") io.stderr("Use a native .exe on Windows. Command scripts require an explicit powershell.exe -File wrapper; cmd/bat shims cannot be launched directly.\n");
       io.stderr(`Selected ${key} executable is unavailable. Install it or fix PATH, then reselect it, choose none, or cancel.\n`);
       const recovery = await choose(prompt, "Executable unavailable", [option("retry", "Reselect"), option("none", "None / off"), option("cancel", "Cancel setup")]);
       if (recovery === "cancel") throw new SetupCancelled();

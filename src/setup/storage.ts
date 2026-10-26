@@ -1,3 +1,5 @@
+import { samePath } from "../platform/paths";
+import { privateDirectory } from "../platform/private-storage";
 import { randomUUID } from "node:crypto";
 import { link, lstat, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -85,7 +87,7 @@ async function prepare(path: string, source: Buffer, mode: number): Promise<stri
   const temporary = join(dirname(path), `.timber-setup-${randomUUID()}.tmp`);
   const file = await open(temporary, "wx", mode);
   try {
-    await file.chmod(mode);
+    if (process.platform !== "win32") await file.chmod(mode);
     await file.writeFile(source);
     await file.sync();
   } catch (error) {
@@ -113,6 +115,10 @@ export async function saveSetupConfig(target: SetupTarget, source: string, track
   let excludeWritten: Buffer | null = null;
   let published = false;
   try {
+    if (process.platform === "win32" && target.scope === "global") {
+      await mkdir(dirname(dirname(target.path)), { recursive: true });
+      await privateDirectory(dirname(target.path));
+    }
     await mkdir(dirname(target.path), { recursive: true, mode: 0o700 });
     const lockPaths = [target.repository ? join(target.repository.commonGitDir, "timber-setup.lock") : `${target.path}.lock`,
       ...(target.exclude ? [`${target.exclude.path}.timber-setup.lock`] : [])];
@@ -128,7 +134,7 @@ export async function saveSetupConfig(target: SetupTarget, source: string, track
     }
     if (target.repository) {
       const common = await git(target.repository, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-      if (common !== target.repository.commonGitDir || await trackedConfig(target.repository) !== target.tracked) {
+      if (!samePath(common, target.repository.commonGitDir) || await trackedConfig(target.repository) !== target.tracked) {
         throw new Error("Repository or tracked configuration changed during setup. Rerun setup; no settings saved.");
       }
     }

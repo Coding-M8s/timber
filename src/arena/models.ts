@@ -1,3 +1,4 @@
+import { resolveNativeCommand } from "../platform/executable";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -62,7 +63,7 @@ export const discoverArenaModels: ModelDiscovery = async tool => {
       return { models, ...(models.length ? {} : { warning: "Codex model cache has no selectable models. Use native default, a saved preset, or an exact custom model ID." }) };
     }
     if (tool === "cursor" || tool === "claude") {
-      const { stdout } = await execa(tool === "cursor" ? "cursor-agent" : "claude", tool === "cursor" ? ["models"] : ["--help"], {
+      const { stdout } = await execa(await resolveNativeCommand(tool === "cursor" ? "cursor-agent" : "claude"), tool === "cursor" ? ["models"] : ["--help"], {
         stdin: "ignore", timeout: 8000, maxBuffer: 1024 * 1024,
         env: { NO_COLOR: "1", FORCE_COLOR: "0" },
       });
