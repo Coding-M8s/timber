@@ -13,7 +13,13 @@ if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitProcess -or $env:PRO
 }
 $binaryPath = (Resolve-Path -LiteralPath $Binary).Path
 if (-not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) { throw 'Release binary is missing.' }
-$gitPath = (Get-Command git.exe -CommandType Application -ErrorAction Stop).Source
+# Hosted images put several Git for Windows git.exe files on PATH. Get-Command
+# returns every match, and ProcessStartInfo.FileName joins that collection into
+# one missing path. Use the first application, which is the one PATH would run.
+$gitPath = [string](@(Get-Command git.exe -CommandType Application -ErrorAction Stop)[0].Source)
+if ([string]::IsNullOrWhiteSpace($gitPath) -or -not (Test-Path -LiteralPath $gitPath -PathType Leaf)) {
+    throw 'Git for Windows git.exe was not found.'
+}
 $powershellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $lab = Join-Path ([IO.Path]::GetTempPath()) ('timber Windows ' + [guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $lab
