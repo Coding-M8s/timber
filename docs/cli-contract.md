@@ -90,15 +90,10 @@ continuation/abort suffice; no Timber continuation flags or AI resolution.
 before setup or launches. Store the moving branch identity, not its creation commit.
 Metadata is bound to the canonical repository/worktree paths, validated like workflow
 associations, and published atomically with private permissions. Save failure retains
-the created worktree and reports recovery guidance. Interactive `open` offers a
-base chooser for branches without a saved base, before creation, setup or launches.
-The first and default option is `Not assigned`; Enter leaves metadata absent.
-Other choices are exact local and cached remote branch refs, excluding the target
-local branch and the selected source ref. Selection saves a canonical base before
-setup or launches, without fetching, rebasing or changing branch tips. Cancellation
-stops opening before creation. Noninteractive and detached opens do not prompt.
-Saved or invalid associations are left unchanged. Re-read metadata before saving;
-a detected association change stops assignment. `open` never infers a parent branch.
+the created worktree and reports recovery guidance. `open` never prompts for,
+resolves, reads or writes a base association. Opening an unassigned branch leaves
+its base unset; existing saved or invalid associations
+remain unchanged. Use `rebase --base <ref>` to assign a base later.
 Arena creation is unchanged.
 
 `ls` adds a BASE column before WORKFLOW: remote bases display `remote/branch`, local
