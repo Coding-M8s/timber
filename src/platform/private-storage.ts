@@ -52,7 +52,9 @@ async function windowsACL(path: string, action: "create" | "read"): Promise<void
   try {
     await execa(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
       stdin: "ignore",
-      timeout: 10_000,
+      // Hosted Windows runners can take longer than ten seconds to cold-start
+      // Windows PowerShell while several test processes are active.
+      timeout: 30_000,
       extendEnv: true,
       // PowerShell 7's inherited modules cannot load in Windows PowerShell 5.1.
       env: { TIMBER_PRIVATE_PATH: path, TIMBER_PRIVATE_ACTION: action, PSModulePath: join(dirname(powershell), "Modules") },
