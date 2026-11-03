@@ -60,7 +60,7 @@ $childEnv.GIT_COMMITTER_EMAIL = 'windows@example.invalid'
 # this process; it does not claim hosted runners have no runtimes installed.
 $childEnv.PATH = ((Split-Path -Parent $gitPath), (Split-Path -Parent $powershellPath), (Join-Path $env:SystemRoot 'System32'), $env:SystemRoot) -join ';'
 
-function Invoke-Fixture([string]$Executable, [string[]]$Arguments, [string]$Directory = $lab, [int]$ExpectedExit = 0) {
+function Invoke-Fixture([string]$Executable, [string[]]$Arguments, [string]$Directory = $lab, [int]$ExpectedExit = 0, [int]$TimeoutSeconds = 90) {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
     $start.Arguments = (($Arguments | ForEach-Object { Quote-Argument $_ }) -join ' ')
@@ -80,9 +80,9 @@ function Invoke-Fixture([string]$Executable, [string[]]$Arguments, [string]$Dire
         $process.StandardInput.Close()
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(90000)) {
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             $process.Kill()
-            throw 'Fixture timed out; inspect the retained temporary repository.'
+            throw ('Fixture timed out after ' + $TimeoutSeconds + ' seconds; inspect the retained temporary repository.')
         }
         $result = [pscustomobject]@{ Code = $process.ExitCode; Out = $stdout.Result; Err = $stderr.Result }
         Assert-That ($result.Code -eq $ExpectedExit) ('Unexpected exit ' + $result.Code + ', expected ' + $ExpectedExit + ': ' + $result.Err)
@@ -95,8 +95,8 @@ $trees = Join-Path $lab 'primary repo-worktrees'
 function Git-Fixture([string[]]$Arguments, [string]$Directory = $primary) {
     return (Invoke-Fixture $gitPath $Arguments $Directory).Out.TrimEnd("`r", "`n")
 }
-function Timber-Fixture([string[]]$Arguments, [string]$Directory = $primary, [int]$ExpectedExit = 0) {
-    return Invoke-Fixture $script:installed $Arguments $Directory $ExpectedExit
+function Timber-Fixture([string[]]$Arguments, [string]$Directory = $primary, [int]$ExpectedExit = 0, [int]$TimeoutSeconds = 90) {
+    return Invoke-Fixture $script:installed $Arguments $Directory $ExpectedExit $TimeoutSeconds
 }
 function Write-Utf8([string]$Path, [string]$Contents) {
     [IO.File]::WriteAllText($Path, $Contents, (New-Object Text.UTF8Encoding($false)))
@@ -256,10 +256,12 @@ try {
     $null = Git-Fixture @('show-ref', '--verify', 'refs/heads/editor-failure')
     $checks.Add('Git for Windows POSIX hooks and editor startup failure retention')
 
+    # Arena performs many fresh ACL checks through Windows PowerShell processes.
+    # Allow a bounded five minutes per Arena command on slower native hosts.
     # Prepare two manual Arena attempts, then revisit without invoking an agent.
     Write-Utf8 (Join-Path $primary '.timber.toml') "base_branch = `"main`"`n"
-    $null = Timber-Fixture @('arena', 'new', 'native', '--base', 'refs/heads/main', '--prompt', 'Synthetic Windows acceptance task', '--tool', 'manual', '--runs', '2', '--no-agent', '--no-editor')
-    $null = Timber-Fixture @('arena', 'resume', 'native', '--attempt', 'manual-1', '--no-agent', '--no-editor')
+    $null = Timber-Fixture @('arena', 'new', 'native', '--base', 'refs/heads/main', '--prompt', 'Synthetic Windows acceptance task', '--tool', 'manual', '--runs', '2', '--no-agent', '--no-editor') -TimeoutSeconds 300
+    $null = Timber-Fixture @('arena', 'resume', 'native', '--attempt', 'manual-1', '--no-agent', '--no-editor') -TimeoutSeconds 300
     $null = Timber-Fixture @('ls')
     $checks.Add('Arena new and resume with private metadata and retained identities')
 

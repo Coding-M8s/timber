@@ -1,6 +1,6 @@
 import type { Stats } from "node:fs";
 import { lstat, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execa } from "execa";
 
 /** PowerShell applied via -EncodedCommand so paths and newlines stay literal. */
@@ -28,8 +28,7 @@ if ($env:TIMBER_PRIVATE_ACTION -eq 'create') {
   }
   $acl.SetOwner($sid)
   $acl.SetAccessRuleProtection($true, $false)
-  Set-Acl -LiteralPath $path -AclObject $acl
-  $acl = Get-Acl -LiteralPath $path
+  # Publish the complete ACL once; an intermediate empty DACL locks out the owner.
   foreach ($rule in @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))) {
     [void]$acl.RemoveAccessRule($rule)
   }
@@ -55,7 +54,8 @@ async function windowsACL(path: string, action: "create" | "read"): Promise<void
       stdin: "ignore",
       timeout: 10_000,
       extendEnv: true,
-      env: { TIMBER_PRIVATE_PATH: path, TIMBER_PRIVATE_ACTION: action },
+      // PowerShell 7's inherited modules cannot load in Windows PowerShell 5.1.
+      env: { TIMBER_PRIVATE_PATH: path, TIMBER_PRIVATE_ACTION: action, PSModulePath: join(dirname(powershell), "Modules") },
     });
   } catch (error) {
     const detail = typeof error === "object" && error !== null && "stderr" in error
