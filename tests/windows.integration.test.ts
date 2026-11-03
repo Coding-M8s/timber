@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { execa } from "execa";
 import { createWorktree } from "../src/git/create-worktree";
 import { resolveBase } from "../src/git/branches";
@@ -76,6 +76,29 @@ windows("new Windows private directories have an account-owned private ACL", asy
   });
 }, 30_000);
 
+windows("private storage ignores incompatible inherited PowerShell modules", async () => {
+  await withRepository(async (_primary, directory) => {
+    const modules = join(directory, "foreign modules");
+    const security = join(modules, "Microsoft.PowerShell.Security");
+    await mkdir(security, { recursive: true });
+    // Model the PowerShell 7 module found by Windows PowerShell in hosted CI.
+    await writeFile(join(security, "Microsoft.PowerShell.Security.psd1"),
+      "@{ ModuleVersion = '7.0'; RootModule = 'foreign.dll'; CmdletsToExport = @('Get-Acl', 'Set-Acl') }");
+    await writeFile(join(security, "foreign.dll"), "Incompatible inherited module");
+    const fixture = join(directory, "private-storage.ts");
+    const source = pathToFileURL(fileURLToPath(new URL("../src/platform/private-storage.ts", import.meta.url))).href;
+    const path = join(directory, "private metadata");
+    await writeFile(fixture, `import { privateDirectory } from ${JSON.stringify(source)};\nawait privateDirectory(${JSON.stringify(path)});\n`);
+    const result = await execa(process.execPath, ["--no-env-file", fixture], {
+      env: { PSModulePath: `${modules};${join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "Modules")}` }, reject: false,
+    });
+    expect(result.exitCode).toBe(0);
+    await writeFile(join(path, "retained.txt"), "preserve");
+    await assertPrivateStorage(path, await lstat(path), true);
+    expect(await readFile(join(path, "retained.txt"), "utf8")).toBe("preserve");
+  });
+}, 30_000);
+
 windows("broadened Windows ACLs are refused without deleting stored files", async () => {
   await withRepository(async (_primary, directory) => {
     const path = join(directory, "private metadata");
@@ -113,7 +136,7 @@ windows("native PowerShell agent argv stays literal and startup failures preserv
     const args = ["space and Unicode é", "$HOME; literal", "apostrophe's", "back`tick"];
     const refs = await git(primary, "show-ref");
     const inventory = await git(primary, "worktree", "list", "--porcelain");
-    const result = await launchAgent(tree, { command, args: ["-NoProfile", "-File", script, ...args] }, { TIMBER_TEST_CAPTURE: capture });
+    const result = await launchAgent(tree, { command, args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...args] }, { TIMBER_TEST_CAPTURE: capture });
     expect(result).toMatchObject({ kind: "exited", exitCode: 7 });
     const recorded = JSON.parse((await readFile(capture, "utf8")).replace(/^\uFEFF/u, ""));
     expect(recorded.args).toEqual(args);

@@ -5,10 +5,7 @@ Standalone builds target Linux x86_64. The tested release environment is Ubuntu
 Users need Git and any configured editor, agent, or hook tools. The executable
 runs without a separate Bun or Node installation.
 
-Windows x64 candidate implementation, prepared CI gates and pending native
-verification are in the [Windows handoff](windows.md). No runtime checks were
-run for that implementation at the owner's request. Cross-compilation alone
-does not establish platform support.
+For Windows installation and platform requirements, see the [Windows guide](windows.md).
 
 ## Build and check
 
@@ -85,8 +82,7 @@ fixtures where a real external tool is unnecessary.
 2. Create and push the matching tag when ready. The tag workflow runs the source
    checks, builds that exact tag, verifies checksums, and runs the container smoke.
    A native Windows job also builds the tag and runs focused source tests and
-   PowerShell acceptance. Its automated scope and remaining human gates are in
-   the Windows handoff.
+   PowerShell acceptance. See the Windows guide for platform requirements.
 3. The draft job depends on both platform candidates and verifies the live
    GitHub tag still points to the built commit, then creates a draft containing
    six platform assets. Only that job has write permission; PR CI is read-only.
