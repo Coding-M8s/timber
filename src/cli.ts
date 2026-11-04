@@ -74,10 +74,14 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
   }
 
   workflowOptions(agentOptions(editorOptions(program.command("new <branch...>"))))
-    .description("Create a worktree from a branch name or sentence; configured Jira ticket IDs and named workflows are supported")
+    .description("Create a worktree from a branch or sentence; configured Jira ticket IDs, github:<number> and named workflows are supported")
     .option("--base <ref>", "Override the configured base branch")
-    .action(async (branch: string[], options: { base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean }) => {
+    .option("--remote <name>", "Select the GitHub issue remote only; does not change --base")
+    .option("-c", "Allow a closed GitHub issue; does not reopen it")
+    .action(async (branch: string[], options: { base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; c?: boolean }) => {
       const normalized: NewOptions = {
+        ...(options.remote === undefined ? {} : { remote: options.remote }),
+        ...(options.c === true ? { allowClosed: true } : {}),
         ...(options.base === undefined ? {} : { base: options.base }),
         ...(options.workflow === undefined && options.w === undefined ? {} : { workflow: options.workflow ?? options.w }),
         ...(options.editor === undefined ? {} : { editor: options.editor }),

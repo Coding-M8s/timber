@@ -7,8 +7,12 @@ import type {
 import type { BaseAssociationRead } from "./git/base-metadata";
 import type { WorkflowAssociationRead } from "./git/workflow-metadata";
 import type { TerminalChooser } from "./selection";
+import type { GithubRepository } from "./github/repository";
+import type { GithubTicket } from "./github/client";
 
 export interface CommandServices {
+  resolveGithubRepository(repository: RepositoryContext, config: RepositoryConfig, remote?: string): Promise<GithubRepository>;
+  resolveGithubTicket(repository: GithubRepository, number: number, allowClosed: boolean): Promise<GithubTicket>;
   /** Discover from nested/linked cwd; reject non-repositories and bare repos. */
   discoverRepository(cwd: string): Promise<RepositoryContext>;
   /** Defaults + validated global/repository config; never search relative to caller cwd. */
@@ -89,6 +93,8 @@ export interface CommandContext {
 }
 
 export interface NewOptions {
+  remote?: string;
+  allowClosed?: boolean;
   base?: string;
   workflow?: string;
   /** Explicit enable/disable; omission defers to editor.enabled. */

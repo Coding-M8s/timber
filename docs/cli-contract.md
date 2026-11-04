@@ -191,6 +191,75 @@ The association is local JSON inside the selected worktree's private Git adminis
 
 Failures after creation retain the worktree, refs, and script files. In foreground mode, script failures stop editor and agent launch; editor startup failure stops agent launch. An ordinary reopen does not retry creation actions. Repair and deliberately rerun scripts with `timber open --setup -- '<absolute-worktree-path>'`; retry the editor with `timber open --editor -- '<absolute-worktree-path>'`; retry the agent with `timber open --agent --no-editor -- '<absolute-worktree-path>'`. A failed association write reports an explicit `open --workflow <name>` repair command. Scripts must tolerate explicit reruns. Timber does not promise exactly-once side effects across crashes. Keep secrets out of config, metadata, and diagnostics.
 
+## GitHub issue lookup (#96)
+
+`timber new github:123` resolves one exact GitHub issue in a repository selected
+from the current project's Git remotes. Only the raw whole input
+`github:<positive-decimal-number>` is recognized. Reject zero, leading zeros,
+unsafe integers and malformed `github:` inputs before lookup or mutation.
+No bare numbers, issue URLs, explicit owner/repo syntax or Enterprise hosts.
+
+Issue remote precedence is explicit `--remote <name>`, configured `remote`, then
+`origin`. If none identifies a registered remote, require explicit selection.
+Reject invalid selected remotes without probing alternatives. Read effective fetch
+URLs from installed Git using argument arrays. Require exactly one github.com
+repository URL in HTTPS, `ssh://git@github.com/owner/repo`, or
+`git@github.com:owner/repo` form; optional `.git` is supported. Reject embedded
+HTTPS credentials, query/fragment/control bytes and ambiguous destinations.
+`--remote` selects only the issue repository. It does not override ordinary base
+selection; `--base` remains independent. Reject `--remote` and `-c` for non-GitHub
+inputs. Existing Jira/literal semantics and ordinary base resolution are unchanged.
+
+Resolve the base before credentials or HTTP. Explicit process `GH_TOKEN` overrides
+`GITHUB_TOKEN`, then the active github.com account from
+`gh auth token --hostname github.com`. A supplied blank or malformed higher-priority
+override fails without fallback. Environment overrides need no saved login;
+otherwise gh must be installed and logged in. No dotenv loading, anonymous
+fallback, account switching or Timber GitHub credential file. The existing Bun
+source-runner dotenv caveat in the Jira section also applies here.
+
+Capture token output privately in memory with closed stdin, bounded output and
+safe subprocess errors. Disable gh debugging/prompts for runtime retrieval.
+GitHub CLI owns its credential lifecycle; Timber never explicitly refreshes or
+changes its authentication during lookup. Only stable token/login flags are used;
+the development check used gh 2.101.0, without assuming newer --no-refresh flags.
+
+One 10-second deadline includes token retrieval, the exact fixed-host REST request,
+body parsing and validation. Reject redirects and do not retry. Request
+`https://api.github.com/repos/<owner>/<repo>/issues/<number>` with JSON accept and
+the supported `2022-11-28` API version. Validate exact issue number, nonblank title,
+known open/closed state, and absence of `pull_request`. Construct the browse URL
+from the validated requested repository and number. Never expose tokens, raw
+transport errors or response bodies. Failures stop before creation/hooks/launch.
+
+Closed issues refuse creation and suggest `-c`. Explicit `-c` permits closed
+issues but never reopens them, permits PRs, or bypasses Git protections. Generate
+`GH-<number>-<title-slug>` with the existing Jira algorithm and 120-character total
+cap. No collision suffixes. Output the branch/path and GitHub URL after creation.
+Titles become potentially public branch text. Different issue repositories share
+the local GH-number namespace, and title changes can produce new branches:
+`open GH-123` uses existing offline matching, including its ambiguity chooser.
+Hooks extract `TIMBER_TASK_ID=GH-123`. `open`, `ls` and `done` stay offline.
+
+Both setup scopes expose a separate GitHub login check with no new TOML keys or
+credential Save participant. A successful check identifies the authenticated
+account, not repository/team/issue access. When logged out, explicitly offer an
+awaited interactive `gh auth login --hostname github.com` with inherited terminal
+stdio. Explain first that this is an immediate external login and cancelling
+Timber setup afterward cannot undo it. GitHub CLI may offer its own Git protocol
+or authentication settings during login; users control those choices. Timber does
+not invoke setup-git, install gh, switch accounts or change remotes. Environment
+overrides must be unset before using assisted saved-account login. Missing gh gets
+installation guidance. Failed checks/login return to setup for retry or cancel.
+Release and restore the prompt's input listeners and raw mode around login; do
+not impose the runtime request deadline on human interaction. Jira drafts and
+ordinary config Save/cancel remain unchanged.
+
+See [GitHub CLI token](https://cli.github.com/manual/gh_auth_token),
+[login](https://cli.github.com/manual/gh_auth_login),
+[environment precedence](https://cli.github.com/manual/gh_help_environment), and
+[GitHub issue REST API](https://docs.github.com/en/rest/issues/issues#get-an-issue).
+
 ## Jira ticket lookup (0.2, TIM-10)
 
 Jira lookup is enabled when the resolved repository/global configuration has a

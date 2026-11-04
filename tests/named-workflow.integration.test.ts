@@ -1,3 +1,4 @@
+import { createServiceDouble } from "./helpers/services";
 import { writeBaseAssociation } from "../src/git/base-metadata";
 import { expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -46,7 +47,7 @@ test("new and repeated open preserve creation-only actions with global agent def
       launchAgent: async (_tree: unknown, command: { command: string } | null) => {
         agents.push(command?.command ?? "off"); return { kind: "exited" as const, exitCode: 0, signal: null };
       } };
-    const create = createNewHandler({ writeBaseAssociation, ...shared, resolveBase, resolveJiraTicket: async () => { throw new Error("unexpected Jira"); },
+    const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, ...shared, resolveBase, resolveJiraTicket: async () => { throw new Error("unexpected Jira"); },
       findJiraSuggestions: async () => [] });
     await create("review", { workflow: "review", base: "trunk" }, context(primary));
     const repository = await discoverRepository(primary);
@@ -105,7 +106,7 @@ test("failed workflow setup retains refs and files; ordinary open never retries 
       readWorkflowAssociation, writeWorkflowAssociation, runSetup,
       launchEditor: async () => { editors++; return { kind: "launched" as const }; },
       launchAgent: async () => ({ kind: "skipped" as const }) };
-    const create = createNewHandler({ writeBaseAssociation, ...shared, resolveBase,
+    const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, ...shared, resolveBase,
       resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [] });
     await expect(create("review", { base: "trunk", workflow: "review" }, context(primary)))
       .rejects.toThrow(/workflow post_create step 2 failed/);
@@ -130,7 +131,7 @@ test("workflow creation in CI skips implicit agent and explicit agent fails befo
   await withRepository(async (primary) => {
     await writeFile(join(primary, ".timber.toml"), settings());
     let agentCalls = 0;
-    const create = createNewHandler({ writeBaseAssociation, discoverRepository, loadConfig: loadRepositoryConfig,
+    const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, discoverRepository, loadConfig: loadRepositoryConfig,
       resolveBase, createWorktree, writeWorkflowAssociation, runSetup,
       resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [],
       launchEditor: async () => ({ kind: "skipped" }),

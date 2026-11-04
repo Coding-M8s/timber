@@ -1,3 +1,4 @@
+import { createServiceDouble } from "./helpers/services";
 import { readBaseAssociation, writeBaseAssociation } from "../src/git/base-metadata";
 import { expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
@@ -32,7 +33,7 @@ test.each([false, true])("real Git creation retains setup edits, workflow and re
           commands.push(execa("/bin/sh", ["-c", bootstrap!], { reject: false }));
           return `term_${commands.length}`;
         }, select: async () => {} }) });
-    const services = { discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, createWorktree, writeBaseAssociation,
+    const services = { ...createServiceDouble(), discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, createWorktree, writeBaseAssociation,
       resolveOpenTarget, listBranches, readBaseAssociation, readWorkflowAssociation, writeWorkflowAssociation,
       resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [],
       runSetup: async () => { throw new Error("foreground fallback"); },

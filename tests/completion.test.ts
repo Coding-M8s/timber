@@ -20,6 +20,8 @@ test("completion flags are specific to the actual command", async () => {
   expect(await candidates("timber open --w")).toEqual(["--w", "--workflow"]);
   expect(await candidates("timber new --w")).toEqual(["--w", "--workflow"]);
   expect(await candidates("timber new --ba")).toEqual(["--base"]);
+  expect(await candidates("timber new --re")).toEqual(["--remote"]);
+  expect(await candidates("timber new -c")).toEqual(["-c"]);
   expect(await candidates("timber setup --")).toEqual(["--global", "--help"]);
   expect(await candidates("timber ls -")).toEqual(["--help", "-h"]);
   expect(await candidates("timber --")).toEqual(["--help", "--version"]);

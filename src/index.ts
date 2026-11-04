@@ -34,6 +34,9 @@ import { listWorktrees } from "./git/worktrees";
 import { readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
 import { readWorkflowAssociation, writeWorkflowAssociation } from "./git/workflow-metadata";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
+import { resolveGithubRepository } from "./github/repository";
+import { resolveGithubTicket } from "./github/client";
+import { createGithubSetupSession } from "./setup/github";
 import { createTerminalChooser, shouldEnableInteractiveSelection } from "./selection";
 
 if (process.argv[2] === "__editor-task") {
@@ -76,9 +79,11 @@ process.exitCode = await runCli(process.argv.slice(2), {
     }),
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
       jira: createJiraSetupSession,
+      github: createGithubSetupSession,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
+      resolveGithubRepository, resolveGithubTicket,
       createWorktree, writeBaseAssociation, writeWorkflowAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
     }),
     open: createOpenHandler({
