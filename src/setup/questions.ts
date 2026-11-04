@@ -8,6 +8,7 @@ import type { ChoiceOption } from "../selection";
 import { SetupCancelled } from "./types";
 import type { SetupPrompt, SetupTarget } from "./types";
 import type { JiraSetupSession } from "./jira";
+import type { GithubSetupSession } from "./github";
 
 async function choose(prompt: SetupPrompt, message: string, choices: readonly ChoiceOption[], defaultValue = choices[0]!.value): Promise<string> {
   const result = await prompt.select(message, choices, defaultValue);
@@ -272,12 +273,13 @@ export async function editSetupSection(section: SetupSection, file: ConfigFile, 
 }
 
 export async function questionnaire(target: SetupTarget, prompt: SetupPrompt, io: CommandIO,
-  available: (command: string) => Promise<boolean>, jira?: JiraSetupSession): Promise<ConfigFile | null> {
+  available: (command: string) => Promise<boolean>, jira?: JiraSetupSession, github?: GithubSetupSession): Promise<ConfigFile | null> {
   const file: ConfigFile = structuredClone(target.file.values);
   try {
     for (const section of ["editor", "agent", "jira"] as const) {
       await editSetupSection(section, file, target, prompt, io, available, jira);
     }
+    if (github && await confirm(prompt, "Check GitHub CLI login for GitHub issues?")) await github.edit(prompt, io);
     if (await confirm(prompt, "Advanced settings: add setup/pre-done scripts or change Git/folder defaults? Skip if you're unsure.")) {
       for (const section of ["hooks", "pre_delete", "base_branch", "remote", "worktree_dir"] as const) {
         await editSetupSection(section, file, target, prompt, io, available);

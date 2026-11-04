@@ -312,6 +312,30 @@ export function createKeyboardPrompt(input: RawInput, output: Writable): SetupPr
       if (result === null) return null;
       return result === "yes";
     },
+    async withTerminal(run) {
+      if (ended || cancelled) throw new Error("Setup terminal is no longer available.");
+      leaveAlt();
+      queue.length = 0;
+      lastWasReturn = false;
+      input.removeListener("keypress", keypress);
+      input.removeListener("end", end);
+      process.removeListener("SIGINT", cancel);
+      let interrupted = false;
+      const interrupt = () => { interrupted = true; };
+      process.on("SIGINT", interrupt);
+      input.pause();
+      input.setRawMode(false);
+      try { return await run(); }
+      finally {
+        process.removeListener("SIGINT", interrupt);
+        input.setRawMode(true);
+        input.on("keypress", keypress);
+        input.on("end", end);
+        process.on("SIGINT", cancel);
+        input.resume();
+        if (interrupted) cancel();
+      }
+    },
     close() {
       try { leaveAlt(); }
       finally {

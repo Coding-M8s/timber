@@ -8,6 +8,7 @@ import type { SetupSection } from "./questions";
 import { SetupCancelled } from "./types";
 import type { SetupPrompt, SetupTarget } from "./types";
 import type { JiraSetupSession } from "./jira";
+import type { GithubSetupSession } from "./github";
 
 const sections: readonly { value: SetupSection; title: string }[] = [
   { value: "editor", title: "Editor" },
@@ -83,7 +84,7 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
   }
 }
 
-function hubChoices(file: ConfigFile, target: SetupTarget): ChoiceOption[] {
+function hubChoices(file: ConfigFile, target: SetupTarget, github: boolean): ChoiceOption[] {
   const width = Math.max(...sections.map(section => section.title.length)) + 2;
   return [
     { value: "save", label: "Save and exit" },
@@ -91,6 +92,7 @@ function hubChoices(file: ConfigFile, target: SetupTarget): ChoiceOption[] {
       value: section.value,
       label: `${section.title.padEnd(width)}${sectionStatus(section.value, file, target)}`,
     })),
+    ...(github ? [{ value: "github", label: "GitHub issues    Check GitHub CLI login" }] : []),
     { value: "guide", label: "Guided walkthrough (editor, assistant, Jira...)" },
     { value: "cancel", label: "Cancel without saving" },
   ];
@@ -106,6 +108,7 @@ export async function runSetupHub(
   io: CommandIO,
   available: (command: string) => Promise<boolean>,
   jira?: JiraSetupSession,
+  github?: GithubSetupSession,
 ): Promise<ConfigFile | null> {
   let file: ConfigFile = structuredClone(target.file.values);
   try {
@@ -115,10 +118,11 @@ export async function runSetupHub(
       const workflows = Object.keys(effectiveConfig(file, target).workflows ?? {}).length;
       const choice = await prompt.select(
         `Settings - ${scopeLabel}\n${safeDisplay(target.path)}${workflows ? `\nWorkflows: ${workflows}` : ""}`,
-        hubChoices(file, target),
+        hubChoices(file, target, github !== undefined),
         "save",
       );
       if (choice === null || choice === "cancel") return null;
+      if (choice === "github" && github) { await github.edit(prompt, io); continue; }
       if (choice === "save") {
         const parsed = configFileSchema.safeParse(file);
         if (!parsed.success) {
@@ -130,7 +134,7 @@ export async function runSetupHub(
       if (choice === "guide") {
         const walked = await questionnaire(
           { ...target, file: { ...target.file, values: file } },
-          prompt, io, available, jira,
+          prompt, io, available, jira, github,
         );
         // Soft cancel (q /cancel) returns to the menu; hard abort (Esc/Ctrl-C) ends setup.
         if (walked === null) {

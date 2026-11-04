@@ -5,8 +5,10 @@ import { renderConfig } from "../setup/render";
 import { SetupCancelled, SetupVisibilityError } from "../setup/types";
 import type { SetupPrompt, SetupTarget } from "../setup/types";
 import type { JiraSetupSession } from "../setup/jira";
+import type { GithubSetupSession } from "../setup/github";
 
 export interface SetupServices {
+  github?: () => GithubSetupSession;
   inspectTarget(global: boolean, cwd: string): Promise<SetupTarget>;
   prompt(): SetupPrompt;
   checkExecutable(command: string): Promise<boolean>;
@@ -25,6 +27,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
       stderr: (message: string) => prompt.notice!(message, "error"),
     } } : context;
     let jira = services.jira?.();
+    const github = services.github?.();
     let closed = false;
     const done = (message: string) => {
       if (!closed) { prompt.close(); closed = true; }
@@ -43,7 +46,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
           if (choice !== "edit") throw new Error("Invalid tracked-config choice; no settings saved.");
           trackedApproved = true;
         }
-        const file = await runSetupHub(target, prompt, setupContext.io, services.checkExecutable, jira);
+        const file = await runSetupHub(target, prompt, setupContext.io, services.checkExecutable, jira, github);
         if (file === null) throw new SetupCancelled();
         const source = renderConfig(file);
         try {

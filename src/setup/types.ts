@@ -3,6 +3,8 @@ import type { ChoiceOption } from "../selection";
 import type { RepositoryContext } from "../types";
 
 export interface SetupPrompt {
+  /** Temporarily release terminal ownership for one awaited interactive child. */
+  withTerminal?<T>(run: () => Promise<T>): Promise<T>;
   /** Full-screen adapters render this context inline with the next question. */
   notice?(message: string, kind?: "error"): void;
   select(message: string, choices: readonly ChoiceOption[], defaultValue: string, options?: { search?: boolean; query?: string }): Promise<string | null>;

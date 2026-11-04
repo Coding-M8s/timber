@@ -696,6 +696,51 @@ capture or log command arguments.
 Use `--keep-ignored` to refuse that removal. Partial cleanup can leave the worktree
 removed and branch retained; inspect the reported state before retrying.
 
+## GitHub issues
+
+Use `timber setup` or `timber setup --global` and select **GitHub issues** to check
+your GitHub CLI login. If gh is missing, install it from [cli.github.com](https://cli.github.com/).
+Setup can help run `gh auth login --hostname github.com` after confirmation.
+GitHub CLI owns the login and credential storage; Timber does not copy the token
+to a file. A successful login remains even if you later cancel Timber setup.
+GitHub CLI may ask about its own Git authentication/protocol settings during login.
+The check confirms your account, not access to every repository or issue.
+
+```bash
+timber new github:123
+timber new github:123 --remote upstream --base main
+timber new github:123 -c
+timber open GH-123
+```
+
+The issue repository comes from `--remote`, your configured remote, or `origin`,
+in that order. For a fork, choose `--remote upstream` to look up the original
+project's issues. This option does not change the starting branch: use `--base`
+independently. Without a clear remote, Timber asks you to specify one in the
+command. Only github.com remote URLs and positive issue numbers are supported.
+
+Issue #123 titled "Fix login" generates `GH-123-fix-login`. The title may become
+public when you push the branch; use a literal branch name for sensitive work.
+Closed issues stop with a message; `-c` explicitly permits creating their worktree
+without reopening the issue. PRs are refused. Existing branch/path collisions
+still fail. Different remotes share the local `GH-123` shortcut, so `open GH-123`
+can ask you to choose among matching branches. Opening existing work stays offline.
+
+Authentication follows [GitHub CLI precedence](https://cli.github.com/manual/gh_help_environment):
+process `GH_TOKEN`, then `GITHUB_TOKEN`, then the active github.com CLI account.
+Blank overrides fail rather than falling back. Unset both variables to use a saved
+login. Environment tokens can also be used without a saved login; Timber does not
+load `.env` files. When running from source, use `bun --no-env-file src/index.ts`
+to disable Bun's automatic dotenv loading. Private issues need repository access
+and Issues read permission; see [GitHub's endpoint requirements](https://docs.github.com/en/rest/issues/issues#get-an-issue).
+This version requires authentication for public lookup too. There is no automatic
+anonymous fallback, issue search, issue updates or GitHub Enterprise support.
+
+Developer smoke checklist: configure/check login in setup, create a worktree from
+a known open issue without environment overrides, verify branch and browse link,
+refuse a closed issue then allow it with `-c`, and verify `--remote upstream` in a
+fork. HTTP doubles alone do not establish live GitHub access.
+
 ## Guided setup and machine defaults
 
 Before using Timber, run `timber setup` inside your repository, or
