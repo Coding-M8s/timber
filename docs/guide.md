@@ -741,6 +741,67 @@ a known open issue without environment overrides, verify branch and browse link,
 refuse a closed issue then allow it with `-c`, and verify `--remote upstream` in a
 fork. HTTP doubles alone do not establish live GitHub access.
 
+## Linear issues
+
+Run `timber setup` or `timber setup --global`, select **Linear issues**, and
+enter a personal API key. Create one under Account > Security & Access following
+[Linear's instructions](https://linear.app/docs/api-and-webhooks). Give it **Read**
+permission and access to the teams whose issues you use; write permission is not
+needed. Workspace policy may restrict who can create keys.
+
+The key is hidden while typing or pasting. Optionally check the draft login, then
+choose **Save and exit**. The check uses the draft key and saves nothing. It verifies
+authentication, not access to every team or issue. After a failed check, select
+Linear again to correct it or cancel setup. Keep, replace and remove operate on the
+draft; cancelling leaves existing credentials intact.
+
+```sh
+timber new linear:ENG-123
+timber new linear:ENG-123 --base main -w feature
+# Later, reopen using the existing offline ticket match:
+timber open ENG-123
+```
+
+The current title becomes a branch such as `ENG-123-fix-login`, capped at 120
+characters using the Jira naming rules. Titles can become public through pushed
+branches, paths and logs. Title changes may produce another branch name; collisions
+fail without adding suffixes. Creation prints the branch, path and Linear issue link
+and follows ordinary setup, workflow, editor and agent settings.
+
+Only the explicit whole-input `linear:<UPPERCASE-KEY>` syntax invokes Linear.
+Bare keys retain Jira/literal behavior. Triage, backlog, unstarted and started issues
+are accepted; completed, canceled, duplicate or unknown states refuse creation.
+`-c` and `--remote` apply only to GitHub issues. No URL input, suggestions/search,
+OAuth, account chooser, issue updates or automatic closing is supported. `open`,
+`ls` and `done` stay offline for Linear.
+
+Both setup scopes share one plaintext personal key outside Git at
+`${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/linear.json` using the existing
+absolute-XDG/HOME fallback rules. Linux storage is owner-only (0600 file, 0700
+credential directory). Keep it private; never paste its contents into reports or
+store the key in `.timber.toml`. Removing it in setup affects Linear only.
+
+An explicitly supplied process `LINEAR_API_KEY` overrides the saved key. A blank or
+invalid override fails instead of falling back. Unset it to use the saved login.
+Timber does not explicitly load `.env` files, but Bun's development source runner
+can load them before Timber starts. For source runs that must avoid them, use
+`bun --no-env-file src/index.ts ...`.
+
+Lookup uses one read-only GraphQL request with a 10-second deadline, rejects
+redirects and never retries. Base, authentication, permission, missing/terminal issue,
+rate-limit, network and response failures stop before creating a workspace. Fix the
+reported condition and retry explicitly.
+
+Developer smoke check with a live account:
+
+1. Configure a Read key through setup and check the draft login.
+2. Save, unset any `LINEAR_API_KEY` override, and select a known nonterminal issue.
+3. Run `timber new linear:<KEY>` and verify the generated branch, path and issue link.
+4. Reopen using its key and verify ordinary workflow/hooks behavior as applicable.
+
+HTTP doubles do not establish live access. Record this manual check as not run
+when no live test credentials are available.
+
 ## Guided setup and machine defaults
 
 Before using Timber, run `timber setup` inside your repository, or

@@ -74,7 +74,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
   }
 
   workflowOptions(agentOptions(editorOptions(program.command("new <branch...>"))))
-    .description("Create a worktree from a branch or sentence; configured Jira ticket IDs, github:<number> and named workflows are supported")
+    .description("Create a worktree from a branch or sentence; configured Jira ticket IDs, github:<number>, linear:<KEY> and named workflows are supported")
     .option("--base <ref>", "Override the configured base branch")
     .option("--remote <name>", "Select the GitHub issue remote only; does not change --base")
     .option("-c", "Allow a closed GitHub issue; does not reopen it")

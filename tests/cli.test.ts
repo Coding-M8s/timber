@@ -114,3 +114,10 @@ test("unhandled command failures render control characters safely", async () => 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("new help documents explicit Linear selectors and retains GitHub-only closed option", async () => {
+  const result = await cli("new", "--help");
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("linear:<KEY>");
+  expect(result.stdout).toContain("closed GitHub issue");
+});

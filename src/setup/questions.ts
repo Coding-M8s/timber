@@ -1,3 +1,4 @@
+import type { LinearSetupSession } from "./linear";
 import { isAbsolute } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { configFileSchema, jiraSiteSchema } from "../config";
@@ -273,12 +274,13 @@ export async function editSetupSection(section: SetupSection, file: ConfigFile, 
 }
 
 export async function questionnaire(target: SetupTarget, prompt: SetupPrompt, io: CommandIO,
-  available: (command: string) => Promise<boolean>, jira?: JiraSetupSession, github?: GithubSetupSession): Promise<ConfigFile | null> {
+  available: (command: string) => Promise<boolean>, jira?: JiraSetupSession, github?: GithubSetupSession, linear?: LinearSetupSession): Promise<ConfigFile | null> {
   const file: ConfigFile = structuredClone(target.file.values);
   try {
     for (const section of ["editor", "agent", "jira"] as const) {
       await editSetupSection(section, file, target, prompt, io, available, jira);
     }
+    if (linear && await confirm(prompt, "Configure a personal API key for Linear issues?")) await linear.edit(prompt, io);
     if (github && await confirm(prompt, "Check GitHub CLI login for GitHub issues?")) await github.edit(prompt, io);
     if (await confirm(prompt, "Advanced settings: add setup/pre-done scripts or change Git/folder defaults? Skip if you're unsure.")) {
       for (const section of ["hooks", "pre_delete", "base_branch", "remote", "worktree_dir"] as const) {

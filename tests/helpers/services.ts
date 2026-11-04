@@ -8,6 +8,7 @@ const unexpected = (name: keyof CommandServices) => async (): Promise<never> => 
 /** Override only what a test needs; accidental network/mutation paths fail closed. */
 export function createServiceDouble(overrides: Partial<CommandServices> = {}): CommandServices {
   return {
+    resolveLinearTicket: unexpected("resolveLinearTicket"),
     resolveGithubRepository: unexpected("resolveGithubRepository"),
     resolveGithubTicket: unexpected("resolveGithubTicket"),
     discoverRepository: unexpected("discoverRepository"),

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseConfigSource } from "../src/config";
 import { git, withRepository } from "./helpers/git";
+import { loadSavedLinearKey } from "../src/linear/credentials";
 import { loadSavedCredentials } from "../src/jira/credentials";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
@@ -233,6 +234,23 @@ for (const input of ["\u0003", "\u0004", "q\n"]) {
       expect(await readFile(configPath, "utf8")).toBe('remote = "upstream"\n');
       expect(await readFile(join(primary, ".git/info/exclude"))).toEqual(exclude);
       expect(await readFile(join(primary, ".git/index"))).toEqual(index);
+    });
+  });
+}
+
+for (const global of [false, true]) {
+  test(`real Linear setup hides a pasted key and saves it privately (global=${global})`, async () => {
+    await withRepository(async (primary, directory) => {
+      // Save is first; Linear is after the eight sections and GitHub entry.
+      const result = await terminal(primary, directory, global ? ["--global"] : [],
+        "\u001b[B".repeat(10) + "\r2", "SYNTHETIC_PASTED_LINEAR_KEY");
+      expect(result.code, result.output).toBe(0);
+      expect(result.output).toContain(global ? "Saved machine defaults" : "Saved repository settings");
+      expect(result.output).not.toContain("SYNTHETIC_PASTED_LINEAR_KEY");
+      expect(result.output).toMatch(/\r\u001b\[2K› \*+/u);
+      expect(await loadSavedLinearKey({ HOME: directory, XDG_CONFIG_HOME: join(directory, "machine/config") }))
+        .toBe("SYNTHETIC_PASTED_LINEAR_KEY");
+      expect(await git(primary, "status", "--porcelain=v1")).toBe("");
     });
   });
 }
