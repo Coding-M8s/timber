@@ -35,7 +35,9 @@ import { readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
 import { readWorkflowAssociation, writeWorkflowAssociation } from "./git/workflow-metadata";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
 import { resolveGithubRepository } from "./github/repository";
+import { resolveLinearTicket } from "./linear/client";
 import { resolveGithubTicket } from "./github/client";
+import { createLinearSetupSession } from "./setup/linear";
 import { createGithubSetupSession } from "./setup/github";
 import { createTerminalChooser, shouldEnableInteractiveSelection } from "./selection";
 
@@ -80,10 +82,11 @@ process.exitCode = await runCli(process.argv.slice(2), {
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
       jira: createJiraSetupSession,
       github: createGithubSetupSession,
+      linear: createLinearSetupSession,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
-      resolveGithubRepository, resolveGithubTicket,
+      resolveGithubRepository, resolveGithubTicket, resolveLinearTicket,
       createWorktree, writeBaseAssociation, writeWorkflowAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
     }),
     open: createOpenHandler({

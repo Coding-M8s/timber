@@ -8,9 +8,11 @@ import type { BaseAssociationRead } from "./git/base-metadata";
 import type { WorkflowAssociationRead } from "./git/workflow-metadata";
 import type { TerminalChooser } from "./selection";
 import type { GithubRepository } from "./github/repository";
+import type { LinearTicket } from "./linear/client";
 import type { GithubTicket } from "./github/client";
 
 export interface CommandServices {
+  resolveLinearTicket(key: string): Promise<LinearTicket>;
   resolveGithubRepository(repository: RepositoryContext, config: RepositoryConfig, remote?: string): Promise<GithubRepository>;
   resolveGithubTicket(repository: GithubRepository, number: number, allowClosed: boolean): Promise<GithubTicket>;
   /** Discover from nested/linked cwd; reject non-repositories and bare repos. */

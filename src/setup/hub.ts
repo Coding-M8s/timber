@@ -1,3 +1,4 @@
+import type { LinearSetupSession } from "./linear";
 import { configFileSchema, resolveConfig } from "../config";
 import type { ConfigFile } from "../config";
 import { safeDisplay } from "../display";
@@ -84,7 +85,7 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
   }
 }
 
-function hubChoices(file: ConfigFile, target: SetupTarget, github: boolean): ChoiceOption[] {
+function hubChoices(file: ConfigFile, target: SetupTarget, github: boolean, linear: boolean): ChoiceOption[] {
   const width = Math.max(...sections.map(section => section.title.length)) + 2;
   return [
     { value: "save", label: "Save and exit" },
@@ -93,6 +94,7 @@ function hubChoices(file: ConfigFile, target: SetupTarget, github: boolean): Cho
       label: `${section.title.padEnd(width)}${sectionStatus(section.value, file, target)}`,
     })),
     ...(github ? [{ value: "github", label: "GitHub issues    Check GitHub CLI login" }] : []),
+    ...(linear ? [{ value: "linear", label: "Linear issues    Personal API key" }] : []),
     { value: "guide", label: "Guided walkthrough (editor, assistant, Jira...)" },
     { value: "cancel", label: "Cancel without saving" },
   ];
@@ -109,19 +111,22 @@ export async function runSetupHub(
   available: (command: string) => Promise<boolean>,
   jira?: JiraSetupSession,
   github?: GithubSetupSession,
+  linear?: LinearSetupSession,
 ): Promise<ConfigFile | null> {
   let file: ConfigFile = structuredClone(target.file.values);
   try {
     while (true) {
       jira?.review(io);
+      linear?.review(io);
       const scopeLabel = target.scope === "global" ? "machine defaults" : "this repository";
       const workflows = Object.keys(effectiveConfig(file, target).workflows ?? {}).length;
       const choice = await prompt.select(
         `Settings - ${scopeLabel}\n${safeDisplay(target.path)}${workflows ? `\nWorkflows: ${workflows}` : ""}`,
-        hubChoices(file, target, github !== undefined),
+        hubChoices(file, target, github !== undefined, linear !== undefined),
         "save",
       );
       if (choice === null || choice === "cancel") return null;
+      if (choice === "linear" && linear) { await linear.edit(prompt, io); continue; }
       if (choice === "github" && github) { await github.edit(prompt, io); continue; }
       if (choice === "save") {
         const parsed = configFileSchema.safeParse(file);
@@ -134,7 +139,7 @@ export async function runSetupHub(
       if (choice === "guide") {
         const walked = await questionnaire(
           { ...target, file: { ...target.file, values: file } },
-          prompt, io, available, jira, github,
+          prompt, io, available, jira, github, linear,
         );
         // Soft cancel (q /cancel) returns to the menu; hard abort (Esc/Ctrl-C) ends setup.
         if (walked === null) {

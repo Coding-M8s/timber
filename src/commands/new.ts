@@ -4,12 +4,13 @@ import type { CommandHandlers, CommandServices } from "../services";
 import { JiraLookupFailure } from "../jira/client";
 import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
 import type { JiraTicket } from "../types";
+import { parseLinearInput } from "../linear/input";
 import { parseGithubInput } from "../github/input";
 import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 
 type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
-  "resolveGithubRepository" | "resolveGithubTicket" |
+  "resolveGithubRepository" | "resolveGithubTicket" | "resolveLinearTicket" |
   "createWorktree" | "writeBaseAssociation" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
@@ -29,6 +30,7 @@ function normalizeBranchInput(branch: string): string {
 export function createNewHandler(services: NewServices): CommandHandlers["new"] {
   return async (branch, options, context) => {
     const github = parseGithubInput(branch);
+    const linear = parseLinearInput(branch);
     if (!github && (options.remote !== undefined || options.allowClosed !== undefined)) {
       throw new Error("The -c and --remote options require a GitHub issue selector such as github:123.");
     }
@@ -43,10 +45,12 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, canHostAgent, true);
     const base = await services.resolveBase(repository, config, options.base);
     const jiraConfig = config.jira;
-    let ticket: JiraTicket | undefined;
+    let ticket: { key: string; title: string; url: string } | undefined;
     if (github) {
       const issueRepository = await services.resolveGithubRepository(repository, config, options.remote);
       ticket = await services.resolveGithubTicket(issueRepository, github.number, options.allowClosed === true);
+    } else if (linear) {
+      ticket = await services.resolveLinearTicket(linear.key);
     } else if (jiraConfig && isJiraTicketKey(branch)) {
       try {
         ticket = await services.resolveJiraTicket(jiraConfig, branch);
@@ -89,7 +93,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     }
     if (options.workflow) await services.writeWorkflowAssociation(repository, worktree, options.workflow);
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
-    if (ticket) context.io.stdout(`${github ? "GitHub" : "Jira"}: ${ticket.url}\n`);
+    if (ticket) context.io.stdout(`${github ? "GitHub" : linear ? "Linear" : "Jira"}: ${ticket.url}\n`);
 
     if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
       if (!services.launchEditorTerminals) throw new Error("Orca terminal integration is unavailable; workspace retained.");

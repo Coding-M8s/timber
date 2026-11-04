@@ -1,3 +1,4 @@
+import type { LinearSetupSession } from "../setup/linear";
 import { safeDisplay } from "../display";
 import type { CommandHandlers } from "../services";
 import { runSetupHub } from "../setup/hub";
@@ -8,6 +9,7 @@ import type { JiraSetupSession } from "../setup/jira";
 import type { GithubSetupSession } from "../setup/github";
 
 export interface SetupServices {
+  linear?: () => LinearSetupSession;
   github?: () => GithubSetupSession;
   inspectTarget(global: boolean, cwd: string): Promise<SetupTarget>;
   prompt(): SetupPrompt;
@@ -27,6 +29,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
       stderr: (message: string) => prompt.notice!(message, "error"),
     } } : context;
     let jira = services.jira?.();
+    let linear = services.linear?.();
     const github = services.github?.();
     let closed = false;
     const done = (message: string) => {
@@ -42,16 +45,17 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
             { value: "edit", label: "Explicitly edit tracked config (index remains unchanged)" },
           ], "cancel");
           if (choice === null || choice === "cancel") throw new SetupCancelled();
-          if (choice === "global") { global = true; target = await services.inspectTarget(true, context.cwd); jira = services.jira?.(); continue; }
+          if (choice === "global") { global = true; target = await services.inspectTarget(true, context.cwd); jira = services.jira?.(); linear = services.linear?.(); continue; }
           if (choice !== "edit") throw new Error("Invalid tracked-config choice; no settings saved.");
           trackedApproved = true;
         }
-        const file = await runSetupHub(target, prompt, setupContext.io, services.checkExecutable, jira, github);
+        const file = await runSetupHub(target, prompt, setupContext.io, services.checkExecutable, jira, github, linear);
         if (file === null) throw new SetupCancelled();
         const source = renderConfig(file);
         try {
           const publish = () => services.save(target, source, trackedApproved, prompt.signal);
-          if (jira) await jira.save(publish, prompt.signal); else await publish();
+          const publishCredentials = () => linear ? linear.save(publish, prompt.signal) : publish();
+          if (jira) await jira.save(publishCredentials, prompt.signal); else await publishCredentials();
         }
         catch (error) {
           if (!(error instanceof SetupVisibilityError)) throw error;
@@ -64,6 +68,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
           global = true;
           target = await services.inspectTarget(global, context.cwd);
           jira = services.jira?.();
+          linear = services.linear?.();
           continue;
         }
         done(`Saved ${target.scope === "global" ? "machine defaults" : "repository settings"} at ${safeDisplay(target.path)}\n`);

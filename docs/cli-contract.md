@@ -260,6 +260,69 @@ See [GitHub CLI token](https://cli.github.com/manual/gh_auth_token),
 [environment precedence](https://cli.github.com/manual/gh_help_environment), and
 [GitHub issue REST API](https://docs.github.com/en/rest/issues/issues#get-an-issue).
 
+## Linear issue lookup (#97)
+
+`timber new linear:ENG-123` resolves an exact Linear issue without TOML
+configuration. Recognize only raw whole-input `linear:<KEY>` using the existing
+uppercase ticket-key grammar. Reject malformed inputs beginning with `linear:`
+before lookup or mutation. Bare `ENG-123` retains configured Jira/literal behavior.
+No URL selectors, search, provider inference, OAuth or issue updates. `--remote`
+and `-c` remain GitHub-only; terminal Linear issues have no override.
+
+Resolve the ordinary explicit/configured base before credentials or HTTP. A supplied
+process `LINEAR_API_KEY` overrides the saved personal key; blank or malformed
+supplied values fail without fallback. Otherwise read the single private personal
+key from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/linear.json` through
+the existing XDG/HOME path rules. Missing credentials point to `timber setup`.
+Do not load dotenv files explicitly; the Bun source-runner caveat below applies.
+
+POST a static GraphQL query with identifier variables to the fixed
+`https://api.linear.app/graphql` endpoint. Personal API keys use `Authorization:
+<key>` without a Bearer prefix. Query `issue(id: $id)` for canonical identifier,
+title, URL, trash flag and `state { type }`. Validate the canonical uppercase key, nonblank
+title and HTTPS browse URL with exact `linear.app` hostname, no user information,
+nondefault port or control characters. Use the canonical key when an old identifier
+resolves to a moved issue. Allow nonterminal types `triage`, `backlog`, `unstarted`
+and `started`; refuse completed, canceled, duplicate, unknown/missing state,
+missing/deleted issues and malformed responses. Do not use customizable state names.
+HTTP-200 GraphQL errors refuse creation even alongside partial issue data.
+
+One 10-second deadline includes credential resolution, fetch, body parsing and
+validation. Reject redirects and never retry. Authentication, access, not-found,
+rate-limit, network, timeout and validation failures return nonzero before Git
+creation, metadata, hooks or launches, without literal fallback. Never disclose
+keys, response bodies, raw GraphQL messages or raw transport exceptions.
+
+Generate `<canonical-key>-<title-slug>` with the existing Jira slug algorithm and
+120-character total cap. Git remains authoritative for collisions, without appended
+suffixes. Print branch/path and the Linear browse URL after creation. Reuse saved
+base/workflow metadata, setup, hooks and editor/agent sequencing. Titles become
+potentially public branch text; title changes can generate different branch names.
+Offline ticket matching and hook `TIMBER_TASK_ID` extraction remain unchanged.
+`open`, `ls` and `done` never contact Linear.
+
+Both setup scopes expose a separate **Linear issues** entry and edit the same
+personal credential. Explain [personal key creation](https://linear.app/docs/api-and-webhooks),
+Read permission and team restrictions. Offer keep, enter/replace and remove with
+hidden token input, including pasted input. Review shows only the action and private
+path. Keys are plaintext personal storage shared across repositories, never TOML.
+Use owner-only 0600 files and a 0700 credential directory on Linux, with existing
+private-storage protections, atomic publication, locks and concurrent-change checks.
+No broad credential-store refactor or changes to Jira's storage format.
+
+An optional read-only `viewer { id }` check uses the draft key, irrespective of the
+environment override. Bound it to 10 seconds including body parsing, reject
+redirects and show safe success/failure without saving. Authentication success does
+not prove team/issue access. Failed checks permit correction or cancellation.
+Entering/checking a draft never saves it. Save publishes personal credential drafts
+with the existing configuration commit point; cancellation or save failure restores
+prior credentials with guarded rollback that preserves concurrent changes. Scope
+switches discard drafts. Removing a Linear key affects only Linear storage, leaving
+Jira and GitHub authentication unchanged.
+
+See [Linear GraphQL documentation](https://linear.app/developers/graphql) and the
+[official schema](https://raw.githubusercontent.com/linear/linear/master/packages/sdk/src/schema.graphql).
+
 ## Jira ticket lookup (0.2, TIM-10)
 
 Jira lookup is enabled when the resolved repository/global configuration has a

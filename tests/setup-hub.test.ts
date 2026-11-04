@@ -118,3 +118,24 @@ test("hub review labels refresh after an edit", async () => {
   expect(labels[0]).not.toContain("zed");
   expect(labels[1]).toContain("zed");
 });
+
+test("hub exposes separate Linear credentials and includes their draft in review", async () => {
+  const events: string[] = [];
+  const prompt = scripted(["linear", "save"]);
+  const select = prompt.select;
+  prompt.select = async (message, choices, initial) => {
+    expect(choices.find(choice => choice.value === "linear")?.label).toContain("Linear");
+    return select(message, choices, initial);
+  };
+  expect(await runSetupHub(target(), prompt, io().io, async () => true, undefined, undefined, {
+    edit: async () => { events.push("edit"); }, review: () => { events.push("review"); }, save: async publish => publish(),
+  })).toEqual({});
+  expect(events).toEqual(["review", "edit", "review"]);
+});
+
+test("guided walkthrough offers Linear without adding configuration keys", async () => {
+  let edits = 0;
+  const file = await runSetupHub(target(), scripted(["guide", "none", "none", "none", true, false, "save"]), io().io, async () => true,
+    undefined, undefined, { edit: async () => { edits++; }, review() {}, save: async publish => publish() });
+  expect(edits).toBe(1); expect(file).toEqual({});
+});
