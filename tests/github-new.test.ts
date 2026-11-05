@@ -28,10 +28,10 @@ test("GitHub new keeps selected issue repository independent of base and uses or
   expect(output).toContain("GitHub: https://github.com/team/project/issues/123");
 });
 
-test("GitHub-only flags and malformed selectors refuse before services", async () => {
-  const handler = createNewHandler(createServiceDouble());
+test("issue-only flags refuse literal routing and malformed selectors refuse before lookup", async () => {
+  const handler = createNewHandler(createServiceDouble({ discoverRepository: async () => repositoryFixture(), loadConfig: async () => config }));
   for (const [input, options] of [["feature", { allowClosed: true }], ["ABU-123", { remote: "origin" }], ["github:123 extra", {}]] as const) {
-    await expect(handler(input, options, { cwd: "/repo", io })).rejects.toThrow(/GitHub|github:/u);
+    await expect(handler(input, options, { cwd: "/repo", io })).rejects.toThrow(/issue selector/u);
   }
 });
 

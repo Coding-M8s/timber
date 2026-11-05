@@ -30,8 +30,8 @@ for (const scope of ["repository", "global"] as const) {
         await writeFile(join(primary, "tracked.txt"), "dirty\n"); await writeFile(join(primary, "untracked.txt"), "private\n");
         const refs = await git(primary, "show-ref"); const trees = await git(primary, "worktree", "list", "--porcelain"); const index = await readFile(join(primary, ".git/index"));
         let output = ""; let checked = false;
-        const prompt = scripted(["jira", "configure", site.siteUrl, false, "replace", oldJira.email, "NEW_JIRA", false,
-          "linear", "replace", "NEW_LINEAR", true, outcome === "cancel" ? "cancel" : "save"]);
+        const prompt = scripted(["connections", "jira", "configure", site.siteUrl, false, "replace", oldJira.email, "NEW_JIRA", false,
+          "linear", "replace", "NEW_LINEAR", true, "back", "default_tracker", "none", outcome === "cancel" ? "cancel" : "save"]);
         const handler = createSetupHandler({ inspectTarget: (global, cwd) => inspectSetupTarget(global, cwd, env), prompt: () => prompt, checkExecutable: async () => true,
           jira: () => createJiraSetupSession(env), linear: () => createLinearSetupSession(env, async key => {
             expect(key).toBe("NEW_LINEAR"); checked = true;
@@ -69,7 +69,7 @@ test("setup visibility scope switch discards the Linear draft before configuring
   await withRepository(async (primary, root) => {
     const env = { HOME: root, XDG_CONFIG_HOME: join(root, "config") }; let sessions = 0;
     const handler = createSetupHandler({ inspectTarget: (global, cwd) => inspectSetupTarget(global, cwd, env),
-      prompt: () => scripted(["linear", "replace", "DISCARDED_DRAFT", false, "save", "global", "save"]), checkExecutable: async () => true,
+      prompt: () => scripted(["connections", "linear", "replace", "DISCARDED_DRAFT", false, "back", "default_tracker", "linear", "keep", false, "save", "global", "save"]), checkExecutable: async () => true,
       linear: () => { sessions++; return createLinearSetupSession(env); },
       save: async (target, source, approved, signal) => {
         if (target.scope === "repository") throw new SetupVisibilityError("choose machine defaults");

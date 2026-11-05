@@ -4,8 +4,9 @@ import type { CommandHandlers, CommandServices } from "../services";
 import { JiraLookupFailure } from "../jira/client";
 import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
 import type { JiraTicket } from "../types";
-import { parseLinearInput } from "../linear/input";
-import { parseGithubInput } from "../github/input";
+import { LinearLookupFailure } from "../linear/client";
+import { GithubLookupFailure } from "../github/client";
+import { resolveIssueInput } from "../issue-input";
 import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 
 type NewServices = Pick<CommandServices,
@@ -29,14 +30,17 @@ function normalizeBranchInput(branch: string): string {
 
 export function createNewHandler(services: NewServices): CommandHandlers["new"] {
   return async (branch, options, context) => {
-    const github = parseGithubInput(branch);
-    const linear = parseLinearInput(branch);
-    if (!github && (options.remote !== undefined || options.allowClosed !== undefined)) {
-      throw new Error("The -c and --remote options require a GitHub issue selector such as github:123.");
-    }
+    resolveIssueInput(branch, {});
     const branchInput = normalizeBranchInput(branch);
     const repository = await services.discoverRepository(context.cwd);
     const config = await services.loadConfig(repository);
+    const input = resolveIssueInput(branch, config);
+    if (options.remote !== undefined && input.kind !== "github") {
+      throw new Error("The --remote option requires a GitHub issue selector or a number with GitHub selected as the default tracker.");
+    }
+    if (options.allowClosed !== undefined && input.kind === "literal") {
+      throw new Error("The -c option requires an issue selector or an input matching the default tracker.");
+    }
     const workflow = selectWorkflow(config, options.workflow ?? null);
     const selectedEditor = workflowEditor(config, workflow, options.editor);
     const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
@@ -46,43 +50,54 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const base = await services.resolveBase(repository, config, options.base);
     const jiraConfig = config.jira;
     let ticket: { key: string; title: string; url: string } | undefined;
-    if (github) {
-      const issueRepository = await services.resolveGithubRepository(repository, config, options.remote);
-      ticket = await services.resolveGithubTicket(issueRepository, github.number, options.allowClosed === true);
-    } else if (linear) {
-      ticket = await services.resolveLinearTicket(linear.key);
-    } else if (jiraConfig && isJiraTicketKey(branch)) {
-      try {
-        ticket = await services.resolveJiraTicket(jiraConfig, branch);
-      } catch (error) {
-        if (!(error instanceof JiraLookupFailure) || error.reason === undefined) throw error;
-
-        let suggestions: readonly JiraTicket[];
+    try {
+      if (input.kind === "github") {
+        const issueRepository = await services.resolveGithubRepository(repository, config, options.remote);
+        ticket = await services.resolveGithubTicket(issueRepository, input.number, options.allowClosed === true);
+      } else if (input.kind === "linear") {
+        ticket = await services.resolveLinearTicket(input.key, options.allowClosed === true);
+      } else if (input.kind === "jira") {
+        if (!jiraConfig) throw new Error("Jira site settings are missing or disabled. Configure Jira with timber setup before looking up tickets.");
         try {
-          suggestions = await services.findJiraSuggestions(jiraConfig, branch);
-        } catch {
-          throw new Error(`${error.message} Jira suggestions could not be loaded; no workspace was created.`);
+          ticket = await services.resolveJiraTicket(jiraConfig, input.key, options.allowClosed === true);
+        } catch (error) {
+          if (input.origin !== "legacy" || options.allowClosed === true) throw error;
+          if (!(error instanceof JiraLookupFailure) || error.reason === undefined) throw error;
+
+          let suggestions: readonly JiraTicket[];
+          try {
+            suggestions = await services.findJiraSuggestions(jiraConfig, branch);
+          } catch {
+            throw new Error(`${error.message} Jira suggestions could not be loaded; no workspace was created.`);
+          }
+          if (suggestions.length === 0) throw error;
+          validateSuggestions(branch, suggestions);
+
+          const choices = suggestions.map(suggestion => ({
+            value: suggestion.key,
+            label: `${suggestion.key} - ${safeTitle(suggestion.title)}`,
+          }));
+          if (context.choose === undefined) throw noChooserFailure(error.message, branch, suggestions);
+
+          const selected = await context.choose(`${error.message}\nDid you mean one of these?`, choices);
+          if (selected === null) {
+            context.io.stdout("Cancelled.\n");
+            return;
+          }
+          const chosen = suggestions.find(suggestion => suggestion.key === selected);
+          if (chosen === undefined) throw new Error("Jira chooser returned an unknown suggestion; no workspace was created.");
+
+          // The search result can be stale; the selected exact issue is authoritative.
+          ticket = await services.resolveJiraTicket(jiraConfig, chosen.key);
         }
-        if (suggestions.length === 0) throw error;
-        validateSuggestions(branch, suggestions);
-
-        const choices = suggestions.map(suggestion => ({
-          value: suggestion.key,
-          label: `${suggestion.key} - ${safeTitle(suggestion.title)}`,
-        }));
-        if (context.choose === undefined) throw noChooserFailure(error.message, branch, suggestions);
-
-        const selected = await context.choose(`${error.message}\nDid you mean one of these?`, choices);
-        if (selected === null) {
-          context.io.stdout("Cancelled.\n");
-          return;
-        }
-        const chosen = suggestions.find(suggestion => suggestion.key === selected);
-        if (chosen === undefined) throw new Error("Jira chooser returned an unknown suggestion; no workspace was created.");
-
-        // The search result can be stale; the selected exact issue is authoritative.
-        ticket = await services.resolveJiraTicket(jiraConfig, chosen.key);
       }
+    } catch (error) {
+      const missing = (input.kind === "github" && error instanceof GithubLookupFailure)
+        || (input.kind === "linear" && error instanceof LinearLookupFailure)
+        || (input.kind === "jira" && error instanceof JiraLookupFailure);
+      if (input.kind === "literal" || input.origin !== "default" || !missing || error.reason !== "not-found") throw error;
+      const provider = { github: "GitHub", linear: "Linear", jira: "Jira" }[input.kind];
+      context.io.stdout(`${provider} ticket ${safeDisplay(branch)} was not found. Creating literal branch ${safeDisplay(branchInput)}.\n`);
     }
     const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branchInput;
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
@@ -93,7 +108,10 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     }
     if (options.workflow) await services.writeWorkflowAssociation(repository, worktree, options.workflow);
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
-    if (ticket) context.io.stdout(`${github ? "GitHub" : linear ? "Linear" : "Jira"}: ${ticket.url}\n`);
+    if (ticket) {
+      const provider = input.kind === "github" ? "GitHub" : input.kind === "linear" ? "Linear" : "Jira";
+      context.io.stdout(`${provider}: ${ticket.url}\n${safeDisplay(ticket.key)} - ${safeDisplay(ticket.title)}\n`);
+    }
 
     if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
       if (!services.launchEditorTerminals) throw new Error("Orca terminal integration is unavailable; workspace retained.");

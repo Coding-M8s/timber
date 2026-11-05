@@ -322,7 +322,7 @@ test("new resolves a moved Jira issue from nested linked worktree using canonica
 
     expect(result).toEqual({
       code: 0,
-      stdout: `Created XYZ-91-fix-cafe-login at ${target}\nJira: ${canonicalUrl}\n`,
+      stdout: `Created XYZ-91-fix-cafe-login at ${target}\nJira: ${canonicalUrl}\nXYZ-91 - Fix café / login!\n`,
       stderr: "",
     });
     expect(harness.requests).toHaveLength(1);
@@ -597,7 +597,7 @@ test("creates from a single Jira suggestion only after explicit selection and ex
 
     expect(result).toEqual({
       code: 0,
-      stdout: `Created ABU-40-fresh-title at ${target}\nJira: ${jiraSite}/browse/ABU-40\n`,
+      stdout: `Created ABU-40-fresh-title at ${target}\nJira: ${jiraSite}/browse/ABU-40\nABU-40 - Fresh title\n`,
       stderr: "",
     });
     expect(chooserCalls).toBe(1);
@@ -654,7 +654,7 @@ test("duplicate and changed Jira titles behave deterministically; ticket open re
     const first = await command(primary, onlineHandlers, "new", "ABU-834", "--no-editor");
     const firstTarget = join(directory, "primary repo-worktrees", "ABU-834-fix-cafe-login");
     expect(first.code).toBe(0);
-    expect(first.stdout).toBe(`Created ABU-834-fix-cafe-login at ${firstTarget}\nJira: ${jiraUrl}\n`);
+    expect(first.stdout).toBe(`Created ABU-834-fix-cafe-login at ${firstTarget}\nJira: ${jiraUrl}\nABU-834 - Fix café / login!\n`);
 
     const beforeDuplicate = await gitState(
       primary, firstTarget, join(firstTarget, "tracked.txt"), [], [firstTarget],
@@ -678,7 +678,7 @@ test("duplicate and changed Jira titles behave deterministically; ticket open re
     const changed = await command(primary, onlineHandlers, "new", "ABU-834", "--no-editor");
     const changedTarget = join(directory, "primary repo-worktrees", "ABU-834-fix-recovery-flow");
     expect(changed.code).toBe(0);
-    expect(changed.stdout).toBe(`Created ABU-834-fix-recovery-flow at ${changedTarget}\nJira: ${jiraUrl}\n`);
+    expect(changed.stdout).toBe(`Created ABU-834-fix-recovery-flow at ${changedTarget}\nJira: ${jiraUrl}\nABU-834 - Fix recovery flow\n`);
     expect(await git(primary, "rev-parse", "refs/heads/ABU-834-fix-recovery-flow")).toBe(await git(primary, "rev-parse", "trunk"));
 
     const ambiguousRuntime = jiraHarness(() => { throw new Error("offline Jira lookup must not run"); }, false);
@@ -701,7 +701,7 @@ test("setup failure after Jira creation retains its worktree and hook files", as
     const target = join(directory, "primary repo-worktrees", "ABU-834-fails-in-setup");
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toBe(`Created ABU-834-fails-in-setup at ${target}\nJira: ${jiraUrl}\n`);
+    expect(result.stdout).toBe(`Created ABU-834-fails-in-setup at ${target}\nJira: ${jiraUrl}\nABU-834 - Fails in setup\n`);
     expect(result.stderr).toContain("Setup post_create step 2 failed");
     expect(await git(primary, "rev-parse", "refs/heads/ABU-834-fails-in-setup")).toBe(await git(primary, "rev-parse", "trunk"));
     expect(await readFile(join(target, "tracked.txt"), "utf8")).toBe("original\n");
@@ -718,7 +718,7 @@ test("editor startup failure after Jira creation retains its worktree", async ()
     const target = join(directory, "primary repo-worktrees", "ABU-834-fails-in-editor");
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toBe(`Created ABU-834-fails-in-editor at ${target}\nJira: ${jiraUrl}\n`);
+    expect(result.stdout).toBe(`Created ABU-834-fails-in-editor at ${target}\nJira: ${jiraUrl}\nABU-834 - Fails in editor\n`);
     expect(result.stderr).toContain("Could not start the configured editor");
     expect(result.stderr).toContain("timber open --");
     expect(await git(primary, "rev-parse", "refs/heads/ABU-834-fails-in-editor")).toBe(await git(primary, "rev-parse", "trunk"));

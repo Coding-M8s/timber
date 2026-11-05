@@ -4,7 +4,8 @@ import type { ConfigFile } from "../config";
 import { safeDisplay } from "../display";
 import type { CommandIO } from "../services";
 import type { ChoiceOption } from "../selection";
-import { editSetupSection, questionnaire } from "./questions";
+import { editJiraSettings, editSetupSection, questionnaire } from "./questions";
+import { editDefaultTracker, editTrackerConnections, trackerNames } from "./trackers";
 import type { SetupSection } from "./questions";
 import { SetupCancelled } from "./types";
 import type { SetupPrompt, SetupTarget } from "./types";
@@ -14,7 +15,7 @@ import type { GithubSetupSession } from "./github";
 const sections: readonly { value: SetupSection; title: string }[] = [
   { value: "editor", title: "Editor" },
   { value: "agent", title: "Coding assistant" },
-  { value: "jira", title: "Jira tickets" },
+  { value: "default_tracker", title: "Default issue tracker" },
   { value: "hooks", title: "Setup scripts" },
   { value: "pre_delete", title: "Pre-done scripts" },
   { value: "base_branch", title: "Starting branch" },
@@ -41,6 +42,8 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
   const note = inheritedNote(file, target, key === "pre_delete" ? "hooks" : key);
 
   switch (key) {
+    case "default_tracker":
+      return `${resolved.defaultTracker ? trackerNames[resolved.defaultTracker] : "existing Jira/literal behavior"}${note}`;
     case "editor": {
       if (file.editor === false) return "off";
       const editor = resolved.editor;
@@ -85,17 +88,15 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
   }
 }
 
-function hubChoices(file: ConfigFile, target: SetupTarget, github: boolean, linear: boolean): ChoiceOption[] {
+function hubChoices(file: ConfigFile, target: SetupTarget): ChoiceOption[] {
   const width = Math.max(...sections.map(section => section.title.length)) + 2;
   return [
     { value: "save", label: "Save and exit" },
-    ...sections.map(section => ({
+    ...sections.flatMap(section => [{
       value: section.value,
       label: `${section.title.padEnd(width)}${sectionStatus(section.value, file, target)}`,
-    })),
-    ...(github ? [{ value: "github", label: "GitHub issues    Check GitHub CLI login" }] : []),
-    ...(linear ? [{ value: "linear", label: "Linear issues    Personal API key" }] : []),
-    { value: "guide", label: "Guided walkthrough (editor, assistant, Jira...)" },
+    }, ...(section.value === "default_tracker" ? [{ value: "connections", label: "Issue tracker connections    Configure Jira, GitHub, or Linear" }] : [])]),
+    { value: "guide", label: "Guided walkthrough (editor, assistant, issue tracker...)" },
     { value: "cancel", label: "Cancel without saving" },
   ];
 }
@@ -122,12 +123,13 @@ export async function runSetupHub(
       const workflows = Object.keys(effectiveConfig(file, target).workflows ?? {}).length;
       const choice = await prompt.select(
         `Settings - ${scopeLabel}\n${safeDisplay(target.path)}${workflows ? `\nWorkflows: ${workflows}` : ""}`,
-        hubChoices(file, target, github !== undefined, linear !== undefined),
+        hubChoices(file, target),
         "save",
       );
       if (choice === null || choice === "cancel") return null;
-      if (choice === "linear" && linear) { await linear.edit(prompt, io); continue; }
-      if (choice === "github" && github) { await github.edit(prompt, io); continue; }
+      const connections = { github, linear, editJira: (configure: boolean) => editJiraSettings(file, target, prompt, io, jira, configure) };
+      if (choice === "default_tracker") { await editDefaultTracker(file, target, prompt, io, connections); continue; }
+      if (choice === "connections") { await editTrackerConnections(prompt, io, connections); continue; }
       if (choice === "save") {
         const parsed = configFileSchema.safeParse(file);
         if (!parsed.success) {

@@ -81,7 +81,7 @@ test("hub offers pre-done scripts and saves them without replacing creation scri
 
 test("hub guided walkthrough asks essentials then returns for save", async () => {
   const file = await runSetupHub(target(), scripted([
-    "guide", "none", "none", "none", false, "save",
+    "guide", "none", "none", "inherit", false, "save",
   ]), io().io, async () => true);
   expect(file).toEqual({});
 });
@@ -121,10 +121,10 @@ test("hub review labels refresh after an edit", async () => {
 
 test("hub exposes separate Linear credentials and includes their draft in review", async () => {
   const events: string[] = [];
-  const prompt = scripted(["linear", "save"]);
+  const prompt = scripted(["connections", "linear", "back", "save"]);
   const select = prompt.select;
   prompt.select = async (message, choices, initial) => {
-    expect(choices.find(choice => choice.value === "linear")?.label).toContain("Linear");
+    expect(choices.some(choice => /Linear/u.test(choice.label))).toBe(true);
     return select(message, choices, initial);
   };
   expect(await runSetupHub(target(), prompt, io().io, async () => true, undefined, undefined, {
@@ -133,9 +133,9 @@ test("hub exposes separate Linear credentials and includes their draft in review
   expect(events).toEqual(["review", "edit", "review"]);
 });
 
-test("guided walkthrough offers Linear without adding configuration keys", async () => {
+test("guided walkthrough selects Linear as default", async () => {
   let edits = 0;
-  const file = await runSetupHub(target(), scripted(["guide", "none", "none", "none", true, false, "save"]), io().io, async () => true,
+  const file = await runSetupHub(target(), scripted(["guide", "none", "none", "linear", false, "save"]), io().io, async () => true,
     undefined, undefined, { edit: async () => { edits++; }, review() {}, save: async publish => publish() });
-  expect(edits).toBe(1); expect(file).toEqual({});
+  expect(edits).toBe(1); expect(file).toEqual({ default_tracker: "linear" });
 });

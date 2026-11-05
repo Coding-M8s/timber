@@ -109,7 +109,10 @@ export interface JiraTicket {
   url: string;
 }
 
+export type IssueTracker = "github" | "linear" | "jira" | "none";
+
 export interface RepositoryConfig {
+  defaultTracker?: IssueTracker;
   /** Optional named executable presets for arena attempts. */
   arena?: ArenaConfig;
   baseBranch: string | null;

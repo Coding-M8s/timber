@@ -11,9 +11,9 @@ const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
 test("real setup saves a pasted token outside Git without echoing it", async () => {
   await withRepository(async (primary, directory) => {
-    // Hub → Jira (4) → configure (2) → site → unscoped → replace credentials (2) → email
+    // Hub → default tracker (4) → Jira (3) → site → unscoped → replace credentials (2) → email
     const result = await terminal(primary, directory, [],
-      "42https://example.atlassian.net\r\r2person@example.invalid\r", "SYNTHETIC_PASTED_TOKEN");
+      "43https://example.atlassian.net\r\r2person@example.invalid\r", "SYNTHETIC_PASTED_TOKEN");
     expect(result.code).toBe(0);
     expect(result.output).toContain("Saved repository settings");
     expect(result.output).not.toContain("SYNTHETIC_PASTED_TOKEN");
@@ -161,8 +161,8 @@ test("global setup saves outside Git in a real terminal", async () => {
 test("pre-done scripts can be saved in a real terminal without running them", async () => {
   await withRepository(async (primary, directory) => {
     const refs = await git(primary, "show-ref");
-    // Hub pre-done (6) → custom (2) → command → finish (1) → save (1).
-    const result = await terminal(primary, directory, [], "62touch should-not-exist\r11");
+    // Hub pre-done (7) → custom (2) → command → finish (1) → save (1).
+    const result = await terminal(primary, directory, [], "72touch should-not-exist\r11");
     expect(result.code).toBe(0);
     expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test").hooks)
       .toEqual({ post_create: [], pre_delete: ["touch should-not-exist"] });
@@ -173,12 +173,12 @@ test("pre-done scripts can be saved in a real terminal without running them", as
 
 test("review edits only the selected section and saves the revised draft in a real terminal", async () => {
   await withRepository(async (primary, directory) => {
-    // Hub → Jira → configure → site → unscoped → keep credentials (1) → save (1)
-    const result = await terminal(primary, directory, [], "42https://example.atlassian.net\r\r11");
+    // Hub → default tracker → Jira → site → unscoped → keep credentials (1) → save (1)
+    const result = await terminal(primary, directory, [], "43https://example.atlassian.net\r\r11");
     expect(result.code).toBe(0);
     expect(result.output).toContain("Saved repository settings");
     expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test"))
-      .toEqual({ jira: { site_url: "https://example.atlassian.net" } });
+      .toEqual({ default_tracker: "jira", jira: { site_url: "https://example.atlassian.net" } });
     expect(result.output).not.toContain("Which editor should open");
     expect(await git(primary, "status", "--porcelain=v1")).toBe("");
   });
@@ -187,7 +187,7 @@ test("review edits only the selected section and saves the revised draft in a re
 test("invalid Jira URL stays on the URL field with feedback before token scopes", async () => {
   await withRepository(async (primary, directory) => {
     const result = await terminal(primary, directory, [],
-      "42http://example.atlassian.net\rhttps://example.atlassian.net\r\r11");
+      "43http://example.atlassian.net\rhttps://example.atlassian.net\r\r11");
     expect(result.code).toBe(0);
     const error = result.output.indexOf("Invalid Jira URL");
     expect(error).toBeGreaterThan(-1);
@@ -241,9 +241,9 @@ for (const input of ["\u0003", "\u0004", "q\n"]) {
 for (const global of [false, true]) {
   test(`real Linear setup hides a pasted key and saves it privately (global=${global})`, async () => {
     await withRepository(async (primary, directory) => {
-      // Save is first; Linear is after the eight sections and GitHub entry.
+      // Default tracker (4), Linear (2), then replace personal key (2).
       const result = await terminal(primary, directory, global ? ["--global"] : [],
-        "\u001b[B".repeat(10) + "\r2", "SYNTHETIC_PASTED_LINEAR_KEY");
+        "422", "SYNTHETIC_PASTED_LINEAR_KEY");
       expect(result.code, result.output).toBe(0);
       expect(result.output).toContain(global ? "Saved machine defaults" : "Saved repository settings");
       expect(result.output).not.toContain("SYNTHETIC_PASTED_LINEAR_KEY");

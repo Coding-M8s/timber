@@ -270,7 +270,7 @@ test("keeping existing values retains custom arguments hooks and explicit off wi
   const existing = { editor: false as const, agent: { command: "wrapper", args: ["  literal  "], enabled: true },
     hooks: { post_create: [" printf 'a' "] }, remote: "upstream" };
   const file = await questionnaire(target(existing), scripted([
-    "none", "keep", "none", false,
+    "none", "keep", "inherit", false,
   ]), io().io, async () => true);
   expect(file).toEqual(existing);
   expect(file).not.toHaveProperty("worktree_dir");
@@ -344,7 +344,7 @@ test("custom commands, hooks, and Jira values round trip with literal quotes and
   const file = await questionnaire(target(), scripted([
     "custom", "my editor", '["a\\\"b", "$(touch nope)", ""]',
     false,
-    "claude", true, "configure", "https://example.atlassian.net/", true, "00000000-0000-4000-8000-000000000000",
+    "claude", true, "jira", "https://example.atlassian.net/", true, "00000000-0000-4000-8000-000000000000",
     true, "custom", "printf 'one'", "add", "echo two", "finish", "none",
     "custom", "trunk", "custom", "upstream", "custom", " ../work trees ",
   ]), capture.io, async () => true);
@@ -390,7 +390,7 @@ test("repeated repository setup can remove optional overrides and inherit global
   const file = await questionnaire(destination, scripted([
     "inherit", "inherit", "inherit", true, "custom", "global hook", "finish", "none", "automatic", "automatic", "automatic",
   ]), io().io, async () => true);
-  expect(file).toEqual({});
+  expect(file).toEqual({ jira: false });
   expect(resolveConfig({ ...destination.scopes, local: { ...destination.file, values: file! } }, "/repo").agent)
     .toEqual({ command: "codex", args: [], enabled: true });
 });
@@ -412,7 +412,7 @@ test("quick setup skips advanced questions and leaves new settings empty on Ente
   const prompt: SetupPrompt = {
     select: async (message, choices, defaultValue) => {
       questions.push(message);
-      expect(choices.find(choice => choice.value === defaultValue)?.label).toBe("None");
+      expect(choices.find(choice => choice.value === defaultValue)?.label).toMatch(/None|Inherit machine default/u);
       return defaultValue;
     },
     confirm: async message => { questions.push(message); return false; },
@@ -420,7 +420,7 @@ test("quick setup skips advanced questions and leaves new settings empty on Ente
   };
   expect(await questionnaire(target(), prompt, io().io, async () => true)).toEqual({});
   expect(questions).toHaveLength(4);
-  expect(questions.join(" ")).toContain("work ticket tracker");
+  expect(questions.join(" ")).toContain("Which issue tracker do you use?");
   expect(questions.join(" ")).not.toContain("alias");
   expect(questions.join(" ")).not.toContain("base_branch");
 });

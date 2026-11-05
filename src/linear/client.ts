@@ -13,8 +13,23 @@ const defaultRuntime: LinearRuntime = { token: signal => readLinearKey(undefined
 const malformed = () => new Error("Linear returned an invalid response; no workspace was created.");
 const object = z.record(z.string(), z.unknown());
 
+export class LinearLookupFailure extends Error {
+  constructor(message: string, readonly reason?: "not-found") { super(message); }
+}
+
+function missingIssue(body: unknown): boolean {
+  // shortcut: missing-error wording must match exactly; update from a verified response if Linear changes it.
+  const result = z.object({ data: z.null().optional(), errors: z.tuple([z.object({
+    message: z.enum(["Entity not found: Issue", "Could not find referenced Issue."]),
+    path: z.tuple([z.literal("issue")]).optional(),
+    extensions: z.object({ code: z.literal("INPUT_ERROR"), type: z.literal("invalid input").optional(),
+      userPresentableMessage: z.literal("Could not find referenced Issue.").optional() }),
+  })]) }).safeParse(body);
+  return result.success;
+}
+
 async function request<T>(query: string, variables: Record<string, string>, runtime: LinearRuntime,
-  validate: (data: Record<string, unknown>) => T, signal?: AbortSignal): Promise<T> {
+  validate: (data: Record<string, unknown>) => T, signal?: AbortSignal, issueLookup = false): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancel!: () => void;
@@ -40,7 +55,7 @@ async function request<T>(query: string, variables: Record<string, string>, runt
       });
     } catch { throw new Error("Linear network or redirect failure; check connectivity and retry explicitly."); }
     controller.signal.throwIfAborted();
-    if (!response.ok || response.redirected) {
+    if ((!response.ok && !(issueLookup && response.status === 400)) || response.redirected) {
       void response.body?.cancel().catch(() => {});
       if (response.status === 401) throw new Error("Linear authentication failed; check LINEAR_API_KEY or run timber setup.");
       if (response.status === 403) throw new Error("Linear access denied; check personal API key Read permission and team access.");
@@ -51,6 +66,8 @@ async function request<T>(query: string, variables: Record<string, string>, runt
     let body: unknown;
     try { body = await response.json(); } catch { throw malformed(); }
     controller.signal.throwIfAborted();
+    if (issueLookup && missingIssue(body)) throw new LinearLookupFailure("Linear issue is missing or inaccessible to this account.", "not-found");
+    if (!response.ok) throw new Error("Linear query failed; check authentication, Read permission, issue access and rate limits. No workspace was created.");
     const envelope = object.safeParse(body);
     if (!envelope.success) throw malformed();
     if ("errors" in envelope.data) {
@@ -81,18 +98,20 @@ const issueSchema = z.object({
   state: z.object({ type: z.string() }),
 });
 
-export async function resolveLinearTicket(key: string, runtime: LinearRuntime = defaultRuntime): Promise<LinearTicket> {
+export async function resolveLinearTicket(key: string, runtime: LinearRuntime = defaultRuntime, allowClosed = false): Promise<LinearTicket> {
   if (!isJiraTicketKey(key)) throw new Error("Invalid Linear issue key; use an uppercase key such as ENG-123.");
   return request("query TimberLinearIssue($id: String!) { issue(id: $id) { identifier title url trashed state { type } } }", { id: key }, runtime, data => {
     if (data.issue === null) throw new Error("Linear issue is missing or inaccessible to this account.");
     const issue = issueSchema.safeParse(data.issue);
     if (!issue.success) throw malformed();
     if (issue.data.trashed) throw new Error("Linear issue is deleted; no workspace was created.");
-    if (!["triage", "backlog", "unstarted", "started"].includes(issue.data.state.type)) {
-      throw new Error("Linear issue is completed, canceled, duplicate or has an unsupported state; no workspace was created.");
+    const terminal = ["completed", "canceled", "duplicate"].includes(issue.data.state.type);
+    if (!terminal && !["triage", "backlog", "unstarted", "started"].includes(issue.data.state.type)) {
+      throw new Error("Linear issue has an unsupported state; no workspace was created.");
     }
+    if (terminal && !allowClosed) throw new Error("Linear issue is completed, canceled or duplicate; rerun with -c to create a branch anyway.");
     return { key: issue.data.identifier, title: issue.data.title, url: issue.data.url };
-  });
+  }, undefined, true);
 }
 
 export async function checkLinearConnection(runtime: LinearRuntime = defaultRuntime, signal?: AbortSignal): Promise<void> {
