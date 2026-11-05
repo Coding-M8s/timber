@@ -93,7 +93,7 @@ test("setup --global dispatches scope and help without prompting", async () => {
 });
 
 test("review can edit every section without restarting or losing other draft answers", async () => {
-  const selections = ["editor", "code", "agent", "codex", "jira", "configure",
+  const selections = ["editor", "code", "agent", "codex", "connections", "jira", "configure", "back",
     "hooks", "custom", "finish", "pre_delete", "custom", "finish", "base_branch", "custom", "remote", "custom", "worktree_dir", "custom", "save"];
   const texts = ["https://example.atlassian.net", "bun install", "bun run cleanup", "trunk", "upstream", "../review-workspaces"];
   const questions: string[] = [];

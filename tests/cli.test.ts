@@ -61,7 +61,7 @@ test("new help describes implemented command and supported options", async () =>
   expect(result.stdout).toContain("--base <ref>");
   expect(result.stdout).toContain("--no-editor");
   expect(result.stdout).toContain("--editor");
-  expect(result.stdout).toContain("configured Jira ticket IDs");
+  expect(result.stdout).toContain("default tracker issue");
   expect(result.stdout).toContain("<branch...>");
   expect(result.stdout).toContain("sentence");
   expect(result.stdout).not.toContain("placeholder");
@@ -115,9 +115,9 @@ test("unhandled command failures render control characters safely", async () => 
   }
 });
 
-test("new help documents explicit Linear selectors and retains GitHub-only closed option", async () => {
+test("new help documents explicit provider selectors and the common closed option", async () => {
   const result = await cli("new", "--help");
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("linear:<KEY>");
-  expect(result.stdout).toContain("closed GitHub issue");
+  expect(result.stdout).toContain("closed or completed GitHub, Linear, or Jira");
 });

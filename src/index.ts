@@ -85,8 +85,10 @@ process.exitCode = await runCli(process.argv.slice(2), {
       linear: createLinearSetupSession,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, resolveJiraTicket, findJiraSuggestions,
-      resolveGithubRepository, resolveGithubTicket, resolveLinearTicket,
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, findJiraSuggestions,
+      resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
+      resolveGithubRepository, resolveGithubTicket,
+      resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
       createWorktree, writeBaseAssociation, writeWorkflowAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
     }),
     open: createOpenHandler({

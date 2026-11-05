@@ -45,6 +45,7 @@ export async function resolveJiraTicket(
   config: JiraConfig,
   key: string,
   runtime: JiraRuntime = defaultRuntime(),
+  allowClosed = false,
 ): Promise<JiraTicket> {
   if (!isJiraTicketKey(key)) throw new Error("Invalid Jira ticket key.");
 
@@ -60,8 +61,8 @@ export async function resolveJiraTicket(
     }
     const statusCategory = statusCategoryKeySchema.safeParse(statusCategoryKey(issue.fields.status));
     if (!statusCategory.success) throw unknownStatusCategory(issue.key);
-    if (statusCategory.data === "done") {
-      throw new JiraLookupFailure(`Jira issue ${issue.key} is complete; refusing to create a branch.`, "done");
+    if (statusCategory.data === "done" && !allowClosed) {
+      throw new JiraLookupFailure(`Jira issue ${issue.key} is complete; rerun with -c to create a branch anyway.`, "done");
     }
 
     return toTicket(issue, requestContext.siteOrigin);

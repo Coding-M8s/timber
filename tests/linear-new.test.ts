@@ -33,13 +33,13 @@ for (const orca of [false, true]) {
   });
 }
 
-test("Linear malformed selectors and GitHub-only flags refuse before command services", async () => {
-  const handler = createNewHandler(createServiceDouble());
+test("Linear malformed selectors and GitHub-only remote refuse before lookup", async () => {
+  const handler = createNewHandler(createServiceDouble({ discoverRepository: async () => repositoryFixture(), loadConfig: async () => config }));
   for (const input of ["linear:", "linear:eng-123", "linear:ENG-123 extra", "linear:ENG-123 "]) {
     await expect(handler(input, {}, { cwd: "/repo", io })).rejects.toThrow("Invalid Linear issue selector");
   }
-  for (const options of [{ remote: "origin" }, { allowClosed: true }]) {
-    await expect(handler("linear:ENG-123", options, { cwd: "/repo", io })).rejects.toThrow("require a GitHub issue selector");
+  for (const options of [{ remote: "origin" }]) {
+    await expect(handler("linear:ENG-123", options, { cwd: "/repo", io })).rejects.toThrow("requires a GitHub issue selector");
   }
 });
 

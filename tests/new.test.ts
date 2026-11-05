@@ -86,7 +86,7 @@ test("new resolves a configured ticket after base selection and creates from its
     runSetup: async (received, worktree, selectedConfig, io) => {
       expect([received, worktree, selectedConfig, io]).toEqual([repository, tree, configured, h.value.io]);
       expect(h.output()).toBe(
-        `Created ${branch} at ${tree.path}\nJira: ${ticket.url}\n`,
+        `Created ${branch} at ${tree.path}\nJira: ${ticket.url}\n${ticket.key} - ${ticket.title}\n`,
       );
       calls.push("setup");
     },
@@ -99,7 +99,7 @@ test("new resolves a configured ticket after base selection and creates from its
 
   await handler("ABU-834", { base: "trunk", editor: false }, h.value);
   expect(calls).toEqual(["discover", "config", "base", "jira", "create", "setup", "editor"]);
-  expect(h.output()).toBe(`Created ${branch} at ${tree.path}\nJira: ${ticket.url}\n`);
+  expect(h.output()).toBe(`Created ${branch} at ${tree.path}\nJira: ${ticket.url}\n${ticket.key} - ${ticket.title}\n`);
 });
 
 test("new skips Jira lookup for unconfigured IDs and configured literal branches", async () => {
@@ -266,7 +266,7 @@ test("new offers a same-project prefix choice after an exact missing ticket, the
   expect(calls).toEqual([
     "discover", "base", "jira:ABU-4", "suggestions", "choose", "jira:ABU-40", "create", "editor",
   ]);
-  expect(h.output()).toBe(`Created ${branch} at ${tree.path}\nJira: ${freshTicket.url}\n`);
+  expect(h.output()).toBe(`Created ${branch} at ${tree.path}\nJira: ${freshTicket.url}\n${freshTicket.key} - ${freshTicket.title}\n`);
 });
 
 test("new offers exactly one suggestion through the chooser and cancellation stops before mutation", async () => {

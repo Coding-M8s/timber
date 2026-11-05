@@ -60,6 +60,7 @@ export const jiraSiteSchema = z.string().refine(value => {
 }).transform(value => new URL(value).origin);
 
 export const configFileSchema = z.strictObject({
+  default_tracker: z.enum(["github", "linear", "jira", "none"]).optional(),
   arena: z.union([z.literal(false), z.strictObject({
     agents: z.record(arenaPresetNameSchema, z.union([z.literal(false), arenaPresetSchema])).default({}),
   })]).optional(),
@@ -160,6 +161,7 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
   };
   return {
     ...defaults,
+    ...(config.default_tracker === undefined ? {} : { defaultTracker: config.default_tracker }),
     ...(globalArena === undefined && localArena === undefined ? {} : {
       arena: { agents: Object.fromEntries(Object.entries(arenaAgents).filter((entry): entry is [string, Exclude<typeof entry[1], false>] => entry[1] !== false)) },
     }),

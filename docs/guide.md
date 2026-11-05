@@ -182,12 +182,13 @@ slug and caps the whole branch name at 120 characters. A non-Latin or
 punctuation-only summary uses `issue` as its suffix.
 
 Timber checks the Jira status category before creating a branch. It accepts only
-known category keys `new` and `indeterminate`; missing, null, or unrecognized
+known active category keys `new` and `indeterminate`; `done` requires `-c`. Missing, null, or unrecognized
 categories fail closed. Timber reads the category key rather than the visible
 status name, which may be localized or customized, and it does not infer
 completion from resolution fields.
 
-When an exact ticket is unavailable (404) or complete, Timber searches that
+With no selected default and no `-c`, when an exact bare ticket is unavailable (404)
+or complete, Timber searches that
 project for unfinished issues whose full key starts with the requested key. For
 example, `ABU-4` can suggest `ABU-40` and `ABU-41`. Timber uses a fixed read-only
 JQL query, filters candidates again by full key prefix, and offers only issues
@@ -696,10 +697,52 @@ capture or log command arguments.
 Use `--keep-ignored` to refuse that removal. Partial cleanup can leave the worktree
 removed and branch retained; inspect the reported state before retrying.
 
+## Default issue tracker
+
+In the guided walkthrough, question 3 chooses GitHub, Linear, Jira, or None and
+opens only the selected provider's setup. The settings menu also has **Default
+issue tracker** and **Issue tracker connections**. Use connections to configure
+other providers without changing the default.
+
+```toml
+# Machine default or repository .timber.toml:
+default_tracker = "linear" # github, linear, jira, or none
+```
+
+Repository settings override `timber setup --global`. Choose **Inherit machine
+default** to follow global changes, or **None** to disable automatic lookup just
+for this repository. Switching defaults or selecting None retains credentials.
+If neither scope has a preference, existing Jira/literal behavior stays in effect.
+
+| Default | Command | Behavior |
+| --- | --- | --- |
+| GitHub | `timber new 97` | Look up GitHub issue 97 |
+| Linear | `timber new ENG-123` | Look up Linear issue ENG-123 |
+| Jira | `timber new ENG-123` | Look up Jira ticket ENG-123 |
+| None | `timber new ENG-123` | Create literal branch ENG-123 |
+| Any | `timber new fix-login` | Create literal branch fix-login |
+
+Explicit `github:97`, `linear:ENG-123`, and `jira:ENG-123` override the default,
+including None. Jira needs effective site settings; `jira = false` disables it.
+After creating an issue-named branch, Timber displays the canonical key, title,
+and link before running setup scripts. This does not create new saved issue metadata.
+
+If an unprefixed default lookup reports a missing issue, Timber prints a notice
+and creates a literal branch with the original name. Providers can hide inaccessible
+issues as missing. Explicit selectors never fall back. Authentication, explicit
+access denial, network, rate-limit, malformed response and other lookup errors stop
+before branch creation or setup scripts. Git creation errors also stop; Timber
+never retries those as literal branches.
+
+Use `-c` with any provider to allow a known closed/completed ticket without
+reopening it. Unknown states and deleted/trashed issues still refuse. Only legacy
+bare Jira with no selected default and no `-c` offers ticket suggestions. `--remote`
+remains GitHub-only; issue-only flags cannot turn a literal input into a lookup.
+
 ## GitHub issues
 
-Use `timber setup` or `timber setup --global` and select **GitHub issues** to check
-your GitHub CLI login. If gh is missing, install it from [cli.github.com](https://cli.github.com/).
+Use `timber setup` or `timber setup --global` and select **GitHub** under
+**Issue tracker connections** to check your GitHub CLI login. If gh is missing, install it from [cli.github.com](https://cli.github.com/).
 Setup can help run `gh auth login --hostname github.com` after confirmation.
 GitHub CLI owns the login and credential storage; Timber does not copy the token
 to a file. A successful login remains even if you later cancel Timber setup.
@@ -743,7 +786,7 @@ fork. HTTP doubles alone do not establish live GitHub access.
 
 ## Linear issues
 
-Run `timber setup` or `timber setup --global`, select **Linear issues**, and
+Run `timber setup` or `timber setup --global`, select **Linear** under **Issue tracker connections**, and
 enter a personal API key. Create one under Account > Security & Access following
 [Linear's instructions](https://linear.app/docs/api-and-webhooks). Give it **Read**
 permission and access to the teams whose issues you use; write permission is not
@@ -768,10 +811,10 @@ branches, paths and logs. Title changes may produce another branch name; collisi
 fail without adding suffixes. Creation prints the branch, path and Linear issue link
 and follows ordinary setup, workflow, editor and agent settings.
 
-Only the explicit whole-input `linear:<UPPERCASE-KEY>` syntax invokes Linear.
-Bare keys retain Jira/literal behavior. Triage, backlog, unstarted and started issues
-are accepted; completed, canceled, duplicate or unknown states refuse creation.
-`-c` and `--remote` apply only to GitHub issues. No URL input, suggestions/search,
+Explicit whole-input `linear:<UPPERCASE-KEY>` always invokes Linear; bare keys also
+use Linear when it is the default tracker. Triage, backlog, unstarted and started
+issues are accepted; completed, canceled and duplicate require `-c`. Unknown states
+and deleted/trashed issues always refuse. `--remote` applies only to GitHub issues. No URL input, suggestions/search,
 OAuth, account chooser, issue updates or automatic closing is supported. `open`,
 `ls` and `done` stay offline for Linear.
 
@@ -810,7 +853,7 @@ checkout, use `bun run dev setup` or `bun run dev setup --global`. The first CLI
 invocation also prints this hint, including for the standalone executable.
 
 Setup opens a settings menu with an optional guided walkthrough. Edit editors,
-coding assistants, Jira ticket naming, creation scripts, pre-done scripts, Git,
+coding assistants, the default issue tracker, tracker connections, creation scripts, pre-done scripts, Git,
 and workspace folders individually. Setup opens directly on the menu and returns
 there immediately after each edit. Save and exit is the default. Relevant help,
 errors, and pending credential changes appear inline; PgUp/PgDn scroll long

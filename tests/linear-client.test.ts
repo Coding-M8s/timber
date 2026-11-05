@@ -110,3 +110,50 @@ test("Linear rejects soft-deleted issues even with a nonterminal workflow state"
   expect(await resolveLinearTicket("ENG-123", runtime({ data: { issue: { ...issue, trashed: false } } })))
     .toEqual({ key: issue.identifier, title: issue.title, url: issue.url });
 });
+
+for (const state of ["completed", "canceled", "duplicate"]) {
+  test(`-c permits Linear ${state} but never trashed or unknown data`, async () => {
+    expect((await resolveLinearTicket("ENG-123", runtime({ data: { issue: { ...issue, state: { type: state } } } }), true)).key).toBe("ENG-123");
+    await expect(resolveLinearTicket("ENG-123", runtime({ data: { issue: { ...issue, trashed: true } } }), true)).rejects.toThrow("deleted");
+    await expect(resolveLinearTicket("ENG-123", runtime({ data: { issue: { ...issue, state: { type: "future-state" } } } }), true)).rejects.toThrow("unsupported");
+  });
+}
+
+const missingIssue = { data: null, errors: [{ message: "Entity not found: Issue", path: ["issue"], extensions: { code: "INPUT_ERROR", type: "invalid input", userError: true, userPresentableMessage: "Could not find referenced Issue." } }] };
+for (const status of [200, 400]) {
+  test(`Linear classifies only a complete exact issue missing error at HTTP ${status}`, async () => {
+    const failure = await resolveLinearTicket("ENG-123", { ...runtime(null), fetch: async () => new Response(JSON.stringify(missingIssue), { status }) }).catch(error => error);
+    expect(failure.reason).toBe("not-found");
+    for (const body of [
+      { ...missingIssue, data: { issue } },
+      { ...missingIssue, errors: [...missingIssue.errors, { message: "forbidden", extensions: { code: "FORBIDDEN" } }] },
+      { data: null, errors: [{ ...missingIssue.errors[0], message: "Entity not found: Project" }] },
+      { data: null, errors: [{ ...missingIssue.errors[0], extensions: { code: "FORBIDDEN" } }] },
+      { data: null, errors: [{ ...missingIssue.errors[0], path: ["viewer"] }] },
+    ]) {
+      const refused = await resolveLinearTicket("ENG-123", { ...runtime(null), fetch: async () => new Response(JSON.stringify(body), { status }) }).catch(error => error);
+      expect(refused.reason).toBeUndefined();
+    }
+  });
+}
+
+test("Linear recognizes documented missing wording without assuming optional path/type metadata", async () => {
+  for (const error of [
+    { message: "Entity not found: Issue", extensions: { code: "INPUT_ERROR" } },
+    { message: "Could not find referenced Issue.", extensions: { code: "INPUT_ERROR", userPresentableMessage: "Could not find referenced Issue." } },
+  ]) {
+    const failure = await resolveLinearTicket("ENG-123", runtime({ errors: [error] })).catch(error => error);
+    expect(failure.reason).toBe("not-found");
+  }
+  for (const error of [
+    { message: "Entity not found: Issue", extensions: { code: "INPUT_ERROR", type: "forbidden" } },
+    { message: "unrelated validation failure", extensions: { code: "INPUT_ERROR" } },
+    { message: "Entity not found: Project", extensions: { code: "INPUT_ERROR", userPresentableMessage: "Could not find referenced Project." } },
+    { message: null, extensions: { code: "INPUT_ERROR", userPresentableMessage: "Could not find referenced Issue." } },
+    { message: "Entity not found: Issue", path: null, extensions: { code: "INPUT_ERROR" } },
+    { message: "Entity not found: Issue", extensions: { code: "INPUT_ERROR", type: null } },
+  ]) {
+    const failure = await resolveLinearTicket("ENG-123", runtime({ errors: [error] })).catch(error => error);
+    expect(failure.reason).toBeUndefined();
+  }
+});

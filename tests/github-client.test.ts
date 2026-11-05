@@ -46,3 +46,12 @@ test("connection checks validate account without claiming repository access", as
   expect(await checkGithubConnection(runtime({ login: "octocat" }))).toBe("octocat");
   await expect(checkGithubConnection(runtime({ login: "bad\nlogin" }))).rejects.toThrow();
 });
+
+test("only exact issue 404 is classified as missing, never login 404 or HTTP 410", async () => {
+  const missing = await resolveGithubTicket(repo, 123, false, runtime({}, 404)).catch(error => error);
+  expect(missing.reason).toBe("not-found");
+  const gone = await resolveGithubTicket(repo, 123, false, runtime({}, 410)).catch(error => error);
+  expect(gone.reason).toBeUndefined();
+  const login = await checkGithubConnection(runtime({}, 404)).catch(error => error);
+  expect(login.reason).toBeUndefined();
+});

@@ -9,7 +9,7 @@ test.each([false, true])("GitHub setup entry works in both scopes and cancellati
   const target: SetupTarget = { scope: global ? "global" : "repository", path: file.path, file,
     scopes: { global: file, local: global ? null : file }, repository: repositoryFixture(),
     branches: [], tracked: false, exclude: null };
-  const actions = ["jira", "configure", "github", "cancel"];
+  const actions = ["connections", "jira", "configure", "github", "back", "cancel"];
   let logins = 0; let saves = 0; let jiraDraft: string | undefined;
   const prompt: SetupPrompt = { select: async (_message, choices) => {
     const next = actions.shift()!;

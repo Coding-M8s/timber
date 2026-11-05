@@ -191,13 +191,67 @@ The association is local JSON inside the selected worktree's private Git adminis
 
 Failures after creation retain the worktree, refs, and script files. In foreground mode, script failures stop editor and agent launch; editor startup failure stops agent launch. An ordinary reopen does not retry creation actions. Repair and deliberately rerun scripts with `timber open --setup -- '<absolute-worktree-path>'`; retry the editor with `timber open --editor -- '<absolute-worktree-path>'`; retry the agent with `timber open --agent --no-editor -- '<absolute-worktree-path>'`. A failed association write reports an explicit `open --workflow <name>` repair command. Scripts must tolerate explicit reruns. Timber does not promise exactly-once side effects across crashes. Keep secrets out of config, metadata, and diagnostics.
 
+## Default issue tracker
+
+Optional `default_tracker = "github"`, `"linear"`, `"jira"`, or `"none"` selects
+unprefixed lookup. Repository settings override machine defaults. Absence inherits;
+absence in both scopes preserves legacy configured-Jira/literal behavior, including
+legacy Jira suggestions. An explicitly saved global default applies to repositories
+without a local preference. Repository `"none"` overrides it without removing Jira
+site settings or any provider credentials. None makes all unprefixed names literal.
+
+Explicit whole-input `github:97`, `linear:ENG-123`, and `jira:ENG-123` select their
+provider regardless of the default, including None. Jira requires effective site
+settings and credentials, and cannot override `jira = false`. Malformed explicit
+selectors fail before lookup/mutation. No explicit selector falls back or suggests.
+
+With GitHub selected, a raw whole positive decimal matching the explicit GitHub
+number grammar is an issue selector. With Linear/Jira selected, raw uppercase
+keys matching `^[A-Z][A-Z0-9]*-[0-9]+$` select that provider. All other inputs remain
+ordinary branches; do not trim, normalize, search, or probe providers to find an
+issue. Existing sentence normalization applies only to the eventual literal branch.
+
+For a default-origin lookup only, an exact missing result prints a safe notice
+before creating the original literal branch, such as `Jira ticket ENG-123 was not
+found. Creating literal branch ENG-123.` Exact GitHub/Jira issue HTTP 404 qualifies.
+Linear requires one GraphQL INPUT_ERROR with exact Issue-specific missing wording
+and no partial data. Path and type, when supplied, must identify the issue lookup
+and invalid input; generic input errors are never missing.
+Providers may hide inaccessible tickets as missing; this ambiguity is accepted.
+Authentication, explicit permission denial, timeout, rate limit, redirect, HTTP 410,
+malformed/partial data, unknown state and deleted/trashed-issue failures stop before
+creation, scripts or launches. A Git creation failure never retries with a literal.
+
+`-c` allows known terminal issues for every provider without reopening/updating them:
+GitHub closed, Jira done, Linear completed/canceled/duplicate. Unknown or deleted
+states always fail. Without `-c`, known terminal issues refuse with flag guidance;
+new explicit/default flows never offer Jira suggestions. Legacy bare Jira with `-c`
+is exact, without suggestions or missing fallback. `--remote` stays GitHub-only;
+issue-only flags fail on literal routes, including None. Valid default lookups may
+still fall back on missing with those flags. Base selection remains independent and
+finishes before credentials/HTTP. Canonical key/title/browse URL are safely displayed
+after creation, before scripts or foreground/Orca launches. Branch naming and link
+output do not add persisted issue association metadata. Existing Git preservation,
+metadata-save and failure-retention rules remain binding.
+
+Guided setup question 3 is "Which issue tracker do you use?". Selecting GitHub,
+Linear or Jira sets the preference and opens only that provider's connection setup.
+None stores `"none"`; Inherit machine default removes only the preference. The hub
+has a Default issue tracker section and an independent Issue tracker connections
+menu for all providers; connection edits do not change the default. Saving an
+unconfigured preference is allowed, but runtime authentication/configuration failures
+remain errors. Existing credential Save/cancel/rollback and immediate external
+GitHub login behavior are unchanged. Selecting another tracker never logs out or
+removes credentials. The provider sections below retain their transport and auth
+requirements subject to these routing/setup changes.
+
 ## GitHub issue lookup (#96)
 
 `timber new github:123` resolves one exact GitHub issue in a repository selected
-from the current project's Git remotes. Only the raw whole input
-`github:<positive-decimal-number>` is recognized. Reject zero, leading zeros,
+from the current project's Git remotes. Explicit raw whole input
+`github:<positive-decimal-number>` is recognized; the configured GitHub default also recognizes bare numbers. Reject zero, leading zeros,
 unsafe integers and malformed `github:` inputs before lookup or mutation.
-No bare numbers, issue URLs, explicit owner/repo syntax or Enterprise hosts.
+No issue URLs, explicit owner/repo syntax or Enterprise hosts.
 
 Issue remote precedence is explicit `--remote <name>`, configured `remote`, then
 `origin`. If none identifies a registered remote, require explicit selection.
@@ -207,8 +261,8 @@ repository URL in HTTPS, `ssh://git@github.com/owner/repo`, or
 `git@github.com:owner/repo` form; optional `.git` is supported. Reject embedded
 HTTPS credentials, query/fragment/control bytes and ambiguous destinations.
 `--remote` selects only the issue repository. It does not override ordinary base
-selection; `--base` remains independent. Reject `--remote` and `-c` for non-GitHub
-inputs. Existing Jira/literal semantics and ordinary base resolution are unchanged.
+selection; `--base` remains independent. Reject `--remote` for non-GitHub inputs; `-c` applies to every issue provider.
+Ordinary base resolution is unchanged.
 
 Resolve the base before credentials or HTTP. Explicit process `GH_TOKEN` overrides
 `GITHUB_TOKEN`, then the active github.com account from
@@ -241,8 +295,8 @@ the local GH-number namespace, and title changes can produce new branches:
 `open GH-123` uses existing offline matching, including its ambiguity chooser.
 Hooks extract `TIMBER_TASK_ID=GH-123`. `open`, `ls` and `done` stay offline.
 
-Both setup scopes expose a separate GitHub login check with no new TOML keys or
-credential Save participant. A successful check identifies the authenticated
+Both setup scopes expose GitHub login through the default chooser and connections
+menu, with no Timber GitHub credential Save participant. A successful check identifies the authenticated
 account, not repository/team/issue access. When logged out, explicitly offer an
 awaited interactive `gh auth login --hostname github.com` with inherited terminal
 stdio. Explain first that this is an immediate external login and cancelling
@@ -263,11 +317,12 @@ See [GitHub CLI token](https://cli.github.com/manual/gh_auth_token),
 ## Linear issue lookup (#97)
 
 `timber new linear:ENG-123` resolves an exact Linear issue without TOML
-configuration. Recognize only raw whole-input `linear:<KEY>` using the existing
+configuration. Recognize explicit raw whole-input `linear:<KEY>` using the existing
 uppercase ticket-key grammar. Reject malformed inputs beginning with `linear:`
-before lookup or mutation. Bare `ENG-123` retains configured Jira/literal behavior.
+before lookup or mutation. Bare `ENG-123` uses Linear when selected as the default;
+without a default it retains configured Jira/literal behavior.
 No URL selectors, search, provider inference, OAuth or issue updates. `--remote`
-and `-c` remain GitHub-only; terminal Linear issues have no override.
+remains GitHub-only; `-c` permits known terminal Linear issues.
 
 Resolve the ordinary explicit/configured base before credentials or HTTP. A supplied
 process `LINEAR_API_KEY` overrides the saved personal key; blank or malformed
@@ -283,15 +338,16 @@ title, URL, trash flag and `state { type }`. Validate the canonical uppercase ke
 title and HTTPS browse URL with exact `linear.app` hostname, no user information,
 nondefault port or control characters. Use the canonical key when an old identifier
 resolves to a moved issue. Allow nonterminal types `triage`, `backlog`, `unstarted`
-and `started`; refuse completed, canceled, duplicate, unknown/missing state,
+and `started`; completed, canceled and duplicate require `-c`. Refuse unknown/missing state,
 missing/deleted issues and malformed responses. Do not use customizable state names.
-HTTP-200 GraphQL errors refuse creation even alongside partial issue data.
+GraphQL errors refuse creation, including partial issue data; only the narrow
+missing-only result described in #101 can authorize default-origin fallback.
 
 One 10-second deadline includes credential resolution, fetch, body parsing and
 validation. Reject redirects and never retry. Authentication, access, not-found,
 rate-limit, network, timeout and validation failures return nonzero before Git
-creation, metadata, hooks or launches, without literal fallback. Never disclose
-keys, response bodies, raw GraphQL messages or raw transport exceptions.
+creation, metadata, hooks or launches, except the missing-only default fallback
+described above. Never disclose keys, response bodies, raw GraphQL messages or raw transport exceptions.
 
 Generate `<canonical-key>-<title-slug>` with the existing Jira slug algorithm and
 120-character total cap. Git remains authoritative for collisions, without appended
@@ -301,7 +357,7 @@ potentially public branch text; title changes can generate different branch name
 Offline ticket matching and hook `TIMBER_TASK_ID` extraction remain unchanged.
 `open`, `ls` and `done` never contact Linear.
 
-Both setup scopes expose a separate **Linear issues** entry and edit the same
+Both setup scopes expose Linear through the chooser/connections menu and edit the same
 personal credential. Explain [personal key creation](https://linear.app/docs/api-and-webhooks),
 Read permission and team restrictions. Offer keep, enter/replace and remove with
 hidden token input, including pasted input. Review shows only the action and private
@@ -368,7 +424,7 @@ automatically. Validate Jira's returned canonical key and nonblank summary; igno
 unrelated response fields and build the browse URL from the configured site and
 canonical key. Also request `status` and require
 `fields.status.statusCategory.key` to be `new`, `indeterminate`, or `done`.
-Reject `done` with a diagnostic naming the returned canonical key, before branch
+Without `-c`, reject `done` with a diagnostic naming the returned canonical key, before branch
 or worktree creation. Missing, null, or unknown status categories fail closed.
 Use only the category key; status display names may be localized or customized, and
 resolution fields do not override it.
@@ -385,7 +441,8 @@ only after creation succeeds. The title contributes to a public-looking Git bran
 so use a literal branch when a title is sensitive. If a title changes, `new` may name
 a different branch; use `open ABU-834` to resume an existing ticket branch offline.
 
-Only an exact issue 404 or a `done` status-category result enables suggestions. The
+Only legacy unprefixed Jira, without an explicit default or `-c`, offers suggestions.
+In that flow, an exact issue 404 or a `done` status-category result enables suggestions. The
 read-only [enhanced JQL search endpoint](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/)
 uses the requested key's project and the fixed query
 `project = "<project-key>" AND statusCategory != Done ORDER BY key ASC`, requests
@@ -575,7 +632,7 @@ agent startup.
 `timber setup` guides configuration in the primary checkout from its root, a nested
 directory, or a linked checkout. `timber setup --global` configures defaults for
 all repositories and works outside Git. Both require interactive stdin/stdout and
-CI off; noninteractive use fails with guidance and no writes. Main questions cover editor, agent, and Jira ticket naming; scripts and Git/folder
+CI off; noninteractive use fails with guidance and no writes. Main questions cover editor, agent, and default issue tracker; scripts and Git/folder
 defaults live in an optional advanced section, skipped by default. Unconfigured
 integrations offer one None choice (the default), without a duplicate Skip/Keep
 disabled choice. Existing enabled integrations retain a default Keep choice;

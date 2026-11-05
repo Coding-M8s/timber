@@ -14,6 +14,7 @@ export function renderConfig(file: ConfigFile): string {
     + "# CLI options > repository settings > machine defaults > built-in defaults.\n"
     + "# Relative worktree_dir paths resolve from the primary repository checkout.\n"
     + '# Automatic/inherited examples: base_branch = "main", remote = "origin"\n'
+    + '# default_tracker = "github" # github, linear, jira, or none; absent inherits\n'
     + '# worktree_dir = "../my-repository-worktrees"\n\n';
   const source = header + stringify(file) + Object.entries(examples).flatMap(([key, example]) =>
     key in file && file[key as keyof ConfigFile] !== false ? [] : [

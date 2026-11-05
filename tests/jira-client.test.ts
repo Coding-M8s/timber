@@ -446,3 +446,8 @@ test("one search deadline spans every page instead of restarting for each reques
   expect(calls).toBe(2);
   expect(requestSignal?.aborted).toBe(true);
 });
+
+test("-c permits known done Jira tickets but never unknown status categories", async () => {
+  expect((await resolveJiraTicket(siteConfig, "ABU-834", runtime(async () => response(issue("ABU-834", "Fix login", "done"))), true)).key).toBe("ABU-834");
+  await expect(resolveJiraTicket(siteConfig, "ABU-834", runtime(async () => response(issue("ABU-834", "Fix login", "unknown"))), true)).rejects.toThrow("unknown status");
+});

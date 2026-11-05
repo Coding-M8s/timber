@@ -10,6 +10,7 @@ import { SetupCancelled } from "./types";
 import type { SetupPrompt, SetupTarget } from "./types";
 import type { JiraSetupSession } from "./jira";
 import type { GithubSetupSession } from "./github";
+import { editDefaultTracker } from "./trackers";
 
 async function choose(prompt: SetupPrompt, message: string, choices: readonly ChoiceOption[], defaultValue = choices[0]!.value): Promise<string> {
   const result = await prompt.select(message, choices, defaultValue);
@@ -182,8 +183,9 @@ async function scalar(key: "base_branch" | "remote" | "worktree_dir", values: re
   }
 }
 
-async function jiraSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO, session?: JiraSetupSession): Promise<void> {
-  const jira = await choose(prompt,
+export async function editJiraSettings(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO,
+  session?: JiraSetupSession, configure = false): Promise<void> {
+  const jira = configure ? "configure" : await choose(prompt,
     "Use Jira tickets to name branches?\nJira is a work ticket tracker. This lets timber new TEAM-123 use the ticket title. Choose None if you don't use Jira.",
     integrationChoices("jira", file, target, [option("configure", "Connect my team's Jira")]));
   if (jira === "inherit") delete file.jira;
@@ -264,7 +266,7 @@ export async function editSetupSection(section: SetupSection, file: ConfigFile, 
   const current = { ...target, file: { ...target.file, values: file } };
   switch (section) {
     case "editor": case "agent": await launcher(section, file, current, prompt, io, available); break;
-    case "jira": await jiraSettings(file, current, prompt, io, jira); break;
+    case "jira": await editJiraSettings(file, current, prompt, io, jira); break;
     case "hooks": await hookSettings("post_create", file, current, prompt, io); break;
     case "pre_delete": await hookSettings("pre_delete", file, current, prompt, io); break;
     case "base_branch": await scalar(section, target.branches, file, current, prompt, io); break;
@@ -277,11 +279,11 @@ export async function questionnaire(target: SetupTarget, prompt: SetupPrompt, io
   available: (command: string) => Promise<boolean>, jira?: JiraSetupSession, github?: GithubSetupSession, linear?: LinearSetupSession): Promise<ConfigFile | null> {
   const file: ConfigFile = structuredClone(target.file.values);
   try {
-    for (const section of ["editor", "agent", "jira"] as const) {
+    for (const section of ["editor", "agent"] as const) {
       await editSetupSection(section, file, target, prompt, io, available, jira);
     }
-    if (linear && await confirm(prompt, "Configure a personal API key for Linear issues?")) await linear.edit(prompt, io);
-    if (github && await confirm(prompt, "Check GitHub CLI login for GitHub issues?")) await github.edit(prompt, io);
+    await editDefaultTracker(file, target, prompt, io, { github, linear,
+      editJira: configure => editJiraSettings(file, target, prompt, io, jira, configure) });
     if (await confirm(prompt, "Advanced settings: add setup/pre-done scripts or change Git/folder defaults? Skip if you're unsure.")) {
       for (const section of ["hooks", "pre_delete", "base_branch", "remote", "worktree_dir"] as const) {
         await editSetupSection(section, file, target, prompt, io, available);

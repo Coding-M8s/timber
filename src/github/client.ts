@@ -10,6 +10,10 @@ export interface GithubRuntime {
 const defaultRuntime: GithubRuntime = { token: readGithubToken, fetch: (url, init) => fetch(url, init), timeoutMs: 10_000 };
 const malformed = () => new Error("GitHub returned an invalid response; no workspace was created.");
 
+export class GithubLookupFailure extends Error {
+  constructor(message: string, readonly reason?: "not-found") { super(message); }
+}
+
 async function request<T>(path: string, runtime: GithubRuntime, validate: (body: unknown) => T): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -35,7 +39,9 @@ async function request<T>(path: string, runtime: GithubRuntime, validate: (body:
       void response.body?.cancel().catch(() => {});
       if (response.status === 401) throw new Error("GitHub authentication failed; check your environment token or run timber setup.");
       if (response.status === 403 || response.status === 429) throw new Error("GitHub denied access or rate limited the request; check permissions and rate limits.");
-      if (response.status === 404 || response.status === 410) throw new Error("GitHub issue is missing or inaccessible to the selected account.");
+      if (response.status === 404 || response.status === 410) throw new GithubLookupFailure(
+        "GitHub issue is missing or inaccessible to the selected account.",
+        response.status === 404 && path.startsWith("/repos/") ? "not-found" : undefined);
       throw new Error("GitHub request failed or redirected; check the selected repository and try again.");
     }
     let body: unknown;
