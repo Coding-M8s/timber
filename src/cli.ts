@@ -1,3 +1,4 @@
+import { runMachineCommand } from "./machine";
 import { parseArenaGroups } from "./arena/participants";
 import type { ArenaGroupToken } from "./arena/types";
 import type { ArenaNewOptions, ArenaResumeOptions } from "./arena/types";
@@ -9,6 +10,12 @@ import type { CleanupOptions } from "./types";
 import { formatBashCandidate, parseBashCompletion } from "./completion/bash";
 import { completionCandidates } from "./completion/candidates";
 import { completionScript } from "./completion/shells";
+
+function requireSuppressedLaunches(options: { editor?: boolean; agent?: boolean }): void {
+  if (options.editor !== false || options.agent !== false) {
+    throw new Error("--result-file requires explicit --no-editor and --no-agent. Setup hooks still run.");
+  }
+}
 
 const placeholder = (name: string, ticket: string) => async (): Promise<void> => {
   throw new Error(`timber ${name} is not implemented yet (${ticket}). See timber ${name} --help.`);
@@ -36,6 +43,10 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .description("Manage Git worktrees.")
     .exitOverride()
     .configureOutput({ writeOut: context.io.stdout, writeErr: context.io.stderr });
+
+  function resultOptions(command: Command): Command {
+    return command.option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file; requires --no-editor --no-agent");
+  }
 
   function agentOptions(command: Command): Command {
     const choices = new Set<string>();
@@ -73,12 +84,12 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       });
   }
 
-  workflowOptions(agentOptions(editorOptions(program.command("new <branch...>"))))
+  resultOptions(workflowOptions(agentOptions(editorOptions(program.command("new <branch...>")))))
     .description("Create a worktree from a branch, sentence, or default tracker issue; explicit github:<number>, linear:<KEY>, jira:<KEY> and named workflows are supported")
     .option("--base <ref>", "Override the configured base branch")
     .option("--remote <name>", "Select the GitHub issue remote only; does not change --base")
     .option("-c", "Allow a closed or completed GitHub, Linear, or Jira issue; does not reopen it")
-    .action(async (branch: string[], options: { base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; c?: boolean }) => {
+    .action(async (branch: string[], options: { resultFile?: string; base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; c?: boolean }) => {
       const normalized: NewOptions = {
         ...(options.remote === undefined ? {} : { remote: options.remote }),
         ...(options.c === true ? { allowClosed: true } : {}),
@@ -87,20 +98,30 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
         ...(options.editor === undefined ? {} : { editor: options.editor }),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      onExitCode((await handlers.new(branch.join(" "), normalized, context)) ?? 0);
+      if (options.resultFile !== undefined) {
+        requireSuppressedLaunches(normalized);
+        onExitCode(await runMachineCommand("new", context, machineContext => handlers.new(branch.join(" "), normalized, machineContext), options.resultFile));
+      } else {
+        onExitCode((await handlers.new(branch.join(" "), normalized, context)) ?? 0);
+      }
     });
 
-  workflowOptions(agentOptions(editorOptions(program.command("open <input>"))))
+  resultOptions(workflowOptions(agentOptions(editorOptions(program.command("open <input>")))))
     .description("Open an existing branch or worktree; choose a missing base interactively")
     .option("--setup", "Rerun ordinary and workflow post_create hooks in the selected worktree")
-    .action(async (input: string, options: { workflow?: string; w?: string; editor?: boolean; setup?: boolean; agent?: boolean }) => {
+    .action(async (input: string, options: { resultFile?: string; workflow?: string; w?: string; editor?: boolean; setup?: boolean; agent?: boolean }) => {
       const normalized: OpenOptions = {
         ...(options.workflow === undefined && options.w === undefined ? {} : { workflow: options.workflow ?? options.w }),
         ...(options.editor === undefined ? {} : { editor: options.editor }),
         ...(options.setup === true ? { setup: true as const } : {}),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
-      onExitCode((await handlers.open(input, normalized, context)) ?? 0);
+      if (options.resultFile !== undefined) {
+        requireSuppressedLaunches(normalized);
+        onExitCode(await runMachineCommand("open", context, machineContext => handlers.open(input, normalized, machineContext), options.resultFile));
+      } else {
+        onExitCode((await handlers.open(input, normalized, context)) ?? 0);
+      }
     });
 
   program.command("rebase <branch-or-worktree>")
@@ -173,7 +194,14 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
 
   program.command("ls")
     .description("List this repository's worktrees with branches, workflows, and file status (read-only)")
-    .action(() => handlers.list(context));
+    .option("--json", "Print experimental v1 repository/worktree JSON")
+    .action(async (options: { json?: boolean }) => {
+      if (options.json) {
+        onExitCode(await runMachineCommand("ls", context, machineContext => handlers.list(machineContext)));
+      } else {
+        await handlers.list(context);
+      }
+    });
 
   program.command("done <branch-or-worktree>")
     .option("--base <ref>", "Verify integration against this base instead of the saved/configured/default branch")

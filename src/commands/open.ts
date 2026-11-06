@@ -114,6 +114,7 @@ export function createOpenHandler(
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
 
     const repository = await services.discoverRepository(context.cwd);
+    await context.machine?.repository(repository);
     const config = await services.loadConfig(repository);
     if (options.workflow !== undefined) {
       const requested = selectWorkflow(config, options.workflow);
@@ -147,6 +148,7 @@ export function createOpenHandler(
         })),
       );
       if (selection === null) {
+        context.machine?.cancelled();
         context.io.stdout("Cancelled.\n");
         return;
       }
@@ -163,6 +165,7 @@ export function createOpenHandler(
       selected = resolution.value;
     }
     const created = selected.kind === "branch";
+    if (selected.kind === "worktree") await context.machine?.worktree(selected.worktree, false);
     let workflowName = options.workflow ?? null;
     let savedName: string | null = null;
     if (selected.kind === "worktree") {
@@ -185,6 +188,7 @@ export function createOpenHandler(
     let worktree: Worktree;
     if (selected.kind === "branch") {
       worktree = await services.createWorktree(repository, branchRequest(selected.branch), config);
+      await context.machine?.worktree(worktree, true);
     } else {
       worktree = selected.worktree;
     }
