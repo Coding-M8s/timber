@@ -3,7 +3,7 @@
 This additive interface is experimental. It supports repository inventory and
 ordinary New/Open outcomes for IDE integration. It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
-No IDE consumer, Rebase or Done interface is included. Linux x86_64 is the tested
+No IDE consumer or Rebase interface is included. Native cleanup approval is described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
 
@@ -94,7 +94,7 @@ type WorktreeRecord = {
 
 type RecordV1 = {
   schemaVersion: 1;
-  command: "ls" | "new" | "open";
+  command: "ls" | "new" | "open" | "done";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -153,3 +153,11 @@ retry. Do not automatically rerun setup or creation. Deliberate recovery uses or
 `open` on the exact retained path, adding `--setup` only when the user chooses to
 rerun all required steps. The IDE remains responsible for serializing its mutations
 and retaining user state; this interface adds no daemon or global registry.
+
+## Native cleanup approval (experimental v1)
+
+`timber __ide-done preview [--keep-branch] [--keep-ignored] [--base <ref>] -- <absolute-registered-path>` writes one JSON preview to stdout without hooks or deletion. It includes `schemaVersion: 1`, `repository`, `worktree`, normalized `options`, `snapshot` and `expiresAt` (Unix milliseconds, ten minutes). The consumer must show the exact target, loss of modified/untracked and ignored content, local branch effect, and unchanged remote refs before its single Remove confirmation. Unsaved editors and live sessions require independent IDE handling. `--keep-ignored` refuses while ignored content exists; it does not copy files.
+
+After that confirmation, save the unchanged preview into a private temporary file and invoke `timber __ide-done apply --approval-file <path> --result-file <new-path> -- <same-absolute-path>`. Apply never asks a terminal question. It validates preview expiry, repository, reciprocal target identity, root inode, HEAD/branch, base, options, hooks and changed-file/index content before entering cleanup, and again at cleanup's ordinary discard decision. The native snapshot is checked unconditionally again immediately before Git removal, including after cleanup hooks. When discarding ignored files, approval covers all ignored paths and bytes, including ignored runtime files changed by cleanup hooks; those bytes are deliberately excluded from the changed-file fingerprint, matching ordinary Done semantics. The UI must explicitly describe this scope. Existing post-hook checks and primary, operation, ignored-file and ref protections remain. A changed snapshot is an error requiring an updated preview; it never silently broadens approval or retries. Approval is scoped to one target state, not a general noninteractive force flag.
+
+Result files use the existing v1 mutation envelope with `command: "done"`, the captured pre-deletion worktree, and `materialized: false`. Failures may occur after folder removal but before branch removal; consumers must reconcile `ls --json` after every outcome and must never infer current availability from the captured result. Hooks retain normal IO; no prompt parser or automatic terminal answer is involved. Existing interactive `done` behavior is unchanged.

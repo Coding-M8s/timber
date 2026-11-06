@@ -1,3 +1,4 @@
+import { runNativeCleanup } from "./machine-done";
 import { runMachineCommand } from "./machine";
 import { parseArenaGroups } from "./arena/participants";
 import type { ArenaGroupToken } from "./arena/types";
@@ -201,6 +202,16 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       } else {
         await handlers.list(context);
       }
+    });
+
+  program.command("__ide-done <action> <target>", { hidden: true })
+    .option("--keep-branch")
+    .option("--keep-ignored")
+    .option("--base <ref>")
+    .option("--approval-file <path>")
+    .option("--result-file <path>")
+    .action(async (action: string, target: string, options) => {
+      onExitCode(await runNativeCleanup(action, target, options, context));
     });
 
   program.command("done <branch-or-worktree>")
