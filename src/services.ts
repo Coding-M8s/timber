@@ -1,3 +1,4 @@
+import type { MachineReporter } from "./machine";
 import type { ArenaNewOptions, ArenaResumeOptions } from "./arena/types";
 import type {
   AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, ConfirmCleanupDiscard, CreateWorktreeRequest,
@@ -86,6 +87,8 @@ export interface CommandIO {
 }
 
 export interface CommandContext {
+  /** Optional experimental reporting, separate from human and hook output. */
+  machine?: MachineReporter;
   cwd: string;
   /** Invoking stdin/stdout are terminals and CI is off. Absence means false. */
   interactive?: boolean;

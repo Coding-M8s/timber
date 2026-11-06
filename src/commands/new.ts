@@ -33,6 +33,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     resolveIssueInput(branch, {});
     const branchInput = normalizeBranchInput(branch);
     const repository = await services.discoverRepository(context.cwd);
+    await context.machine?.repository(repository);
     const config = await services.loadConfig(repository);
     const input = resolveIssueInput(branch, config);
     if (options.remote !== undefined && input.kind !== "github") {
@@ -81,6 +82,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
 
           const selected = await context.choose(`${error.message}\nDid you mean one of these?`, choices);
           if (selected === null) {
+            context.machine?.cancelled();
             context.io.stdout("Cancelled.\n");
             return;
           }
@@ -101,6 +103,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     }
     const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branchInput;
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
+    await context.machine?.worktree(worktree, true);
     try {
       await services.writeBaseAssociation(repository, worktree, base.ref);
     } catch {

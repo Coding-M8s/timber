@@ -1,5 +1,9 @@
 # Timber CLI behavioral contract
 
+The additive [experimental IDE machine interface](ide-contract.md) defines opt-in
+`ls --json` and New/Open `--result-file` records. Ordinary human commands and
+release behavior retain the contracts below.
+
 Windows x64 candidate additions are specified in [Windows support](windows.md).
 They retain the preservation rules below. On Windows, Git for Windows supplies
 the POSIX hook shell; native executable launch excludes command-script shims;

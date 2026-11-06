@@ -33,9 +33,10 @@ export function createListHandler(
 ): CommandHandlers["list"] {
   return async context => {
     const repository = await services.discoverRepository(context.cwd);
+    await context.machine?.repository(repository);
     await services.loadConfig(repository);
     const trees = await services.listWorktrees(repository);
-    if (trees.length === 0) {
+    if (trees.length === 0 && !context.machine) {
       context.io.stdout("No worktrees found.\n");
       return;
     }
@@ -60,10 +61,13 @@ export function createListHandler(
         ],
       };
     }));
+    if (context.machine) {
+      await context.machine.inventory(sorted);
+    }
     for (const row of rows) {
       if (row.baseWarning !== null) context.io.stderr(row.baseWarning);
       if (row.warning !== null) context.io.stderr(row.warning);
     }
-    context.io.stdout(alignedRows(["WORKTREE", "BRANCH", "BASE", "WORKFLOW", "STATUS", "PATH"], rows.map(row => row.cells)));
+    if (!context.machine) context.io.stdout(alignedRows(["WORKTREE", "BRANCH", "BASE", "WORKFLOW", "STATUS", "PATH"], rows.map(row => row.cells)));
   };
 }
