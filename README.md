@@ -1,3 +1,5 @@
+> [!IMPORTANT]
+> Remove this line to confirm you've reviewed this PR before submitting.
 # Timber
 
 Work on several Git branches at once, each in its own folder. Timber creates,

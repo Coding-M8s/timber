@@ -210,6 +210,7 @@ export async function cleanupWorktree(
   repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions,
   io: CommandIO = { stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } },
   confirmDiscard?: ConfirmCleanupDiscard,
+  validateApproval?: () => Promise<void>,
 ): Promise<CleanupResult> {
   let primaryRepository: RepositoryContext;
   try {
@@ -301,6 +302,8 @@ export async function cleanupWorktree(
   if (fingerprint !== null && await discardFingerprint(finalInspection.worktree, options.discardIgnored) !== fingerprint) {
     throw new Error("Local file state changed after discard inspection; worktree and branch retained. Retry cleanup.");
   }
+
+  await validateApproval?.();
 
   const path = finalInspection.worktree.path;
   const branchName = evidence.branchRef?.slice("refs/heads/".length) ?? null;
