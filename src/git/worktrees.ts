@@ -1,3 +1,4 @@
+import type { WorktreeReadPhase } from "./worktree-read-phase";
 import { samePath } from "../platform/paths";
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -46,9 +47,9 @@ function identityFailure(message: string, statusReason: string): WorktreeIdentit
 }
 
 /** Recheck the filesystem and Git metadata for a registered worktree path. */
-export async function assertWorktreeIdentity(
-  repository: RepositoryContext, tree: Worktree,
-): Promise<void> {
+export async function worktreeGitDirectory(
+  repository: RepositoryContext, tree: WorktreeInventory,
+): Promise<string> {
   let info;
   try {
     info = await stat(tree.path);
@@ -119,11 +120,18 @@ export async function assertWorktreeIdentity(
       "Git metadata belongs to a different worktree path",
     );
   }
+  return gitDirectory.stdout;
+}
+
+export async function assertWorktreeIdentity(
+  repository: RepositoryContext, tree: WorktreeInventory,
+): Promise<void> {
+  await worktreeGitDirectory(repository, tree);
 }
 
 /** A stale selected target must be repaired or pruned explicitly before opening. */
 export async function assertOpenableWorktree(
-  repository: RepositoryContext, worktree: Worktree,
+  repository: RepositoryContext, worktree: Worktree, phase?: WorktreeReadPhase,
 ): Promise<void> {
   if (!worktree.pathExists) {
     throw new Error(`Cannot open missing worktree at ${worktree.path}; restore it or prune it explicitly first.`);
@@ -131,10 +139,21 @@ export async function assertOpenableWorktree(
   if (worktree.prunable !== null) {
     throw new Error(`Cannot open prunable worktree at ${worktree.path}; repair or prune it explicitly first.`);
   }
-  await assertWorktreeIdentity(repository, worktree);
+  if (phase) await phase.gitDirectory(worktree);
+  else await assertWorktreeIdentity(repository, worktree);
 }
 
-async function inspectWorktree(tree: Worktree, repository: RepositoryContext, inspectStatus: boolean): Promise<Worktree> {
+/** Inventory fields alone are lookup keys, never filesystem or preservation evidence. */
+export function uninspectedWorktree(tree: WorktreeInventory): Worktree {
+  return { ...tree, pathExists: false, status: { kind: "unknown", reason: "Not inspected" } };
+}
+
+/** Visit only this registered path; callers start a fresh phase after external actions.
+ * Without inspectStatus, stop after identity: status can run repository clean filters. */
+export async function inspectWorktree(
+  repository: RepositoryContext, inventory: WorktreeInventory, phase?: WorktreeReadPhase, inspectStatus = true,
+): Promise<Worktree> {
+  const tree = uninspectedWorktree(inventory);
   try {
     const info = await stat(tree.path);
     tree.pathExists = true;
@@ -153,7 +172,8 @@ async function inspectWorktree(tree: Worktree, repository: RepositoryContext, in
   }
 
   try {
-    await assertWorktreeIdentity(repository, tree);
+    if (phase) await phase.gitDirectory(tree);
+    else await assertWorktreeIdentity(repository, tree);
   } catch (error) {
     tree.status = {
       kind: "unknown",
@@ -219,10 +239,8 @@ export async function listWorktreeInventory(
 
 /** Git's inventory is authoritative; per-worktree failures remain visible as unknown rows. */
 export async function listWorktrees(
-  repository: RepositoryContext, options: { inspectStatus?: boolean } = {},
+  repository: RepositoryContext, options: { inspectStatus?: boolean; phase?: WorktreeReadPhase } = {},
 ): Promise<readonly Worktree[]> {
-  const trees = (await listWorktreeInventory(repository)).map<Worktree>(tree => ({
-    ...tree, pathExists: false, status: { kind: "unknown", reason: "Not inspected" },
-  }));
-  return Promise.all(trees.map(tree => inspectWorktree(tree, repository, options.inspectStatus !== false)));
+  const trees = await listWorktreeInventory(repository);
+  return Promise.all(trees.map(tree => inspectWorktree(repository, tree, options.phase, options.inspectStatus !== false)));
 }

@@ -18,7 +18,9 @@ export function createRebaseHandler(
     const { choose: _choose, ...withoutChooser } = context;
     const selectionContext = report ? withoutChooser : context;
     const selected = await selectRegisteredWorktree(services, repository, config, input, selectionContext,
-      { command: "rebase", past: "rebased", rerun: "timber rebase" });
+      { command: "rebase", past: "rebased", rerun: "timber rebase" },
+      // Only the machine record snapshots status; plain rebase inspects at preflight.
+      { inspectStatus: report !== undefined });
     if (selected === null) { context.io.stdout("Cancelled.\n"); return 0; }
     if (!report) return services.rebaseWorktree(repository, selected, config, options.base, context.io);
     // Snapshot before the rebase; the saved base is read again afterwards.

@@ -1,3 +1,4 @@
+import { WorktreeReadPhase } from "./worktree-read-phase";
 import { samePath } from "../platform/paths";
 import { cancelGitTree, childExitCode } from "../platform/signals";
 import { readFile } from "node:fs/promises";
@@ -7,7 +8,7 @@ import { execa } from "execa";
 import { bashAnsiCQuote, shellQuoteForDisplay, jsonDisplay, safeDisplay, FormattedError } from "../display";
 import type { CommandIO } from "../services";
 import type { OpenTarget, RepositoryConfig, RepositoryContext, ResolveOpenTargetOptions, Resolution, Worktree } from "../types";
-import { assertWorktreeIdentity, listWorktrees } from "./worktrees";
+import { inspectWorktree, listWorktreeInventory } from "./worktrees";
 import { gitOperation } from "./operations";
 import { readBaseAssociation, writeBaseAssociation } from "./base-metadata";
 import { resolveOpenTarget } from "./open-target";
@@ -77,20 +78,22 @@ async function assertIdle(path: string): Promise<void> {
   }
 }
 
-async function preflight(repository: RepositoryContext, selected: Worktree, gitDirectory?: string): Promise<Worktree> {
+async function preflight(
+  repository: RepositoryContext, selected: Worktree, gitDirectory?: string, phase = new WorktreeReadPhase(repository),
+): Promise<Worktree> {
   if (!isAbsolute(selected.path)) throw new Error("Rebase requires an absolute registered worktree path.");
-  const trees = await listWorktrees(repository);
+  const trees = await listWorktreeInventory(repository);
   const matches = trees.filter(tree => samePath(tree.path, selected.path));
   if (matches.length !== 1) throw new Error("Selected worktree is no longer uniquely registered.");
-  const tree = matches[0]!;
+  const tree = await inspectWorktree(repository, matches[0]!, phase);
   if (!tree.pathExists || tree.prunable !== null || tree.locked !== null) throw new Error("Selected worktree is missing, stale or locked; repair it explicitly before rebase.");
-  await assertWorktreeIdentity(repository, tree);
+  await phase.gitDirectory(tree);
   // Paused rebase usually has detached HEAD; explain recovery before detached refusal.
   await assertIdle(tree.path);
   if (tree.branch === null || tree.head === null) throw new Error("Cannot rebase a detached or unborn worktree; check out an existing branch explicitly.");
   if (trees.some(other => !samePath(other.path, tree.path) && other.branch === tree.branch)) throw new Error("Selected branch is checked out in another worktree; rebase would change its shared branch ref.");
   if (tree.branch !== selected.branch || tree.head !== selected.head) throw new Error("Selected worktree branch or original tip changed; rerun timber rebase.");
-  const actualGitDirectory = await output(tree.path, ["rev-parse", "--absolute-git-dir"]);
+  const actualGitDirectory = await phase.gitDirectory(tree);
   if (gitDirectory !== undefined && !samePath(actualGitDirectory, gitDirectory)) throw new Error("Selected worktree Git identity changed; rebase was not started.");
   if (await output(tree.path, ["symbolic-ref", "--quiet", "HEAD"]) !== `refs/heads/${tree.branch}`
     || await output(tree.path, ["rev-parse", "--verify", "HEAD^{commit}"]) !== selected.head) {
@@ -187,10 +190,11 @@ async function rebaseSelected(
   repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
   explicitBase: string | undefined, io: CommandIO, report: RebaseReport,
 ): Promise<number> {
-  await preflight(repository, selected);
+  const phase = new WorktreeReadPhase(repository);
+  await preflight(repository, selected, undefined, phase);
   report.originalTip = selected.head;
-  const gitDirectory = await output(selected.path, ["rev-parse", "--absolute-git-dir"]);
-  const association = await readBaseAssociation(repository, selected);
+  const gitDirectory = await phase.gitDirectory(selected);
+  const association = await readBaseAssociation(repository, selected, phase);
   if (association.kind === "invalid" && (association.reason !== "stale" || explicitBase === undefined)) {
     throw new Error("Cannot read saved base association; inspect the worktree's private Git metadata, then select a replacement with --base <ref>.");
   }
@@ -299,19 +303,22 @@ export async function resolveRebaseTarget(
   repository: RepositoryContext, input: string, config: RepositoryConfig,
   options: Pick<ResolveOpenTargetOptions, "inspectStatus"> = {},
 ): Promise<Resolution<OpenTarget>> {
-  // Selection is shared with backup, which opts out of status because status can
-  // execute repository clean filters. Rebase keeps status for its machine record.
-  const inspectStatus = options.inspectStatus !== false;
+  // Selection is shared with backup, which never runs status because status can
+  // execute repository clean filters. Only rebase's machine record asks for status;
+  // otherwise selection stays inventory-only and preflight inspects afresh.
+  const inspectStatus = options.inspectStatus === true;
   const resolution = await resolveOpenTarget(repository, input, config, { assertOpenable: false, inspectStatus });
   if (resolution.kind === "not-found" || (resolution.kind === "found" && resolution.value.kind === "worktree")) return resolution;
   const targets = resolution.kind === "found" ? [resolution.value] : resolution.candidates;
   const branchRefs = new Set(targets.flatMap(target => target.kind === "branch" && target.branch.kind === "local" ? [target.branch.ref] : []));
   if (!branchRefs.size) return resolution;
   const recovered = new Map<string, Worktree[]>();
-  for (const tree of await listWorktrees(repository, { inspectStatus })) {
-    if (tree.branch !== null || !tree.pathExists || tree.prunable !== null) continue;
-    await assertWorktreeIdentity(repository, tree);
-    const directory = await output(tree.path, ["rev-parse", "--absolute-git-dir"]);
+  for (const inventory of await listWorktreeInventory(repository)) {
+    if (inventory.branch !== null || inventory.prunable !== null) continue;
+    const phase = new WorktreeReadPhase(repository);
+    const tree = await inspectWorktree(repository, inventory, phase, inspectStatus);
+    if (!tree.pathExists) continue;
+    const directory = await phase.gitDirectory(tree);
     for (const state of ["rebase-merge", "rebase-apply"]) {
       let ref: string;
       try { ref = (await readFile(join(directory, state, "head-name"), "utf8")).replace(/\n$/, ""); }

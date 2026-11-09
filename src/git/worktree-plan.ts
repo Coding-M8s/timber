@@ -11,7 +11,7 @@ import {
 } from "node:path";
 import { execa } from "execa";
 import { validateNewBranchName } from "./branches";
-import { listWorktrees } from "./worktrees";
+import { listWorktreeInventory } from "./worktrees";
 import type {
   CreateWorktreeRequest,
   RepositoryConfig,
@@ -136,7 +136,7 @@ export async function planWorktree(
       `Worktree directory would target the primary repository: ${root}`,
     );
   }
-  const trees = await listWorktrees(repository);
+  const trees = await listWorktreeInventory(repository);
   const checkedOut = trees.find((tree) => tree.branch === name);
   if (checkedOut)
     throw new Error(

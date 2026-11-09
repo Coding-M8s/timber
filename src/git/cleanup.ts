@@ -10,7 +10,7 @@ import { refreshCleanupBase } from "./cleanup-base";
 import { hasIntegratedContent, integratedBase } from "./cleanup-integration";
 import { readCleanupEvidence, readCleanupPublication, readCleanupTarget } from "./cleanup-evidence";
 import { discoverRepository } from "./repository";
-import { listWorktrees } from "./worktrees";
+import { listWorktreeInventory } from "./worktrees";
 import type {
   CleanupInspection, CleanupOptions, CleanupPolicy, CleanupResult, ConfirmCleanupDiscard, RepositoryConfig, RepositoryContext, ValidatedBase, Worktree,
 } from "../types";
@@ -45,7 +45,7 @@ async function pathExists(path: string): Promise<boolean | null> {
 
 async function registered(repository: RepositoryContext, path: string): Promise<boolean | null> {
   try {
-    return (await listWorktrees(repository)).some(tree => samePath(tree.path, path));
+    return (await listWorktreeInventory(repository)).some(tree => samePath(tree.path, path));
   } catch {
     return null;
   }
@@ -175,7 +175,7 @@ async function deletePreservedBranch(
     }
   }
 
-  const inventory = await listWorktrees(repository);
+  const inventory = await listWorktreeInventory(repository);
   if (inventory.some(tree => tree.branch === branchName)) {
     throw new Error(`Local branch ${branchName} is checked out in another worktree.`);
   }
@@ -186,7 +186,7 @@ async function deletePreservedBranch(
 
   // update-ref is not checkout-aware. If another worktree claimed the branch in the
   // inventory→delete gap, restore the tip so that worktree keeps a resolvable HEAD.
-  const afterDelete = await listWorktrees(repository);
+  const afterDelete = await listWorktreeInventory(repository);
   if (afterDelete.some(tree => tree.branch === branchName)) {
     const restored = await runGit(repository, ["update-ref", "--no-deref", branchRef, expectedOid]);
     if (restored.exitCode !== 0 || await branchObjectId(repository, branchRef) !== expectedOid) {

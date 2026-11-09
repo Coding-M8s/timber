@@ -2,7 +2,7 @@ import { samePath } from "../platform/paths";
 import { mkdir } from "node:fs/promises";
 import { refreshRemoteBranch } from "./branches";
 import { exists, physicalPath, within, git, refExists, planWorktree } from "./worktree-plan";
-import { listWorktrees } from "./worktrees";
+import { inspectWorktree, listWorktreeInventory } from "./worktrees";
 import type { CreateWorktreeRequest, RepositoryConfig, RepositoryContext, Worktree } from "../types";
 
 async function failureState(repository: RepositoryContext, path: string, ref: string): Promise<string> {
@@ -58,7 +58,8 @@ export async function createWorktree(
   }
 
   try {
-    const created = (await listWorktrees(repository)).find(tree => samePath(tree.path, path) && tree.branch === name);
+    const inventory = (await listWorktreeInventory(repository)).find(tree => samePath(tree.path, path) && tree.branch === name);
+    const created = inventory ? await inspectWorktree(repository, inventory) : undefined;
     if (created?.pathExists && created.status.kind === "known") return created;
   } catch {
     // Git succeeded, but verifying its inventory failed. Report actual retained state below.

@@ -1,3 +1,4 @@
+import { WorktreeReadPhase } from "../git/worktree-read-phase";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Worktree } from "../types";
 import { alignedRows } from "../columns";
@@ -35,7 +36,8 @@ export function createListHandler(
     const repository = await services.discoverRepository(context.cwd);
     await context.machine?.repository(repository);
     await services.loadConfig(repository);
-    const trees = await services.listWorktrees(repository);
+    const phase = new WorktreeReadPhase(repository);
+    const trees = await services.listWorktrees(repository, { phase });
     if (trees.length === 0 && !context.machine) {
       context.io.stdout("No worktrees found.\n");
       return;
@@ -43,7 +45,7 @@ export function createListHandler(
     const sorted = [...trees].sort((a, b) =>
       Number(b.isPrimary) - Number(a.isPrimary) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const rows = await Promise.all(sorted.map(async tree => {
-      const base = await services.readBaseAssociation(repository, tree);
+      const base = await services.readBaseAssociation(repository, tree, phase);
       return {
         entry: { worktree: tree, base },
         baseWarning: base.kind === "invalid"

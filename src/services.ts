@@ -1,3 +1,4 @@
+import type { WorktreeReadPhase } from "./git/worktree-read-phase";
 import type { MachineReporter } from "./machine";
 import type { ArenaNewOptions, ArenaResumeOptions, ArenaPickOptions } from "./arena/types";
 import type {
@@ -25,7 +26,9 @@ export interface CommandServices {
   /** Return only validated active ticket alternatives for an exact missing/done key. */
   findJiraSuggestions(config: JiraConfig, key: string): Promise<readonly JiraTicket[]>;
   /** Installed Git is authoritative; include manual, detached, stale entries. */
-  listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]>;
+  listWorktrees(
+    repository: RepositoryContext, options?: { inspectStatus?: boolean; phase?: WorktreeReadPhase },
+  ): Promise<readonly Worktree[]>;
   /** Local and cached remote branches, without fetching. */
   listBranches(repository: RepositoryContext): Promise<readonly Branch[]>;
   /** Exact local, exact remote, then delimiter-boundary prefix; no guessing. */
@@ -45,7 +48,7 @@ export interface CommandServices {
    * Default path: ../<repository-name>-worktrees/<safe-branch-slug>.
    */
   createWorktree(repository: RepositoryContext, request: CreateWorktreeRequest, config: RepositoryConfig): Promise<Worktree>;
-  readBaseAssociation(repository: RepositoryContext, worktree: Worktree): Promise<BaseAssociationRead>;
+  readBaseAssociation(repository: RepositoryContext, worktree: Worktree, phase?: WorktreeReadPhase): Promise<BaseAssociationRead>;
   writeBaseAssociation(repository: RepositoryContext, worktree: Worktree, ref: string): Promise<void>;
   /** Select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,

@@ -18,8 +18,10 @@ export interface SelectionWording {
 export async function selectRegisteredWorktree(
   services: Pick<CommandServices, "resolveOpenTarget">, repository: RepositoryContext, config: RepositoryConfig,
   input: string, context: CommandContext, wording: SelectionWording,
+  options: { inspectStatus?: boolean } = {},
 ): Promise<Worktree | null> {
-  const resolution = await services.resolveOpenTarget(repository, input, config, { assertOpenable: false });
+  const resolveOptions = { assertOpenable: false, inspectStatus: options.inspectStatus === true };
+  const resolution = await services.resolveOpenTarget(repository, input, config, resolveOptions);
   if (resolution.kind === "not-found") throw new Error(`No registered worktree matches ${jsonDisplay(input)}; check timber ls.`);
   const candidates = [...new Map((resolution.kind === "found" ? [resolution.value] : resolution.candidates)
     .flatMap(target => target.kind === "worktree" ? [[target.worktree.path, target.worktree] as const] : [])).values()]
@@ -33,7 +35,7 @@ export async function selectRegisteredWorktree(
   if (choice === null) return null;
   const chosen = candidates.find(tree => tree.path === choice);
   if (!chosen) throw new Error(`Invalid worktree selection; ${wording.command} was not started.`);
-  const verified = await services.resolveOpenTarget(repository, chosen.path, config, { assertOpenable: false });
+  const verified = await services.resolveOpenTarget(repository, chosen.path, config, resolveOptions);
   if (verified.kind !== "found" || verified.value.kind !== "worktree"
     || verified.value.worktree.path !== chosen.path || verified.value.worktree.branch !== chosen.branch
     || verified.value.worktree.head !== chosen.head) throw new Error(`Selected worktree changed; rerun ${wording.rerun}.`);
