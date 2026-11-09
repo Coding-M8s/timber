@@ -3,6 +3,7 @@ import errno
 import json
 import os
 import pty
+import re
 import select
 import signal
 import sys
@@ -22,7 +23,19 @@ output = bytearray()
 sent = False
 status = None
 eof = False
-deadline = time.monotonic() + 6
+timeout = payload.get("timeout", 6)
+deadline = time.monotonic() + timeout
+queries = bytearray()
+completed = False
+
+
+def terminate(signum, _frame):
+    # Let finally clean up the controlling session when the caller cancels.
+    raise SystemExit(128 + signum)
+
+
+signal.signal(signal.SIGTERM, terminate)
+signal.signal(signal.SIGINT, terminate)
 try:
     while time.monotonic() < deadline:
         readable, _, _ = select.select([] if eof else [master], [], [], 0.02)
@@ -35,6 +48,14 @@ try:
                 chunk = b""
             if chunk:
                 output.extend(chunk)
+                # Fish 4.1+ waits for DA1 before reading interactive input. Answer
+                # each query, including queries split across PTY reads.
+                queries.extend(chunk)
+                consumed = 0
+                for query in re.finditer(rb"\x1b\[(?:0)?c", queries):
+                    os.write(master, b"\x1b[?1;2c")
+                    consumed = query.end()
+                queries = queries[consumed:][-3:]
             else:
                 eof = True
         if not eof and not sent and payload.get("sendAt", "AGENT_READY").encode() in output:
@@ -51,11 +72,21 @@ try:
         if status is not None and eof:
             break
     if status is None or not eof:
-        raise TimeoutError("PTY command or output did not finish within 6 seconds")
+        raise TimeoutError(
+            f"PTY command or output did not finish within {timeout:g} seconds "
+            f"(input sent: {sent}, child exited: {status is not None}, EOF: {eof}). "
+            f"Captured output: {output.decode('utf-8', errors='replace')!r}"
+        )
+    completed = True
 finally:
-    if status is None:
-        os.killpg(pid, signal.SIGKILL)
-        os.waitpid(pid, 0)
+    if not completed:
+        # Descendants can hold the PTY open even after its session leader exits.
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if status is None:
+            os.waitpid(pid, 0)
     os.close(master)
 
 code = os.waitstatus_to_exitcode(status)
