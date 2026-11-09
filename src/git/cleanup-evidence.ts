@@ -1,3 +1,4 @@
+import { WorktreeReadPhase } from "./worktree-read-phase";
 import { samePath } from "../platform/paths";
 import { isAbsolute, resolve } from "node:path";
 import { execa } from "execa";
@@ -6,10 +7,10 @@ import { resolveBase } from "./branches";
 import { readBaseAssociation } from "./base-metadata";
 import { hasIntegratedContent } from "./cleanup-integration";
 import { discoverRepository } from "./repository";
-import { assertWorktreeIdentity, listWorktrees } from "./worktrees";
+import { inspectWorktree, listWorktreeInventory } from "./worktrees";
 import type {
   AncestryState, CleanupInspection, ContentIntegrationState, PublicationState, RepositoryConfig, RepositoryContext,
-  ValidatedBase, Worktree,
+  ValidatedBase, Worktree, WorktreeInventory,
 } from "../types";
 
 export type CleanupEvidence = {
@@ -224,9 +225,9 @@ async function readCleanupEvidenceImpl(
     throw new Error("Repository identity changed since selection; rediscover the repository and retry cleanup.");
   }
 
-  let inventory: readonly Worktree[];
+  let inventory: readonly WorktreeInventory[];
   try {
-    inventory = await listWorktrees(freshRepository);
+    inventory = await listWorktreeInventory(freshRepository);
   } catch {
     throw new Error("Cannot read the current Git worktree inventory; refresh the worktree list and retry cleanup.");
   }
@@ -234,7 +235,8 @@ async function readCleanupEvidenceImpl(
   if (matches.length !== 1) {
     throw new Error("Selected worktree is not uniquely registered in this repository; refresh the worktree list and retry.");
   }
-  const tree = matches[0]!;
+  const phase = new WorktreeReadPhase(freshRepository);
+  const tree = await inspectWorktree(freshRepository, matches[0]!, phase);
   if (tree.isPrimary) throw new Error(`Cannot clean up the primary worktree at ${tree.path}.`);
   if (!tree.pathExists) throw new Error(`Worktree path is missing at ${tree.path}; restore or repair it before retrying cleanup.`);
   if (tree.prunable !== null) throw new Error(`Worktree at ${tree.path} is prunable or stale; repair its registration before cleanup.`);
@@ -243,7 +245,7 @@ async function readCleanupEvidenceImpl(
     throw new Error(`Worktree selection changed at ${tree.path}; refresh the worktree list and retry cleanup.`);
   }
   try {
-    await assertWorktreeIdentity(freshRepository, tree);
+    await phase.gitDirectory(tree);
   } catch {
     throw new Error(`Worktree identity at ${tree.path} could not be verified; restore its original metadata before cleanup.`);
   }
@@ -293,7 +295,7 @@ async function readCleanupEvidenceImpl(
     }
   }
 
-  const association = await readBaseAssociation(freshRepository, tree);
+  const association = await readBaseAssociation(freshRepository, tree, phase);
   if (association.kind === "invalid" && (association.reason !== "stale" || explicitBase === undefined)) {
     throw new Error("Cannot read saved base association; inspect the worktree's private Git metadata, then select a replacement with --base <ref>.");
   }

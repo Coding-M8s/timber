@@ -1,7 +1,8 @@
 import { samePath, pathKey } from "../platform/paths";
 import { isAbsolute, resolve } from "node:path";
 import { listBranches, listLiveRemoteBranches, resolveBranch } from "./branches";
-import { assertOpenableWorktree, listWorktrees } from "./worktrees";
+import { assertOpenableWorktree, inspectWorktree, listWorktreeInventory, uninspectedWorktree } from "./worktrees";
+import { WorktreeReadPhase } from "./worktree-read-phase";
 import type {
   Branch, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, Worktree,
@@ -29,12 +30,17 @@ async function finish(
   targets: readonly OpenTarget[],
   options: ResolveOpenTargetOptions = {},
 ): Promise<Resolution<OpenTarget>> {
-  const candidates = deduplicateTargets(targets);
+  const phase = new WorktreeReadPhase(repository);
+  const candidates = await Promise.all(deduplicateTargets(targets).map(async target =>
+    target.kind === "worktree" && (options.assertOpenable !== false || options.inspectStatus === true)
+      ? { kind: "worktree" as const,
+        worktree: await inspectWorktree(repository, target.worktree, phase, options.inspectStatus !== false) }
+      : target));
   if (candidates.length === 0) return { kind: "not-found" };
   if (candidates.length > 1) return { kind: "ambiguous", candidates };
   const target = candidates[0]!;
   if (target.kind === "worktree" && options.assertOpenable !== false) {
-    await assertOpenableWorktree(repository, target.worktree);
+    await assertOpenableWorktree(repository, target.worktree, phase);
   }
   return { kind: "found", value: target };
 }
@@ -62,7 +68,10 @@ function mappedTargets(
   return targets;
 }
 
-/** Resolve a registered worktree first, then exact and ticket-prefix branch matching. */
+/** Resolve a registered worktree first, then exact and ticket-prefix branch matching.
+ * With assertOpenable disabled, return inventory-only lookup keys unless
+ * inspectStatus is explicitly true; mutation services must inspect their
+ * selected target afresh before acting. */
 export async function resolveOpenTarget(
   repository: RepositoryContext,
   input: string,
@@ -70,7 +79,7 @@ export async function resolveOpenTarget(
   options: ResolveOpenTargetOptions = {},
 ): Promise<Resolution<OpenTarget>> {
   if (!input) return { kind: "not-found" };
-  const worktrees = await listWorktrees(repository, options);
+  const worktrees = (await listWorktreeInventory(repository)).map(uninspectedWorktree);
 
   if (isAbsolute(input)) {
     const path = resolve(input);
@@ -92,9 +101,9 @@ export async function resolveOpenTarget(
     if (cached.kind !== "not-found") {
       const targets = await finish(repository, mappedTargets(
         cached.kind === "found" ? [cached.value] : cached.candidates, localBranches, worktrees,
-      ), options);
+      ), { ...options, assertOpenable: false });
       if (targets.kind === "found" && (targets.value.kind === "worktree" || targets.value.branch.kind === "local")) {
-        return targets;
+        return finish(repository, [targets.value], options);
       }
     }
   }

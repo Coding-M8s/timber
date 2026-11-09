@@ -7,7 +7,7 @@ import { cleanupWorktree } from "./git/cleanup";
 import { discardFingerprint } from "./git/cleanup-discard";
 import { readCleanupTarget } from "./git/cleanup-evidence";
 import { discoverRepository } from "./git/repository";
-import { listWorktrees } from "./git/worktrees";
+import { listWorktreeInventory, uninspectedWorktree } from "./git/worktrees";
 import type { CommandContext, CommandIO } from "./services";
 import type { CleanupOptions } from "./types";
 import { runMachineCommand } from "./machine";
@@ -29,9 +29,9 @@ export async function previewCleanup(cwd: string, target: string, options: Clean
   if (!isAbsolute(target)) throw new Error("Native cleanup requires an exact absolute worktree path.");
   const repository = await discoverRepository(cwd);
   const config = await loadRepositoryConfig(repository);
-  const selected = (await listWorktrees(repository)).find(tree => tree.path === target);
+  const selected = (await listWorktreeInventory(repository)).find(tree => tree.path === target);
   if (!selected || selected.isPrimary) throw new Error("Select an existing linked worktree; the primary worktree cannot be removed.");
-  const evidence = await readCleanupTarget(repository, selected, config, options.base);
+  const evidence = await readCleanupTarget(repository, uninspectedWorktree(selected), config, options.base);
   const worktree = evidence.inspection.worktree;
   if (worktree.status.kind !== "known") throw new Error("Cannot verify worktree file status.");
   if (!options.discardIgnored && worktree.status.ignored.length) {

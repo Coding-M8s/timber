@@ -1,42 +1,28 @@
 import { samePath } from "../platform/paths";
 import { assertPrivateStorage, protectNewStorage } from "../platform/private-storage";
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readFile, realpath, rename, unlink } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { lstat, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { shellQuoteForDisplay } from "../display";
 import type { RepositoryContext, Worktree } from "../types";
-import { assertWorktreeIdentity } from "./worktrees";
+import { WorktreeReadPhase, type WorktreeMetadataLocation } from "./worktree-read-phase";
 
 export type BaseAssociationRead =
   | { kind: "assigned"; ref: string }
   | { kind: "unassigned" }
   | { kind: "invalid"; reason: "malformed" | "stale" | "unreadable" };
 
-interface Location {
-  file: string;
-  directory: string;
-  worktreePath: string;
-  commonGitDir: string;
-  worktreeGitDir: string;
-}
+interface Location extends WorktreeMetadataLocation { file: string }
 
 const refPattern = /^refs\/(?:heads|remotes)\/.+/u;
 const maxRecordBytes = 4096;
 
-async function location(repository: RepositoryContext, worktree: Worktree): Promise<Location> {
-  await assertWorktreeIdentity(repository, worktree);
-  const result = await execa("git", ["rev-parse", "--absolute-git-dir"], {
-    cwd: worktree.path, reject: false, env: { GIT_OPTIONAL_LOCKS: "0" },
-  });
-  if (result.exitCode !== 0) throw new Error("Cannot identify the worktree's private Git directory.");
-  const worktreeGitDir = await realpath(result.stdout);
-  const directory = join(worktreeGitDir, "timber");
-  return {
-    file: join(directory, "base.json"), directory,
-    worktreePath: resolve(worktree.path),
-    commonGitDir: await realpath(repository.commonGitDir), worktreeGitDir,
-  };
+async function location(
+  repository: RepositoryContext, worktree: Worktree, phase = new WorktreeReadPhase(repository),
+): Promise<Location> {
+  const place = await phase.metadataLocation(worktree);
+  return { ...place, file: join(place.directory, "base.json") };
 }
 
 function validRecord(value: unknown): value is Record<string, unknown> & {
@@ -90,9 +76,9 @@ function assignmentRetry(path: string, ref: string): string {
 
 /** Read only after checking Git's reciprocal worktree identity. */
 export async function readBaseAssociation(
-  repository: RepositoryContext, worktree: Worktree,
+  repository: RepositoryContext, worktree: Worktree, phase?: WorktreeReadPhase,
 ): Promise<BaseAssociationRead> {
-  try { return await readAt(await location(repository, worktree)); }
+  try { return await readAt(await location(repository, worktree, phase)); }
   catch { return { kind: "invalid", reason: "stale" }; }
 }
 

@@ -193,7 +193,8 @@ export interface CleanupResult {
 /** Openability checks are for `open`; cleanup commands skip them and recheck at mutation time. */
 export interface ResolveOpenTargetOptions {
   assertOpenable?: boolean;
-  /** Selection can validate identity without running status and its clean filters. */
+  /** Status runs repository clean filters. With assertOpenable disabled, selected
+   * worktrees are inspected (with status) only when this is explicitly true. */
   inspectStatus?: boolean;
   /** Discover live remote heads when open cannot resolve a single local target. */
   discoverRemote?: boolean;
