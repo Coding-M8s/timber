@@ -5,7 +5,7 @@ Set-StrictMode -Version Latest
 $directoryPath = (Resolve-Path -LiteralPath $Directory).Path
 $info = Get-Content -LiteralPath (Join-Path $directoryPath 'build-info-windows-x64.json') -Raw | ConvertFrom-Json
 if ($info.target -cne 'bun-windows-x64' -or $info.version -notmatch '^\d+\.\d+\.\d+(?:-[a-z0-9.]+)?$') { throw 'Invalid Windows build metadata.' }
-$expected = @('build-info-windows-x64.json', ('timber-v' + $info.version + '-windows-x64.exe'))
+$expected = @('build-info-windows-x64.json', ('timber-v' + $info.version + '-windows-x64.exe'), 'LICENSE', 'THIRD_PARTY_NOTICES.txt')
 $seen = @()
 foreach ($line in Get-Content -LiteralPath (Join-Path $directoryPath 'SHA256SUMS-windows-x64')) {
     if ($line -cnotmatch '^([a-f0-9]{64})  ([^/\\]+)$') { throw 'Malformed Windows checksum manifest.' }

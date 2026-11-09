@@ -27,12 +27,15 @@ bun run build:release
 | Asset | Contents |
 | --- | --- |
 | `timber-v<VERSION>-linux-x64` | Standalone executable, versioned from `package.json` |
-| `build-info.json` | Version, tag if supplied, source commit, dirty marker, Bun version, target |
-| `SHA256SUMS` | Executable and metadata checksums |
+| `build-info.json` | Version, license designation, tag if supplied, source commit, dirty marker, Bun version, target |
+| `LICENSE` | Timber CLI MIT License + Commons Clause v1.0 |
+| `THIRD_PARTY_NOTICES.txt` | Separate dependency terms and Bun licensing inventory |
+| `SHA256SUMS` | Executable, metadata, license, and notices checksums |
 
 `build:release --target windows-x64` selects Bun's `bun-windows-x64` compiler
 target and produces `timber-v<VERSION>-windows-x64.exe`,
-`build-info-windows-x64.json` and `SHA256SUMS-windows-x64` in the output directory.
+`build-info-windows-x64.json` and `SHA256SUMS-windows-x64` in the output directory,
+with the same `LICENSE` and `THIRD_PARTY_NOTICES.txt` files covered by its checksums.
 `--target linux-x64` preserves the Linux names above. Omitted target defaults to
 Windows x64 on Windows and Linux x64 elsewhere. Other targets are rejected.
 
@@ -76,7 +79,12 @@ fixtures where a real external tool is unnecessary.
 
 ## Publish a release
 
-1. Choose the source commit and package version. Run the checks above and review
+1. Review [licensing and the Bun runtime distribution caveat](licensing.md),
+   including exact-runtime license texts and source/relink requirements, before
+   publishing executables. Keep `LICENSE` and `THIRD_PARTY_NOTICES.txt` with source,
+   bundles, and executable distributions. Timber is source-available under the
+   combined terms, not MIT-only or OSI-approved open source.
+   Choose the source commit and package version. Run the checks above and review
    the changes. Exercise the [manual workflow checklist](dogfooding.md) before
    release; record results in the PR or release notes.
 2. Create and push the matching tag when ready. The tag workflow runs the source
@@ -85,7 +93,8 @@ fixtures where a real external tool is unnecessary.
    PowerShell acceptance. See the Windows guide for platform requirements.
 3. The draft job depends on both platform candidates and verifies the live
    GitHub tag still points to the built commit, then creates a draft containing
-   six platform assets. Only that job has write permission; PR CI is read-only.
+   six platform assets plus the shared license and third-party notices. Only that
+   job has write permission; PR CI is read-only.
 4. The job downloads the draft assets, compares metadata and checksums with the
    candidate, rechecks the tag, and reruns the container smoke on the download.
    Existing drafts must match; mismatched assets fail without replacement.

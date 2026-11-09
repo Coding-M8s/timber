@@ -80,3 +80,12 @@ Use `timber <command> --help` for flags.
 - [Building and releasing](docs/releases.md)
 - [Development guidance](AGENTS.md) and [code map](docs/shared-contracts.md)
 - [CLI behavior contract](docs/cli-contract.md)
+
+## License
+
+Timber CLI is [MIT License + Commons Clause v1.0](LICENSE): source-available,
+not OSI-approved open source. Personal, educational, and internal business use,
+modification, forking, and no-charge redistribution are permitted with notices.
+Selling Timber or substantially equivalent offerings is prohibited under the
+clause's terms, including certain paid hosting, consulting, or support services.
+See [licensing details and third-party terms](docs/licensing.md).

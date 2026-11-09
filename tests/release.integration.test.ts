@@ -83,6 +83,13 @@ test("installed Linux standalone resolves Jira using saved credentials without .
 test("release output identifies source and passes checksum validation", async () => {
   const info = JSON.parse(await readFile(join(directory, "build-info.json"), "utf8"));
   expect(info.version).toBe(version);
+  expect(info.license).toBe("SEE LICENSE IN LICENSE");
+  for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
+    expect(await readFile(join(directory, name), "utf8")).toBe(await readFile(join(root, name), "utf8"));
+  }
+  const sums = await readFile(join(directory, "SHA256SUMS"), "utf8");
+  expect(sums).toContain("  LICENSE\n");
+  expect(sums).toContain("  THIRD_PARTY_NOTICES.txt\n");
   expect(info.sourceCommit).toBe((await execa("git", ["rev-parse", "HEAD"], { cwd: root })).stdout);
   expect(info.target).toBe("bun-linux-x64");
   expect(info.bunVersion).toBe("1.4.2");
