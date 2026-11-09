@@ -52,6 +52,8 @@ async function runFishTab(
   await writeFile(payload, JSON.stringify({
     command: [fish!, "--no-config", "--private", "--interactive", "-C", 'source "$TIMBER_SCRIPT"; echo AGENT_READY'],
     cwd,
+    // Leave time for PTY diagnostics and cleanup before the child/test deadlines.
+    timeout: 3,
     env: {
       PATH: bin + delimiter + process.env.PATH,
       TIMBER_SCRIPT: script,
@@ -64,7 +66,7 @@ async function runFishTab(
     },
     input: line + "\t\nexit\n",
   }));
-  const result = await execa("python3", [ptyRunner, payload], { timeout: 10_000 });
+  const result = await execa("python3", [ptyRunner, payload], { timeout: 4_000 });
   const parsed: { exitCode: number; output: string } = JSON.parse(result.stdout);
   expect(parsed.exitCode, parsed.output).toBe(0);
   return { args: JSON.parse(await readFile(capture, "utf8")) as string[], output: parsed.output };
