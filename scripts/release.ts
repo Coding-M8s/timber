@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { execa } from "execa";
-import { packageManager, version } from "../package.json";
+import { license, packageManager, version } from "../package.json";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const number = "(?:0|[1-9][0-9]*)";
@@ -68,9 +68,11 @@ async function build(): Promise<void> {
     "--outfile", join(outdir, binaryName),
   ], { cwd: root, stdio: "inherit" });
   await writeFile(join(outdir, target.metadata), `${JSON.stringify({
-    version, tag: tag ?? null, sourceCommit, sourceDirty, bunVersion: Bun.version, target: target.compile,
+    version, license, tag: tag ?? null, sourceCommit, sourceDirty, bunVersion: Bun.version, target: target.compile,
   }, null, 2)}\n`);
-  const sums = await Promise.all([binaryName, target.metadata].map(async name => {
+  const notices = ["LICENSE", "THIRD_PARTY_NOTICES.txt"];
+  for (const name of notices) await copyFile(join(root, name), join(outdir, name));
+  const sums = await Promise.all([binaryName, target.metadata, ...notices].map(async name => {
     const digest = createHash("sha256").update(await readFile(join(outdir, name))).digest("hex");
     return `${digest}  ${name}\n`;
   }));

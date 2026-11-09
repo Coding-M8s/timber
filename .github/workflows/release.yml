@@ -120,6 +120,8 @@ jobs:
             --tag "$RELEASE_TAG" --build-info candidate/dist/release/build-info.json
           python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
             --tag "$RELEASE_TAG" --build-info candidate-windows/dist/release/build-info-windows-x64.json
+          cmp candidate/dist/release/LICENSE candidate-windows/dist/release/LICENSE
+          cmp candidate/dist/release/THIRD_PARTY_NOTICES.txt candidate-windows/dist/release/THIRD_PARTY_NOTICES.txt
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --json isDraft --jq .isDraft > draft-state; then
             test "$(cat draft-state)" = true || {
@@ -129,10 +131,12 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --draft --title "$RELEASE_TAG" \
-              --notes "Linux x86_64 and provisional Windows x64 candidates. Windows clean-machine and interactive acceptance remain owner gates. Verify platform checksums before installation. Publication requires release-owner review of docs/releases.md and docs/windows.md." \
+              --notes "Linux x86_64 and provisional Windows x64 candidates. Windows clean-machine and interactive acceptance remain owner gates. Verify platform checksums before installation. Timber CLI is source-available under MIT License + Commons Clause v1.0, not MIT-only or OSI-approved open source. Keep LICENSE and THIRD_PARTY_NOTICES.txt with distributions. Publication requires release-owner review of docs/releases.md, docs/licensing.md and docs/windows.md." \
               "candidate/dist/release/timber-$RELEASE_TAG-linux-x64" \
               candidate/dist/release/build-info.json \
               candidate/dist/release/SHA256SUMS \
+              candidate/dist/release/LICENSE \
+              candidate/dist/release/THIRD_PARTY_NOTICES.txt \
               "candidate-windows/dist/release/timber-$RELEASE_TAG-windows-x64.exe" \
               candidate-windows/dist/release/build-info-windows-x64.json \
               candidate-windows/dist/release/SHA256SUMS-windows-x64
@@ -140,7 +144,7 @@ jobs:
           mkdir downloaded
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --dir downloaded --pattern "timber-$RELEASE_TAG-linux-x64" \
-            --pattern build-info.json --pattern SHA256SUMS
+            --pattern build-info.json --pattern SHA256SUMS --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt
           cmp candidate/dist/release/SHA256SUMS downloaded/SHA256SUMS
           cmp candidate/dist/release/build-info.json downloaded/build-info.json
           (cd downloaded && sha256sum -c SHA256SUMS)
@@ -150,7 +154,7 @@ jobs:
           mkdir downloaded-windows
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --dir downloaded-windows --pattern "timber-$RELEASE_TAG-windows-x64.exe" \
-            --pattern build-info-windows-x64.json --pattern SHA256SUMS-windows-x64
+            --pattern build-info-windows-x64.json --pattern SHA256SUMS-windows-x64 --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt
           cmp candidate-windows/dist/release/SHA256SUMS-windows-x64 downloaded-windows/SHA256SUMS-windows-x64
           cmp candidate-windows/dist/release/build-info-windows-x64.json downloaded-windows/build-info-windows-x64.json
           (cd downloaded-windows && sha256sum -c SHA256SUMS-windows-x64)
@@ -199,9 +203,9 @@ jobs:
             --tag "$env:RELEASE_TAG" --build-info candidate/dist/release/build-info-windows-x64.json
           if ($LASTEXITCODE -ne 0) { throw 'Remote tag identity failed.' }
           gh release download "$env:RELEASE_TAG" --repo "$env:GITHUB_REPOSITORY" --dir downloaded `
-            --pattern "timber-$env:RELEASE_TAG-windows-x64.exe" --pattern build-info-windows-x64.json --pattern SHA256SUMS-windows-x64
+            --pattern "timber-$env:RELEASE_TAG-windows-x64.exe" --pattern build-info-windows-x64.json --pattern SHA256SUMS-windows-x64 --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt
           if ($LASTEXITCODE -ne 0) { throw 'Windows asset download failed.' }
-          foreach ($name in @('build-info-windows-x64.json', 'SHA256SUMS-windows-x64')) {
+          foreach ($name in @('build-info-windows-x64.json', 'SHA256SUMS-windows-x64', 'LICENSE', 'THIRD_PARTY_NOTICES.txt')) {
             if ((Get-FileHash "candidate/dist/release/$name").Hash -cne (Get-FileHash "downloaded/$name").Hash) { throw 'Downloaded candidate differs.' }
           }
           ./scripts/check-windows-checksums.ps1 -Directory downloaded

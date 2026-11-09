@@ -2,6 +2,7 @@
   "name": "timber",
   "version": "0.1.0-dev.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "bin": { "timber": "./src/index.ts" },
   "packageManager": "bun@1.4.2",
