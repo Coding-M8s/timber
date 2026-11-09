@@ -1,3 +1,4 @@
+import { createIgnoredPathIndex } from "./ignored-path-index";
 import { WorktreeReadPhase } from "./worktree-read-phase";
 import { samePath } from "../platform/paths";
 import { cancelGitTree, childExitCode } from "../platform/signals";
@@ -140,19 +141,16 @@ async function remoteBase(repository: RepositoryContext, config: RepositoryConfi
 
 async function preserveIgnored(tree: Worktree, base: string): Promise<void> {
   if (tree.status.kind !== "known" || !tree.status.ignored.length) return;
+  const ignoredCollision = createIgnoredPathIndex(tree.status.ignored);
   const commits = (await output(tree.path, ["rev-list", `${base}..${tree.head}`])).split("\n").filter(Boolean);
   for (const commit of [base, ...commits]) {
     if (!oid.test(commit)) throw new Error("Cannot validate commits for ignored-file preservation.");
     const result = await git(tree.path, ["ls-tree", "-r", "--name-only", "-z", commit]);
     if (result.exitCode !== 0) throw new Error("Cannot verify ignored-file preservation; rebase was not started.");
     for (const tracked of result.stdout.split("\0").filter(Boolean)) {
-      for (const ignoredPath of tree.status.ignored) {
-        const ignored = ignoredPath.replace(/\/$/u, "");
-        const trackedKey = process.platform === "win32" ? tracked.toLowerCase() : tracked;
-        const ignoredKey = process.platform === "win32" ? ignored.toLowerCase() : ignored;
-        if (trackedKey === ignoredKey || trackedKey.startsWith(ignoredKey + "/") || ignoredKey.startsWith(trackedKey + "/")) {
-          throw new Error(`Rebase could overwrite ignored content at ${jsonDisplay(ignoredPath)}; move or preserve it elsewhere before retrying.`);
-        }
+      const ignoredPath = ignoredCollision(tracked);
+      if (ignoredPath !== undefined) {
+        throw new Error(`Rebase could overwrite ignored content at ${jsonDisplay(ignoredPath)}; move or preserve it elsewhere before retrying.`);
       }
     }
   }
