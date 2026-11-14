@@ -150,8 +150,8 @@ test("not-found targets explain that open only accepts an existing branch or wor
 test("ambiguous targets print up to five exact selectors in stable order and do not create or launch", async () => {
   const paths = ["/z tree", "/a tree"];
   const branches = [
-    { kind: "remote" as const, remote: "origin", name: "ABU-4-two", ref: "refs/remotes/origin/ABU-4-two" },
-    { kind: "local" as const, name: "ABU-4-one", ref: "refs/heads/ABU-4-one", upstream: null },
+    { kind: "remote" as const, remote: "origin", name: "ENG-4-two", ref: "refs/remotes/origin/ENG-4-two" },
+    { kind: "local" as const, name: "ENG-4-one", ref: "refs/heads/ENG-4-one", upstream: null },
   ];
   const targets: OpenTarget[] = [
     { kind: "branch", branch: branches[0]! }, { kind: "worktree", worktree: worktreeFixture({ path: paths[0]!, isPrimary: false }) },
@@ -168,7 +168,7 @@ test("ambiguous targets print up to five exact selectors in stable order and do 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toBe("error: Input \"feature/one\" matches 4 targets. Did you mean one of these exact branches or paths?\n" +
-    "  /a tree\n  /z tree\n  ABU-4-one\n  origin/ABU-4-two\n");
+    "  /a tree\n  /z tree\n  ENG-4-one\n  origin/ENG-4-two\n");
   expect(sideEffects).toBe(0);
 });
 
@@ -227,7 +227,7 @@ test("interactive ambiguity includes manual-only targets in the same expandable 
     createWorktree: async () => { sideEffects++; return worktreeFixture(); },
     runSetup: async () => { sideEffects++; },
     launchEditor: async () => { sideEffects++; return { kind: "launched" }; },
-  }), ["open", "ABU-834"], async (message, choices) => {
+  }), ["open", "ENG-834"], async (message, choices) => {
     expect(message).toContain("7 targets");
     expect(message).not.toContain("Local branch origin/feature/private");
     expect(choices).toHaveLength(7);

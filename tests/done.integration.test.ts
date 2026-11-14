@@ -354,14 +354,14 @@ test("done refuses ambiguous prefixes, unchecked branches, and unknown paths wit
 
 test.each([false, true])("done ignores a remote-only prefix match while retaining cleanup safeguards (dirty: %s)", async dirty => {
   await withRepository(async (primary, directory) => {
-    const branch = "ABU-835-pilot";
+    const branch = "ENG-835-pilot";
     const path = await target(primary, directory, branch);
     const remote = await upstream(primary, directory, path, branch);
-    await git(primary, "push", "backup", "trunk:ABU-835-rest");
+    await git(primary, "push", "backup", "trunk:ENG-835-rest");
     if (dirty) await writeFile(join(path, "tracked.txt"), "keep dirty work\n");
     const before = await snapshot(primary);
     const remoteRefs = await git(remote, "show-ref");
-    const result = await cli(primary, "ABU-835");
+    const result = await cli(primary, "ENG-835");
     expect(result.exitCode).toBe(dirty ? 1 : 0);
     if (dirty) {
       await retained(primary, path, before);
@@ -370,7 +370,7 @@ test.each([false, true])("done ignores a remote-only prefix match while retainin
       await removed(primary, path, branch, true);
     }
     expect(await git(remote, "show-ref")).toBe(remoteRefs);
-    expect(await git(primary, "rev-parse", "refs/remotes/backup/ABU-835-rest")).toBe(await git(primary, "rev-parse", "trunk"));
+    expect(await git(primary, "rev-parse", "refs/remotes/backup/ENG-835-rest")).toBe(await git(primary, "rev-parse", "trunk"));
   });
 });
 

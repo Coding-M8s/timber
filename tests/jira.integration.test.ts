@@ -19,7 +19,7 @@ import type { RepositoryContext } from "../src/types";
 import { git, withRepository } from "./helpers/git";
 
 const jiraSite = "https://example.atlassian.net";
-const jiraUrl = `${jiraSite}/browse/ABU-834`;
+const jiraUrl = `${jiraSite}/browse/ENG-834`;
 
 async function publishRemoteBranches(primary: string, directory: string, names: string[]) {
   const remote = join(directory, "origin.git");
@@ -40,7 +40,7 @@ async function publishRemoteBranches(primary: string, directory: string, names: 
 test("open discovers an unfetched remote ticket branch and tracks its commits without Jira", async () => {
   await withRepository(async (primary, directory) => {
     await configureJira(primary, ["", "[hooks]", 'post_create = ["touch setup-sentinel.txt"]']);
-    const name = "ABU-834-original-title";
+    const name = "ENG-834-original-title";
     const { producer } = await publishRemoteBranches(primary, directory, [name]);
     const tip = await git(producer, "rev-parse", name);
     expect(await git(primary, "for-each-ref", "refs/remotes")).toBe("");
@@ -48,14 +48,14 @@ test("open discovers an unfetched remote ticket branch and tracks its commits wi
     await writeFile(join(primary, ".env"), "ignored primary\n");
     const harness = jiraHarness(() => successfulIssue("Completely changed title"));
     const lifecycle = { setup: 0, editor: 0 };
-    const result = await command(primary, handlersFor(harness.runtime, lifecycle), "open", "ABU-834", "--no-editor");
+    const result = await command(primary, handlersFor(harness.runtime, lifecycle), "open", "ENG-834", "--no-editor");
     const target = join(directory, "primary repo-worktrees", name);
 
     expect(result).toEqual({ code: 0, stdout: `Created worktree at ${target}\n`, stderr: "" });
     expect(await git(target, "rev-parse", "HEAD")).toBe(tip);
     expect(await git(target, "rev-parse", "--symbolic-full-name", "@{upstream}")).toBe(`refs/remotes/origin/${name}`);
     expect(await readFile(join(target, "remote-work.txt"), "utf8")).toBe(`Existing work on ${name}\n`);
-    expect(await git(primary, "for-each-ref", "refs/heads/ABU-834-completely-changed-title")).toBe("");
+    expect(await git(primary, "for-each-ref", "refs/heads/ENG-834-completely-changed-title")).toBe("");
     expect(await readFile(join(primary, "tracked.txt"), "utf8")).toBe("dirty primary\n");
     expect(await readFile(join(primary, ".env"), "utf8")).toBe("ignored primary\n");
     expect(lifecycle.setup).toBe(1);
@@ -80,7 +80,7 @@ test("open resumes an exact remote branch without Jira or a usable creation base
 test("cancelling multiple live remote matches preserves refs, worktrees and user files without fetching", async () => {
   await withRepository(async (primary, directory) => {
     await configureJira(primary);
-    await publishRemoteBranches(primary, directory, ["ABU-834-one", "ABU-834-two"]);
+    await publishRemoteBranches(primary, directory, ["ENG-834-one", "ENG-834-two"]);
     await writeFile(join(primary, "tracked.txt"), "dirty primary\n");
     await writeFile(join(primary, "untracked.txt"), "untracked primary\n");
     await writeFile(join(primary, ".env"), "ignored primary\n");
@@ -92,9 +92,9 @@ test("cancelling multiple live remote matches preserves refs, worktrees and user
     const lifecycle = { setup: 0, editor: 0 };
     const result = await commandWithChooser(primary, handlersFor(harness.runtime, lifecycle), async (_message, choices) => {
       expect(choices).toHaveLength(2);
-      expect(choices.map(choice => choice.label).join(" ")).toContain("origin/ABU-834-one");
+      expect(choices.map(choice => choice.label).join(" ")).toContain("origin/ENG-834-one");
       return null;
-    }, "open", "ABU-834", "--no-editor");
+    }, "open", "ENG-834", "--no-editor");
     expect(result).toEqual({ code: 0, stdout: "Cancelled.\n", stderr: "" });
     expect(lifecycle).toEqual({ setup: 0, editor: 0 });
     expect(await snapshot()).toEqual(before);
@@ -111,7 +111,7 @@ test("failed live remote discovery does not create a replacement branch or alter
     const before = await snapshot();
     const harness = jiraHarness(() => successfulIssue("Fresh title"));
     const lifecycle = { setup: 0, editor: 0 };
-    const result = await command(primary, handlersFor(harness.runtime, lifecycle), "open", "ABU-834", "--no-editor");
+    const result = await command(primary, handlersFor(harness.runtime, lifecycle), "open", "ENG-834", "--no-editor");
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Could not check existing remote branches");
     expect(result.stdout).toBe("");
@@ -123,15 +123,15 @@ test("failed live remote discovery does not create a replacement branch or alter
 test.each([false, true])("open revalidates a chosen live remote branch before fetching (deleted: %s)", async deleted => {
   await withRepository(async (primary, directory) => {
     await configureJira(primary);
-    const chosen = "ABU-834-two";
-    const { producer } = await publishRemoteBranches(primary, directory, ["ABU-834-one", chosen]);
+    const chosen = "ENG-834-two";
+    const { producer } = await publishRemoteBranches(primary, directory, ["ENG-834-one", chosen]);
     const harness = jiraHarness(() => successfulIssue("Fresh title"));
     const beforeRefs = await git(primary, "show-ref");
     const beforeTrees = await git(primary, "worktree", "list", "--porcelain");
     const result = await commandWithChooser(primary, handlersFor(harness.runtime), async (_message, choices) => {
       if (deleted) await git(producer, "push", "origin", "--delete", chosen);
       return choices.find(choice => choice.value.endsWith(chosen))!.value;
-    }, "open", "ABU-834", "--no-editor");
+    }, "open", "ENG-834", "--no-editor");
     if (deleted) {
       expect(result.code).toBe(1);
       expect(result.stderr).toContain("no longer uniquely available");
@@ -142,7 +142,7 @@ test.each([false, true])("open revalidates a chosen live remote branch before fe
       expect(result.code).toBe(0);
       expect(result.stderr).toBe("");
       expect(await git(primary, "rev-parse", chosen)).toBe(await git(producer, "rev-parse", chosen));
-      expect(await git(primary, "for-each-ref", "refs/heads/ABU-834-one", "refs/remotes/origin/ABU-834-one")).toBe("");
+      expect(await git(primary, "for-each-ref", "refs/heads/ENG-834-one", "refs/remotes/origin/ENG-834-one")).toBe("");
     }
   });
 });
@@ -163,7 +163,7 @@ function jiraHarness(response: (url: string, init: RequestInit) => Response, cre
 }
 
 function successfulIssue(title: string): Response {
-  return Response.json({ key: "ABU-834", fields: {
+  return Response.json({ key: "ENG-834", fields: {
     summary: title,
     status: { name: "In Progress", statusCategory: { key: "indeterminate", name: "In Progress" } },
   } });
@@ -316,7 +316,7 @@ test("new resolves a moved Jira issue from nested linked worktree using canonica
         status: { name: "In Progress", statusCategory: { key: "indeterminate", name: "In Progress" } },
       },
     }));
-    const result = await command(nested, handlersFor(harness.runtime), "new", "ABU-834", "--no-editor");
+    const result = await command(nested, handlersFor(harness.runtime), "new", "ENG-834", "--no-editor");
     const target = join(directory, "primary repo-worktrees", "XYZ-91-fix-cafe-login");
     const canonicalUrl = `${jiraSite}/browse/XYZ-91`;
 
@@ -326,7 +326,7 @@ test("new resolves a moved Jira issue from nested linked worktree using canonica
       stderr: "",
     });
     expect(harness.requests).toHaveLength(1);
-    expect(new URL(harness.requests[0]!.url).pathname).toBe("/rest/api/3/issue/ABU-834");
+    expect(new URL(harness.requests[0]!.url).pathname).toBe("/rest/api/3/issue/ENG-834");
     expect(new URL(harness.requests[0]!.url).searchParams.get("fields")).toBe("summary,status");
     expect(await git(primary, "rev-parse", "refs/heads/XYZ-91-fix-cafe-login")).toBe(base);
     expect(await git(target, "rev-parse", "HEAD")).toBe(base);
@@ -342,7 +342,7 @@ test("each Jira lookup failure preserves dirty, untracked, ignored, ref, worktre
     await writeFile(join(primary, "untracked-sentinel.txt"), "keep untracked\n");
     await writeFile(join(primary, ".env"), "keep ignored\n");
     const root = join(directory, "primary repo-worktrees");
-    const target = join(root, "ABU-834-fix-login");
+    const target = join(root, "ENG-834-fix-login");
     const before = await gitState(
       primary, primary, join(primary, "tracked.txt"),
       [join(primary, "untracked-sentinel.txt"), join(primary, ".env")], [root, target],
@@ -433,7 +433,7 @@ test("each Jira lookup failure preserves dirty, untracked, ignored, ref, worktre
 
     for (const failure of failures) {
       const lifecycle = { setup: 0, editor: 0 };
-      const result = await command(primary, handlersFor(failure.harness.runtime, lifecycle), "new", "ABU-834", "--no-editor");
+      const result = await command(primary, handlersFor(failure.harness.runtime, lifecycle), "new", "ENG-834", "--no-editor");
 
       expect(result.code).toBe(1);
       expect(result.stdout).toBe("");
@@ -459,14 +459,14 @@ test("declining a Jira prefix suggestion preserves the real repository and all u
     await writeFile(join(primary, "untracked-sentinel.txt"), "keep untracked\n");
     await writeFile(join(primary, ".env"), "keep ignored\n");
     const root = join(directory, "primary repo-worktrees");
-    const target = join(root, "ABU-40-candidate-title");
+    const target = join(root, "ENG-40-candidate-title");
     const before = await gitState(
       primary, primary, join(primary, "tracked.txt"),
       [join(primary, "untracked-sentinel.txt"), join(primary, ".env")], [root, target],
     );
     const harness = jiraHarness(url => url.includes("/search/jql")
       ? Response.json({ issues: [{
-        key: "ABU-40",
+        key: "ENG-40",
         fields: {
           summary: "Candidate title",
           status: { statusCategory: { key: "indeterminate" } },
@@ -480,10 +480,10 @@ test("declining a Jira prefix suggestion preserves the real repository and all u
       handlersFor(harness.runtime, lifecycle),
       async (_message, choices) => {
         chooserCalls += 1;
-        expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 - Candidate title" }]);
+        expect(choices).toEqual([{ value: "ENG-40", label: "ENG-40 - Candidate title" }]);
         return null;
       },
-      "new", "ABU-4", "--no-editor",
+      "new", "ENG-4", "--no-editor",
     );
 
     expect(result.code).toBe(0);
@@ -506,7 +506,7 @@ test("revalidates a chosen Jira suggestion and preserves Git state if it becomes
     await writeFile(join(primary, "untracked-sentinel.txt"), "keep untracked\n");
     await writeFile(join(primary, ".env"), "keep ignored\n");
     const root = join(directory, "primary repo-worktrees");
-    const target = join(root, "ABU-40-candidate-title");
+    const target = join(root, "ENG-40-candidate-title");
     const before = await gitState(
       primary, primary, join(primary, "tracked.txt"),
       [join(primary, "untracked-sentinel.txt"), join(primary, ".env")], [root, target],
@@ -515,15 +515,15 @@ test("revalidates a chosen Jira suggestion and preserves Git state if it becomes
       const request = new URL(url);
       if (request.pathname.endsWith("/search/jql")) {
         return Response.json({ issues: [{
-          key: "ABU-40",
+          key: "ENG-40",
           fields: {
             summary: "Candidate title",
             status: { statusCategory: { key: "new" } },
           },
         }], isLast: true });
       }
-      if (request.pathname.endsWith("/issue/ABU-4")) return new Response(null, { status: 404 });
-      return Response.json({ key: "ABU-40", fields: {
+      if (request.pathname.endsWith("/issue/ENG-4")) return new Response(null, { status: 404 });
+      return Response.json({ key: "ENG-40", fields: {
         summary: "PRIVATE_SUMMARY_MARKER",
         status: { name: "Clôturé", statusCategory: { key: "done", name: "Done" } },
       } });
@@ -536,19 +536,19 @@ test("revalidates a chosen Jira suggestion and preserves Git state if it becomes
       async (_message, choices) => {
         chooserCalls += 1;
         expect(choices).toHaveLength(1);
-        return "ABU-40";
+        return "ENG-40";
       },
-      "new", "ABU-4", "--no-editor",
+      "new", "ENG-4", "--no-editor",
     );
 
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Jira issue ABU-40 is complete");
+    expect(result.stderr).toContain("Jira issue ENG-40 is complete");
     expect(result.stderr).not.toContain("PRIVATE_SUMMARY_MARKER");
     expect(result.stderr).not.toContain("Clôturé");
     expect(chooserCalls).toBe(1);
     expect(harness.requests).toHaveLength(3);
-    expect(new URL(harness.requests[2]!.url).pathname).toBe("/rest/api/3/issue/ABU-40");
+    expect(new URL(harness.requests[2]!.url).pathname).toBe("/rest/api/3/issue/ENG-40");
     expect(lifecycle).toEqual({ setup: 0, editor: 0 });
     expect(await gitState(
       primary, primary, join(primary, "tracked.txt"),
@@ -565,23 +565,23 @@ test("creates from a single Jira suggestion only after explicit selection and ex
       const request = new URL(url);
       if (request.pathname.endsWith("/search/jql")) {
         return Response.json({ issues: [{
-          key: "ABU-40",
+          key: "ENG-40",
           fields: {
             summary: "Stale search title",
             status: { statusCategory: { key: "indeterminate" } },
           },
         }], isLast: true });
       }
-      if (request.pathname.endsWith("/issue/ABU-4")) return new Response(null, { status: 404 });
+      if (request.pathname.endsWith("/issue/ENG-4")) return new Response(null, { status: 404 });
       return Response.json({
-        key: "ABU-40",
+        key: "ENG-40",
         fields: {
           summary: "Fresh title",
           status: { name: "In Progress", statusCategory: { key: "new", name: "To Do" } },
         },
       });
     });
-    const target = join(directory, "primary repo-worktrees", "ABU-40-fresh-title");
+    const target = join(directory, "primary repo-worktrees", "ENG-40-fresh-title");
     let chooserCalls = 0;
     const result = await commandWithChooser(
       primary,
@@ -589,25 +589,25 @@ test("creates from a single Jira suggestion only after explicit selection and ex
       async (message, choices) => {
         chooserCalls += 1;
         expect(message).toMatch(/unavailable or not visible[\s\S]*Did you mean/i);
-        expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 - Stale search title" }]);
-        return "ABU-40";
+        expect(choices).toEqual([{ value: "ENG-40", label: "ENG-40 - Stale search title" }]);
+        return "ENG-40";
       },
-      "new", "ABU-4", "--no-editor",
+      "new", "ENG-4", "--no-editor",
     );
 
     expect(result).toEqual({
       code: 0,
-      stdout: `Created ABU-40-fresh-title at ${target}\nJira: ${jiraSite}/browse/ABU-40\nABU-40 - Fresh title\n`,
+      stdout: `Created ENG-40-fresh-title at ${target}\nJira: ${jiraSite}/browse/ENG-40\nENG-40 - Fresh title\n`,
       stderr: "",
     });
     expect(chooserCalls).toBe(1);
     expect(harness.requests).toHaveLength(3);
-    expect(new URL(harness.requests[0]!.url).pathname).toBe("/rest/api/3/issue/ABU-4");
+    expect(new URL(harness.requests[0]!.url).pathname).toBe("/rest/api/3/issue/ENG-4");
     const search = new URL(harness.requests[1]!.url);
     expect(search.pathname).toBe("/rest/api/3/search/jql");
-    expect(search.searchParams.get("jql")).toBe('project = "ABU" AND statusCategory != Done ORDER BY key ASC');
-    expect(new URL(harness.requests[2]!.url).pathname).toBe("/rest/api/3/issue/ABU-40");
-    expect(await git(primary, "rev-parse", "refs/heads/ABU-40-fresh-title")).toBe(base);
+    expect(search.searchParams.get("jql")).toBe('project = "ENG" AND statusCategory != Done ORDER BY key ASC');
+    expect(new URL(harness.requests[2]!.url).pathname).toBe("/rest/api/3/issue/ENG-40");
+    expect(await git(primary, "rev-parse", "refs/heads/ENG-40-fresh-title")).toBe(base);
     expect(await git(target, "rev-parse", "HEAD")).toBe(base);
   });
 });
@@ -619,9 +619,9 @@ test("ordinary slash branch worktree blocks a colliding Jira destination without
     const config = await loadRepositoryConfig(repository);
     const base = await resolveBase(repository, config);
     const ordinary = await createWorktree(repository, {
-      kind: "new", branch: "ABU/834-fix-login", base,
+      kind: "new", branch: "ENG/834-fix-login", base,
     }, config);
-    const target = join(directory, "primary repo-worktrees", "ABU-834-fix-login");
+    const target = join(directory, "primary repo-worktrees", "ENG-834-fix-login");
     expect(ordinary.path).toBe(target);
     await writeFile(join(target, "tracked.txt"), "keep dirty collision content\n");
     await writeFile(join(target, "collision-untracked.txt"), "keep untracked collision\n");
@@ -632,7 +632,7 @@ test("ordinary slash branch worktree blocks a colliding Jira destination without
     );
     const harness = jiraHarness(() => successfulIssue("Fix login"));
 
-    const result = await command(primary, handlersFor(harness.runtime), "new", "ABU-834", "--no-editor");
+    const result = await command(primary, handlersFor(harness.runtime), "new", "ENG-834", "--no-editor");
 
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
@@ -641,7 +641,7 @@ test("ordinary slash branch worktree blocks a colliding Jira destination without
       primary, target, join(target, "tracked.txt"),
       [join(target, "collision-untracked.txt"), join(target, ".env")], [target],
     )).toEqual(before);
-    expect(await git(primary, "show-ref")).toContain("refs/heads/ABU/834-fix-login");
+    expect(await git(primary, "show-ref")).toContain("refs/heads/ENG/834-fix-login");
   });
 });
 
@@ -651,44 +651,44 @@ test("duplicate and changed Jira titles behave deterministically; ticket open re
     let summary = "Fix café / login!";
     const harness = jiraHarness(() => successfulIssue(summary));
     const onlineHandlers = handlersFor(harness.runtime);
-    const first = await command(primary, onlineHandlers, "new", "ABU-834", "--no-editor");
-    const firstTarget = join(directory, "primary repo-worktrees", "ABU-834-fix-cafe-login");
+    const first = await command(primary, onlineHandlers, "new", "ENG-834", "--no-editor");
+    const firstTarget = join(directory, "primary repo-worktrees", "ENG-834-fix-cafe-login");
     expect(first.code).toBe(0);
-    expect(first.stdout).toBe(`Created ABU-834-fix-cafe-login at ${firstTarget}\nJira: ${jiraUrl}\nABU-834 - Fix café / login!\n`);
+    expect(first.stdout).toBe(`Created ENG-834-fix-cafe-login at ${firstTarget}\nJira: ${jiraUrl}\nENG-834 - Fix café / login!\n`);
 
     const beforeDuplicate = await gitState(
       primary, firstTarget, join(firstTarget, "tracked.txt"), [], [firstTarget],
     );
-    const duplicate = await command(primary, onlineHandlers, "new", "ABU-834", "--no-editor");
+    const duplicate = await command(primary, onlineHandlers, "new", "ENG-834", "--no-editor");
     expect(duplicate.code).toBe(1);
     expect(duplicate.stdout).toBe("");
-    expect(duplicate.stderr).toContain("Branch ABU-834-fix-cafe-login is already checked out");
+    expect(duplicate.stderr).toContain("Branch ENG-834-fix-cafe-login is already checked out");
     expect(await gitState(
       primary, firstTarget, join(firstTarget, "tracked.txt"), [], [firstTarget],
     )).toEqual(beforeDuplicate);
 
     const fetchesBeforeOpen = harness.requests.length;
     const offlineRuntime = jiraHarness(() => { throw new Error("offline Jira lookup must not run"); }, false);
-    const opened = await command(primary, handlersFor(offlineRuntime.runtime), "open", "ABU-834", "--no-editor");
+    const opened = await command(primary, handlersFor(offlineRuntime.runtime), "open", "ENG-834", "--no-editor");
     expect(opened).toEqual({ code: 0, stdout: `Opened existing worktree at ${firstTarget}\n`, stderr: "" });
     expect(harness.requests).toHaveLength(fetchesBeforeOpen);
     expect(offlineRuntime.requests).toHaveLength(0);
 
     summary = "Fix recovery flow";
-    const changed = await command(primary, onlineHandlers, "new", "ABU-834", "--no-editor");
-    const changedTarget = join(directory, "primary repo-worktrees", "ABU-834-fix-recovery-flow");
+    const changed = await command(primary, onlineHandlers, "new", "ENG-834", "--no-editor");
+    const changedTarget = join(directory, "primary repo-worktrees", "ENG-834-fix-recovery-flow");
     expect(changed.code).toBe(0);
-    expect(changed.stdout).toBe(`Created ABU-834-fix-recovery-flow at ${changedTarget}\nJira: ${jiraUrl}\nABU-834 - Fix recovery flow\n`);
-    expect(await git(primary, "rev-parse", "refs/heads/ABU-834-fix-recovery-flow")).toBe(await git(primary, "rev-parse", "trunk"));
+    expect(changed.stdout).toBe(`Created ENG-834-fix-recovery-flow at ${changedTarget}\nJira: ${jiraUrl}\nENG-834 - Fix recovery flow\n`);
+    expect(await git(primary, "rev-parse", "refs/heads/ENG-834-fix-recovery-flow")).toBe(await git(primary, "rev-parse", "trunk"));
 
     const ambiguousRuntime = jiraHarness(() => { throw new Error("offline Jira lookup must not run"); }, false);
     const offlineHandlers = handlersFor(ambiguousRuntime.runtime);
-    const firstAmbiguous = await command(primary, offlineHandlers, "open", "ABU-834", "--no-editor");
-    const secondAmbiguous = await command(primary, offlineHandlers, "open", "ABU-834", "--no-editor");
+    const firstAmbiguous = await command(primary, offlineHandlers, "open", "ENG-834", "--no-editor");
+    const secondAmbiguous = await command(primary, offlineHandlers, "open", "ENG-834", "--no-editor");
     expect(firstAmbiguous.code).toBe(1);
     expect(firstAmbiguous.stderr).toEqual(secondAmbiguous.stderr);
-    expect(firstAmbiguous.stderr).toContain("ABU-834-fix-cafe-login");
-    expect(firstAmbiguous.stderr).toContain("ABU-834-fix-recovery-flow");
+    expect(firstAmbiguous.stderr).toContain("ENG-834-fix-cafe-login");
+    expect(firstAmbiguous.stderr).toContain("ENG-834-fix-recovery-flow");
     expect(ambiguousRuntime.requests).toHaveLength(0);
   });
 });
@@ -697,13 +697,13 @@ test("setup failure after Jira creation retains its worktree and hook files", as
   await withRepository(async (primary, directory) => {
     await configureJira(primary, ["", "[hooks]", 'post_create = ["touch setup-sentinel.txt", "false"]']);
     const harness = jiraHarness(() => successfulIssue("Fails in setup"));
-    const result = await command(primary, handlersFor(harness.runtime), "new", "ABU-834");
-    const target = join(directory, "primary repo-worktrees", "ABU-834-fails-in-setup");
+    const result = await command(primary, handlersFor(harness.runtime), "new", "ENG-834");
+    const target = join(directory, "primary repo-worktrees", "ENG-834-fails-in-setup");
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toBe(`Created ABU-834-fails-in-setup at ${target}\nJira: ${jiraUrl}\nABU-834 - Fails in setup\n`);
+    expect(result.stdout).toBe(`Created ENG-834-fails-in-setup at ${target}\nJira: ${jiraUrl}\nENG-834 - Fails in setup\n`);
     expect(result.stderr).toContain("Setup post_create step 2 failed");
-    expect(await git(primary, "rev-parse", "refs/heads/ABU-834-fails-in-setup")).toBe(await git(primary, "rev-parse", "trunk"));
+    expect(await git(primary, "rev-parse", "refs/heads/ENG-834-fails-in-setup")).toBe(await git(primary, "rev-parse", "trunk"));
     expect(await readFile(join(target, "tracked.txt"), "utf8")).toBe("original\n");
     expect(await readFile(join(target, "setup-sentinel.txt"), "utf8")).toBe("");
   });
@@ -714,14 +714,14 @@ test("editor startup failure after Jira creation retains its worktree", async ()
     const missingEditor = join(directory, "missing timber editor");
     await configureJira(primary, ["", "[editor]", `command = ${JSON.stringify(missingEditor)}`, "enabled = true"]);
     const harness = jiraHarness(() => successfulIssue("Fails in editor"));
-    const result = await command(primary, handlersFor(harness.runtime), "new", "ABU-834");
-    const target = join(directory, "primary repo-worktrees", "ABU-834-fails-in-editor");
+    const result = await command(primary, handlersFor(harness.runtime), "new", "ENG-834");
+    const target = join(directory, "primary repo-worktrees", "ENG-834-fails-in-editor");
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toBe(`Created ABU-834-fails-in-editor at ${target}\nJira: ${jiraUrl}\nABU-834 - Fails in editor\n`);
+    expect(result.stdout).toBe(`Created ENG-834-fails-in-editor at ${target}\nJira: ${jiraUrl}\nENG-834 - Fails in editor\n`);
     expect(result.stderr).toContain("Could not start the configured editor");
     expect(result.stderr).toContain("timber open --");
-    expect(await git(primary, "rev-parse", "refs/heads/ABU-834-fails-in-editor")).toBe(await git(primary, "rev-parse", "trunk"));
+    expect(await git(primary, "rev-parse", "refs/heads/ENG-834-fails-in-editor")).toBe(await git(primary, "rev-parse", "trunk"));
     expect(await readFile(join(target, "tracked.txt"), "utf8")).toBe("original\n");
   });
 });

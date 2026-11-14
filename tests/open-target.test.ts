@@ -66,10 +66,10 @@ async function expectPreservedState(
 test("an exact checked-out branch returns its manual worktree", async () => {
   await withRepository(async (primary, directory) => {
     const linked = join(directory, "manual worktree with spaces");
-    await git(primary, "worktree", "add", "-b", "ABU-834-one", linked);
+    await git(primary, "worktree", "add", "-b", "ENG-834-one", linked);
     const repository = await discoverRepository(primary);
     const before = await git(primary, "worktree", "list", "--porcelain", "-z");
-    expect(await resolveOpenTarget(repository, "ABU-834-one", config)).toMatchObject({
+    expect(await resolveOpenTarget(repository, "ENG-834-one", config)).toMatchObject({
       kind: "found", value: { kind: "worktree", worktree: { path: linked } },
     });
     expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(before);
@@ -159,25 +159,25 @@ test("a cached remote-only branch resolves offline with its remote and full ref"
 
 test("an exact local branch wins over a checked-out ticket-prefix branch", async () => {
   await withRepository(async (primary, directory) => {
-    await git(primary, "worktree", "add", "-b", "ABU-834-one", join(directory, "prefix worktree"));
-    await git(primary, "branch", "ABU-834");
+    await git(primary, "worktree", "add", "-b", "ENG-834-one", join(directory, "prefix worktree"));
+    await git(primary, "branch", "ENG-834");
     const repository = await discoverRepository(primary);
 
-    expect(await resolveOpenTarget(repository, "ABU-834", config)).toMatchObject({
-      kind: "found", value: { kind: "branch", branch: { kind: "local", name: "ABU-834", ref: "refs/heads/ABU-834" } },
+    expect(await resolveOpenTarget(repository, "ENG-834", config)).toMatchObject({
+      kind: "found", value: { kind: "branch", branch: { kind: "local", name: "ENG-834", ref: "refs/heads/ENG-834" } },
     });
   });
 });
 
 test("an exact remote branch wins over a checked-out ticket-prefix branch", async () => {
   await withRepository(async (primary, directory) => {
-    await addOfflineRemote(primary, directory, "upstream", "ABU-834");
-    await git(primary, "worktree", "add", "-b", "ABU-834-one", join(directory, "prefix worktree"));
+    await addOfflineRemote(primary, directory, "upstream", "ENG-834");
+    await git(primary, "worktree", "add", "-b", "ENG-834-one", join(directory, "prefix worktree"));
     const repository = await discoverRepository(primary);
 
-    expect(await resolveOpenTarget(repository, "ABU-834", config)).toEqual({
+    expect(await resolveOpenTarget(repository, "ENG-834", config)).toEqual({
       kind: "found", value: { kind: "branch", branch: {
-        kind: "remote", remote: "upstream", name: "ABU-834", ref: "refs/remotes/upstream/ABU-834",
+        kind: "remote", remote: "upstream", name: "ENG-834", ref: "refs/remotes/upstream/ENG-834",
       } },
     });
   });
@@ -186,11 +186,11 @@ test("an exact remote branch wins over a checked-out ticket-prefix branch", asyn
 test("a unique ticket prefix reuses its checked-out worktree", async () => {
   await withRepository(async (primary, directory) => {
     const linked = join(directory, "existing ticket worktree");
-    await git(primary, "worktree", "add", "-b", "ABU-834-one", linked);
+    await git(primary, "worktree", "add", "-b", "ENG-834-one", linked);
     const repository = await discoverRepository(primary);
 
-    expect(await resolveOpenTarget(repository, "ABU-834", config)).toMatchObject({
-      kind: "found", value: { kind: "worktree", worktree: { path: linked, branch: "ABU-834-one" } },
+    expect(await resolveOpenTarget(repository, "ENG-834", config)).toMatchObject({
+      kind: "found", value: { kind: "worktree", worktree: { path: linked, branch: "ENG-834-one" } },
     });
   });
 });
@@ -198,15 +198,15 @@ test("a unique ticket prefix reuses its checked-out worktree", async () => {
 test("a checked-out ticket prefix and an unchecked prefix branch stay fully ambiguous", async () => {
   await withRepository(async (primary, directory) => {
     const linked = join(directory, "checked out prefix");
-    await git(primary, "worktree", "add", "-b", "ABU-834-one", linked);
-    await git(primary, "branch", "ABU-834_two");
+    await git(primary, "worktree", "add", "-b", "ENG-834-one", linked);
+    await git(primary, "branch", "ENG-834_two");
     const repository = await discoverRepository(primary);
-    const result = await resolveOpenTarget(repository, "ABU-834", config);
+    const result = await resolveOpenTarget(repository, "ENG-834", config);
 
     expect(result.kind).toBe("ambiguous");
     if (result.kind === "ambiguous") {
       expect(targetIdentities(result.candidates)).toEqual([
-        "branch:refs/heads/ABU-834_two", `worktree:${linked}`,
+        "branch:refs/heads/ENG-834_two", `worktree:${linked}`,
       ]);
     }
   });
@@ -214,18 +214,18 @@ test("a checked-out ticket prefix and an unchecked prefix branch stay fully ambi
 
 test("ticket matching includes every delimiter boundary in stable ref order", async () => {
   await withRepository(async (primary) => {
-    const names = ["ABU-834-one", "ABU-834_two", "ABU-834.three", "ABU-834/four"];
+    const names = ["ENG-834-one", "ENG-834_two", "ENG-834.three", "ENG-834/four"];
     for (const name of names) await git(primary, "branch", name);
     const repository = await discoverRepository(primary);
-    const result = await resolveOpenTarget(repository, "ABU-834", config);
+    const result = await resolveOpenTarget(repository, "ENG-834", config);
 
     expect(result.kind).toBe("ambiguous");
     if (result.kind === "ambiguous") {
       expect(targetIdentities(result.candidates)).toEqual([
-        "branch:refs/heads/ABU-834-one",
-        "branch:refs/heads/ABU-834.three",
-        "branch:refs/heads/ABU-834/four",
-        "branch:refs/heads/ABU-834_two",
+        "branch:refs/heads/ENG-834-one",
+        "branch:refs/heads/ENG-834.three",
+        "branch:refs/heads/ENG-834/four",
+        "branch:refs/heads/ENG-834_two",
       ]);
     }
   });
@@ -233,12 +233,12 @@ test("ticket matching includes every delimiter boundary in stable ref order", as
 
 test("ticket matching rejects numeric, nested, and leading substring collisions", async () => {
   await withRepository(async (primary) => {
-    for (const name of ["ABU-8342-wrong", "feature/ABU-834-one", "XABU-834-one"]) {
+    for (const name of ["ENG-8342-wrong", "feature/ENG-834-one", "XENG-834-one"]) {
       await git(primary, "branch", name);
     }
     const repository = await discoverRepository(primary);
 
-    expect(await resolveOpenTarget(repository, "ABU-834", config)).toEqual({ kind: "not-found" });
+    expect(await resolveOpenTarget(repository, "ENG-834", config)).toEqual({ kind: "not-found" });
   });
 });
 
@@ -311,14 +311,14 @@ for (const upstream of [null, "origin"] as const) {
 
 test("local and remote ticket-prefix candidates deduplicate when they map to the same path", async () => {
   await withRepository(async (primary, directory) => {
-    await addOfflineRemote(primary, directory, "upstream", "ABU-834-one");
+    await addOfflineRemote(primary, directory, "upstream", "ENG-834-one");
     const linked = join(directory, "same local and remote target");
-    await git(primary, "worktree", "add", "-b", "ABU-834-one", linked);
-    await git(primary, "config", "branch.ABU-834-one.remote", "upstream");
-    await git(primary, "config", "branch.ABU-834-one.merge", "refs/heads/ABU-834-one");
+    await git(primary, "worktree", "add", "-b", "ENG-834-one", linked);
+    await git(primary, "config", "branch.ENG-834-one.remote", "upstream");
+    await git(primary, "config", "branch.ENG-834-one.merge", "refs/heads/ENG-834-one");
     const repository = await discoverRepository(primary);
 
-    expect(await resolveOpenTarget(repository, "ABU-834", withRemote("upstream"))).toMatchObject({
+    expect(await resolveOpenTarget(repository, "ENG-834", withRemote("upstream"))).toMatchObject({
       kind: "found", value: { kind: "worktree", worktree: { path: linked } },
     });
   });
@@ -396,14 +396,14 @@ for (const inputKind of ["exact branch", "absolute path", "unique ticket prefix"
   test(`a uniquely selected missing ${inputKind} rejects without pruning or changing other work`, async () => {
     await withRepository(async (primary, directory) => {
       const protectedTree = join(directory, "protected worktree");
-      const stale = join(directory, "stale ABU-834 target");
+      const stale = join(directory, "stale ENG-834 target");
       await preparePreservedWorktree(primary, protectedTree, "protected-work");
-      await git(primary, "worktree", "add", "-b", "ABU-834-one", stale);
+      await git(primary, "worktree", "add", "-b", "ENG-834-one", stale);
       await rm(stale, { recursive: true });
       const repository = await discoverRepository(primary);
       const before = await preservedState(primary, protectedTree);
-      const input = inputKind === "exact branch" ? "ABU-834-one"
-        : inputKind === "absolute path" ? stale : "ABU-834";
+      const input = inputKind === "exact branch" ? "ENG-834-one"
+        : inputKind === "absolute path" ? stale : "ENG-834";
 
       await expect(resolveOpenTarget(repository, input, config)).rejects.toThrow(stale);
       await expect(access(stale)).rejects.toThrow();
@@ -418,12 +418,12 @@ test("an ambiguous prefix retains healthy and missing worktree candidates", asyn
   await withRepository(async (primary, directory) => {
     const healthy = join(directory, "a healthy prefix worktree");
     const stale = join(directory, "z stale prefix worktree");
-    await preparePreservedWorktree(primary, healthy, "ABU-834-good");
-    await git(primary, "worktree", "add", "-b", "ABU-834-stale", stale);
+    await preparePreservedWorktree(primary, healthy, "ENG-834-good");
+    await git(primary, "worktree", "add", "-b", "ENG-834-stale", stale);
     await rm(stale, { recursive: true });
     const repository = await discoverRepository(primary);
     const before = await preservedState(primary, healthy);
-    const result = await resolveOpenTarget(repository, "ABU-834", config);
+    const result = await resolveOpenTarget(repository, "ENG-834", config);
 
     expect(result.kind).toBe("ambiguous");
     if (result.kind === "ambiguous") {
@@ -443,10 +443,10 @@ test("an ambiguous prefix retains healthy and missing worktree candidates", asyn
 for (const replacement of ["unrelated repository", "symlink", "copied sibling gitfile"] as const) {
   test(`opening a selected path replaced by a ${replacement} refuses and preserves both locations`, async () => {
     await withRepository(async (primary, directory) => {
-      const selected = join(directory, "selected ABU-834 worktree");
+      const selected = join(directory, "selected ENG-834 worktree");
       const sibling = join(directory, "protected sibling worktree");
       await preparePreservedWorktree(primary, sibling, "protected-sibling");
-      await git(primary, "worktree", "add", "-b", "ABU-834-one", selected);
+      await git(primary, "worktree", "add", "-b", "ENG-834-one", selected);
       await rm(selected, { recursive: true });
       const selectedSentinel = join(selected, "selected-sentinel.txt");
       const siblingSentinel = join(sibling, "sibling-sentinel.txt");
@@ -467,7 +467,7 @@ for (const replacement of ["unrelated repository", "symlink", "copied sibling gi
 
       const repository = await discoverRepository(primary);
       const before = await preservedState(primary, sibling);
-      await expect(resolveOpenTarget(repository, "ABU-834-one", config)).rejects.toThrow(selected);
+      await expect(resolveOpenTarget(repository, "ENG-834-one", config)).rejects.toThrow(selected);
       expect(await git(primary, "worktree", "list", "--porcelain", "-z")).toBe(before.inventory);
       expect(await git(primary, "show-ref")).toBe(before.refs);
       expect(await readFile(siblingSentinel, "utf8")).toBe("sibling sentinel\n");
@@ -481,23 +481,23 @@ for (const replacement of ["unrelated repository", "symlink", "copied sibling gi
 
 test("offline exact, path, prefix, and upstream reuse preserve a locked dirty worktree", async () => {
   await withRepository(async (primary, directory) => {
-    await addOfflineRemote(primary, directory, "upstream", "ABU-834-one");
+    await addOfflineRemote(primary, directory, "upstream", "ENG-834-one");
     const remoteUrl = join(directory, "upstream unavailable.git");
     const linked = join(directory, "locked\nwith\tcontrols");
-    await preparePreservedWorktree(primary, linked, "ABU-834-one");
-    await git(primary, "config", "branch.ABU-834-one.remote", "upstream");
-    await git(primary, "config", "branch.ABU-834-one.merge", "refs/heads/ABU-834-one");
+    await preparePreservedWorktree(primary, linked, "ENG-834-one");
+    await git(primary, "config", "branch.ENG-834-one.remote", "upstream");
+    await git(primary, "config", "branch.ENG-834-one.merge", "refs/heads/ENG-834-one");
     const gitDirectory = await git(linked, "rev-parse", "--absolute-git-dir");
     await writeFile(join(gitDirectory, "index"), "corrupt index fixture\n");
     const repository = await discoverRepository(primary);
     const before = await preservedState(primary, linked);
     expect(await git(primary, "remote", "get-url", "upstream")).toBe(remoteUrl);
 
-    for (const input of ["ABU-834-one", linked, "ABU-834", "upstream/ABU-834-one"]) {
+    for (const input of ["ENG-834-one", linked, "ENG-834", "upstream/ENG-834-one"]) {
       const result = await resolveOpenTarget(repository, input, withRemote("upstream"));
       expect(result).toMatchObject({
         kind: "found", value: { kind: "worktree", worktree: {
-          path: linked, branch: "ABU-834-one", locked: { reason: "preserve during resolution" },
+          path: linked, branch: "ENG-834-one", locked: { reason: "preserve during resolution" },
           status: { kind: "unknown" },
         } },
       });
