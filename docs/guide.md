@@ -28,26 +28,25 @@ in [beta](releases.md#macos-beta); a minimum macOS version is not established.
 Other Linux distributions, architectures and musl/Alpine are not verified.
 See the [Windows guide](windows.md) for provisional Windows x64 downloads.
 
-Tagged downloads become available after the release owner publishes a verified
-release. Until then, use the source checkout below. This repository is private:
-authenticate [GitHub CLI](https://cli.github.com/) with repository read access,
-or download the executable, build-info, checksum, `LICENSE` and
-`THIRD_PARTY_NOTICES.txt` assets for your platform from the authenticated GitHub
-Releases page. The checksum file covers all four other files.
-GitHub CLI is a download tool, not a Timber runtime dependency.
+Published releases are listed on the
+[releases page](https://github.com/Coding-M8s/timber/releases). Download the
+executable, build-info, checksum, `LICENSE` and `THIRD_PARTY_NOTICES.txt` assets
+for your platform. The checksum file covers all four other files, so keep them
+in one directory. The commands below use `curl`; downloading the same assets in
+a browser works too.
 
 For Linux, choose a published tag in place of `vX.Y.Z`. Run the download, verification, and
 installation chain together; installation runs only when all checks pass:
 
 ```bash
 TIMBER_TAG=vX.Y.Z
+RELEASE_URL="https://github.com/Coding-M8s/timber/releases/download/$TIMBER_TAG"
 DOWNLOAD_DIR="$(mktemp -d "timber-download.XXXXXX")"
-gh release download "$TIMBER_TAG" --repo Coding-M8s/timber \
-  --dir "$DOWNLOAD_DIR" \
-  --pattern "timber-$TIMBER_TAG-linux-x64" \
-  --pattern build-info.json --pattern SHA256SUMS \
-  --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt \
-  && (cd "$DOWNLOAD_DIR" && sha256sum -c SHA256SUMS) \
+(cd "$DOWNLOAD_DIR" && curl -fsSL --remote-name-all \
+    "$RELEASE_URL/timber-$TIMBER_TAG-linux-x64" \
+    "$RELEASE_URL/build-info.json" "$RELEASE_URL/SHA256SUMS" \
+    "$RELEASE_URL/LICENSE" "$RELEASE_URL/THIRD_PARTY_NOTICES.txt" \
+  && sha256sum -c SHA256SUMS) \
   && install -Dm755 "$DOWNLOAD_DIR/timber-$TIMBER_TAG-linux-x64" "$HOME/.local/bin/timber" \
   && "$HOME/.local/bin/timber" --version
 export PATH="$HOME/.local/bin:$PATH"
@@ -60,13 +59,13 @@ Use a published tag and run this download, verification and installation chain:
 ```bash
 TIMBER_TAG=vX.Y.Z
 TIMBER_TARGET=darwin-arm64
+RELEASE_URL="https://github.com/Coding-M8s/timber/releases/download/$TIMBER_TAG"
 DOWNLOAD_DIR="$(mktemp -d "timber-download.XXXXXX")"
-gh release download "$TIMBER_TAG" --repo Coding-M8s/timber \
-  --dir "$DOWNLOAD_DIR" \
-  --pattern "timber-$TIMBER_TAG-$TIMBER_TARGET" \
-  --pattern "build-info-$TIMBER_TARGET.json" --pattern "SHA256SUMS-$TIMBER_TARGET" \
-  --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt \
-  && (cd "$DOWNLOAD_DIR" && shasum -a 256 -c "SHA256SUMS-$TIMBER_TARGET") \
+(cd "$DOWNLOAD_DIR" && curl -fsSL --remote-name-all \
+    "$RELEASE_URL/timber-$TIMBER_TAG-$TIMBER_TARGET" \
+    "$RELEASE_URL/build-info-$TIMBER_TARGET.json" "$RELEASE_URL/SHA256SUMS-$TIMBER_TARGET" \
+    "$RELEASE_URL/LICENSE" "$RELEASE_URL/THIRD_PARTY_NOTICES.txt" \
+  && shasum -a 256 -c "SHA256SUMS-$TIMBER_TARGET") \
   && mkdir -p "$HOME/.local/bin" \
   && install -m755 "$DOWNLOAD_DIR/timber-$TIMBER_TAG-$TIMBER_TARGET" "$HOME/.local/bin/timber" \
   && "$HOME/.local/bin/timber" --version
@@ -709,7 +708,7 @@ capture or log command arguments.
 
 | Symptom | Next step |
 | --- | --- |
-| Release download says unavailable/404 | Confirm the exact published tag and authenticate GitHub CLI with read access to this private repository. |
+| Release download says unavailable/404 | Confirm the exact published tag on the [releases page](https://github.com/Coding-M8s/timber/releases) and that the asset name matches your platform. |
 | Checksum mismatch | Stop installation. Download all assets again into a new directory; report a repeated mismatch to the release owner. |
 | `timber` not found or permission denied | Check `command -v timber`, your PATH, and executable permissions. The install command above sets mode 755. |
 | Wrong executable format, missing loader, or incompatible libc | Use the verified Linux x86_64/glibc environment; other platforms are not supported by this asset. |

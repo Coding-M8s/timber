@@ -1,5 +1,3 @@
-> [!IMPORTANT]
-> Remove this line to confirm you've reviewed this PR before submitting.
 # Timber
 
 Work on several Git branches at once, each in its own folder. Timber creates,
@@ -20,12 +18,13 @@ timber --help
 ```
 
 Keep Bun and the checkout in place when using `bun link`. If `timber` isn't
-found, add `~/.bun/bin` to your PATH. For an executable without Bun, see
-[release downloads](docs/guide.md#install-the-standalone-cli) or
-[build and install locally](docs/local-install.md).
+found, add `~/.bun/bin` to your PATH.
 
-Windows x64 candidate work and pending native checks are documented in the
-[Windows guide](docs/windows.md).
+To run Timber without Bun, download a standalone executable from the
+[releases page](https://github.com/Coding-M8s/timber/releases) and follow the
+[install steps](docs/guide.md#install-the-standalone-cli), or
+[build and install locally](docs/local-install.md). Windows x64 downloads are
+provisional; see the [Windows guide](docs/windows.md).
 
 Choose defaults in an interactive terminal:
 
@@ -79,7 +78,8 @@ Use `timber <command> --help` for flags.
 - [Shell completion](docs/completion.md): Bash, Zsh, and Fish
 - [Orca editor terminals](docs/editor-terminals.md)
 - [Building and releasing](docs/releases.md)
-- [Development guidance](AGENTS.md) and [code map](docs/shared-contracts.md)
+- [Contributing](CONTRIBUTING.md), [development guidance](AGENTS.md), and [code map](docs/shared-contracts.md)
+- [Reporting security issues](SECURITY.md)
 - [CLI behavior contract](docs/cli-contract.md)
 
 ## License

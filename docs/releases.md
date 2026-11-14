@@ -56,7 +56,7 @@ credentials into the invoking environment. For the source runner, use
 Use the version printed by the build in these commands:
 
 ```bash
-TIMBER_VERSION=0.1.0-dev.0
+TIMBER_VERSION=0.1.0
 TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v$TIMBER_VERSION-linux-x64" \
   bun test tests/completion-bash.test.ts tests/completion-zsh.test.ts tests/completion-fish.test.ts
 

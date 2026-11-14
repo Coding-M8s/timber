@@ -1,0 +1,71 @@
+name: Bug report
+description: Report something Timber did wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove tokens, credentials, and private repository content before submitting.
+        Report security problems privately instead; see SECURITY.md.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected, and what Timber did instead.
+      placeholder: |
+        Ran: timber done my-feature
+        Expected: ...
+        Got: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence of commands that shows the problem.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Timber version
+      description: Output of `timber --version`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How Timber is installed
+      options:
+        - Release download
+        - Source checkout with bun link
+        - Local standalone build
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      description: For example Ubuntu 24.04 x86_64, macOS 15 arm64 (include `sw_vers` and `uname -m` on macOS), or Windows 11 x64.
+    validations:
+      required: true
+
+  - type: input
+    id: git
+    attributes:
+      label: Git version
+      description: Output of `git --version`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Sanitized output
+      description: Relevant terminal output. For release downloads, include the build-info file contents.
+      render: text
