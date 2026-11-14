@@ -56,7 +56,7 @@ that most often matter in review:
 ## Commits and pull requests
 
 - Do not add AI coauthor trailers or AI authorship signatures to commits or pull
-  request descriptions. CI rejects them. Check a message locally with
+  request descriptions. Reviewers check for them. Check a message locally with
   `bun run check:attribution --message-file <path>`.
 - In the pull request, list the exact verification commands you ran and what
   they printed. Do not claim a platform works unless you tested it.
