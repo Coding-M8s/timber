@@ -11,13 +11,13 @@ bun run build:release
 (cd dist/release && sha256sum -c SHA256SUMS)
 ```
 
-Use the filename printed by the build; the current development version is
-`timber-v0.1.0-dev.0-linux-x64`. After the checksums pass, unregister the link and
+Use the filename printed by the build; the current version is
+`timber-v0.1.0-linux-x64`. After the checksums pass, unregister the link and
 install that executable:
 
 ```bash
 bun unlink
-install -Dm755 dist/release/timber-v0.1.0-dev.0-linux-x64 "$HOME/.local/bin/timber"
+install -Dm755 dist/release/timber-v0.1.0-linux-x64 "$HOME/.local/bin/timber"
 export PATH="$HOME/.local/bin:$PATH"
 hash -r
 command -v timber
@@ -38,7 +38,7 @@ For an automated check using disposable repositories and settings:
 
 ```bash
 python3 scripts/smoke-release.py \
-  --binary "$HOME/.local/bin/timber" --expected-version 0.1.0-dev.0
+  --binary "$HOME/.local/bin/timber" --expected-version 0.1.0
 ```
 
 Update the expected version when the package version changes. Success prints

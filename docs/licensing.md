@@ -95,12 +95,33 @@ under LGPL-2 and other independently licensed native libraries, including tinycc
 under LGPL-2.1. The [Bun license documentation](https://bun.sh/docs/project/license)
 describes runtime source and relinking requirements.
 
-That inventory and links alone do not establish complete binary-distribution
-compliance. Before publishing a standalone release, the release owner must verify
-the exact runtime's required license texts, copyright notices, corresponding
-source, and relinking materials, and supply them as required. This audit did not
-build a custom Bun runtime or independently verify that complete compliance
-package. Timber's Commons Clause does not replace or narrow those library rights.
+Timber's Commons Clause does not replace or narrow those library rights.
+
+#### Release-owner review for 0.1.0 (2026-11-14)
+
+The release owner reviewed the runtime distribution requirements for Bun 1.4.2
+before the first public release. This is a good-faith engineering review, not
+legal advice.
+
+- License texts: `THIRD_PARTY_NOTICES.txt` now reproduces the full GNU Library
+  General Public License version 2 and GNU Lesser General Public License
+  version 2.1, copied unmodified from gnu.org, alongside Bun's inventory.
+- Notice of use: the notices file and release notes state that executables
+  embed Bun 1.4.2 with LGPL-licensed JavaScriptCore/WebKit and tinycc.
+- Corresponding source: the notices file and release notes link the
+  [Bun 1.4.2 tag](https://github.com/oven-sh/bun/tree/bun-v1.4.2), Bun's
+  [patched WebKit](https://github.com/oven-sh/WebKit), and
+  [tinycc](https://github.com/tinycc/tinycc). Timber relies on those upstream
+  publications and does not mirror them.
+- Relinking: Timber's source for each release tag is public, and
+  `bun run build:release` rebuilds the executable with any Bun binary of the
+  pinned version, including one built from modified library source using the
+  steps in Bun's inventory.
+
+Limits of this review: nobody built a custom Bun runtime or relinked a Timber
+executable to prove the procedure, and license texts for Bun's other statically
+linked libraries are covered by Bun's inventory and links, not reproduced in
+full. Repeat this review whenever the pinned Bun version changes.
 
 ### Audit sources and reproduction
 
