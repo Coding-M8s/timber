@@ -65,8 +65,8 @@ test("editor is unspecified by default so repository config remains authoritativ
 test("open forwards explicit editor disabling", async () => {
   const handler = mock(async () => {});
   const h = harness({ open: handler });
-  expect(await runCli(["open", "ABU-834", "--no-editor"], h)).toBe(0);
-  expect(handler).toHaveBeenCalledWith("ABU-834", { editor: false }, h.context);
+  expect(await runCli(["open", "ENG-834", "--no-editor"], h)).toBe(0);
+  expect(handler).toHaveBeenCalledWith("ENG-834", { editor: false }, h.context);
 });
 
 test("new and open forward explicit editor enabling", async () => {

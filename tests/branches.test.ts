@@ -51,23 +51,23 @@ test("branch inventory exposes exact upstream refs and excludes symbolic remote 
 
 test("exact local wins; ticket prefix respects delimiter and reports all matches", async () => {
   await fixture(async repo => {
-    await git(repo, "branch", "ABU-834");
-    await git(repo, "branch", "ABU-834-one");
-    await git(repo, "branch", "ABU-834_two");
-    await git(repo, "branch", "ABU-8342-wrong");
+    await git(repo, "branch", "ENG-834");
+    await git(repo, "branch", "ENG-834-one");
+    await git(repo, "branch", "ENG-834_two");
+    await git(repo, "branch", "ENG-8342-wrong");
     const context = await discoverRepository(repo);
 
-    expect(await resolveBranch(context, "ABU-834", config())).toEqual({
-      kind: "found", value: { kind: "local", name: "ABU-834", ref: "refs/heads/ABU-834", upstream: null },
+    expect(await resolveBranch(context, "ENG-834", config())).toEqual({
+      kind: "found", value: { kind: "local", name: "ENG-834", ref: "refs/heads/ENG-834", upstream: null },
     });
-    await git(repo, "branch", "-d", "ABU-834");
-    expect(await resolveBranch(context, "ABU-834", config())).toEqual({
+    await git(repo, "branch", "-d", "ENG-834");
+    expect(await resolveBranch(context, "ENG-834", config())).toEqual({
       kind: "ambiguous", candidates: [
-        { kind: "local", name: "ABU-834-one", ref: "refs/heads/ABU-834-one", upstream: null },
-        { kind: "local", name: "ABU-834_two", ref: "refs/heads/ABU-834_two", upstream: null },
+        { kind: "local", name: "ENG-834-one", ref: "refs/heads/ENG-834-one", upstream: null },
+        { kind: "local", name: "ENG-834_two", ref: "refs/heads/ENG-834_two", upstream: null },
       ],
     });
-    expect(await resolveBranch(context, "ABU-835", config())).toEqual({ kind: "not-found" });
+    expect(await resolveBranch(context, "ENG-835", config())).toEqual({ kind: "not-found" });
   });
 });
 

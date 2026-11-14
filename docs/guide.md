@@ -191,7 +191,7 @@ Standalone releases disable automatic loading of `.env` and `bunfig.toml`.
 Saved credentials work directly in the installed executable. Bun's source runner
 may populate the process environment from `.env` before Timber starts, making a
 source checkout behave differently. Use
-`bun --no-env-file src/index.ts new ABU-834` to disable that Bun behavior;
+`bun --no-env-file src/index.ts new ENG-834` to disable that Bun behavior;
 Timber adds no `.env` loader.
 Without `cloud_id`, Timber calls the configured site for an unscoped token. With
 `cloud_id`, it uses Atlassian's fixed Jira Cloud gateway for a scoped token.
@@ -199,10 +199,10 @@ Requests do not follow redirects or retry. Each exact lookup has a 10-second
 deadline; a suggestions search shares one 10-second deadline across every page and
 response body.
 
-Only a complete uppercase key such as `ABU-834` is looked up, and only when
-`[jira]` is configured. `timber new ABU-834` looks up the issue and creates a
+Only a complete uppercase key such as `ENG-834` is looked up, and only when
+`[jira]` is configured. `timber new ENG-834` looks up the issue and creates a
 branch from its canonical key and summary. For example, `Fix café / login!`
-becomes `ABU-834-fix-cafe-login`. Timber normalizes the summary into an ASCII
+becomes `ENG-834-fix-cafe-login`. Timber normalizes the summary into an ASCII
 slug and caps the whole branch name at 120 characters. A non-Latin or
 punctuation-only summary uses `issue` as its suffix.
 
@@ -215,7 +215,7 @@ completion from resolution fields.
 With no selected default and no `-c`, when an exact bare ticket is unavailable (404)
 or complete, Timber searches that
 project for unfinished issues whose full key starts with the requested key. For
-example, `ABU-4` can suggest `ABU-40` and `ABU-41`. Timber uses a fixed read-only
+example, `ENG-4` can suggest `ENG-40` and `ENG-41`. Timber uses a fixed read-only
 JQL query, filters candidates again by full key prefix, and offers only issues
 whose category is `new` or `indeterminate`. Authentication, permission, network,
 rate-limit, malformed-response, and unknown-status failures do not start a search.
@@ -235,12 +235,12 @@ command stops without searching again. Literal branch inputs continue through
 the ordinary branch creation flow.
 
 The summary becomes part of a Git branch name, which may later be published.
-Choose a literal branch such as `feature/ABU-834` when a title would expose
-sensitive information. Inputs such as `ABU-834-fix`, lowercase `abu-834`, and
-`feature/ABU-834` are always treated as literal branch names.
+Choose a literal branch such as `feature/ENG-834` when a title would expose
+sensitive information. Inputs such as `ENG-834-fix`, lowercase `eng-834`, and
+`feature/ENG-834` are always treated as literal branch names.
 
-If a title changes, a later `new ABU-834` can produce a different branch. Use
-`timber open ABU-834` to resume existing work. `open` does not need Jira
+If a title changes, a later `new ENG-834` can produce a different branch. Use
+`timber open ENG-834` to resume existing work. `open` does not need Jira
 credentials. If several branches match, Timber reports the candidates and asks
 for an exact branch or worktree path. An interactive chooser starts with five
 entries and offers the full candidate list only after confirmation; entries that

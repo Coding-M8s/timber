@@ -58,10 +58,10 @@ test("new resolves a configured ticket after base selection and creates from its
   const jiraConfig = { siteUrl: "https://example.atlassian.net" };
   const configured: RepositoryConfig = { ...config, jira: jiraConfig, hooks: { postCreate: ["setup"] } };
   const ticket = {
-    key: "ABU-835", title: "Fix café / login!", url: "https://example.atlassian.net/browse/ABU-835",
+    key: "ENG-835", title: "Fix café / login!", url: "https://example.atlassian.net/browse/ENG-835",
   };
-  const branch = "ABU-835-fix-cafe-login";
-  const tree = worktreeFixture({ path: "/repo-worktrees/ABU-835-fix-cafe-login", branch, isPrimary: false });
+  const branch = "ENG-835-fix-cafe-login";
+  const tree = worktreeFixture({ path: "/repo-worktrees/ENG-835-fix-cafe-login", branch, isPrimary: false });
   const h = context();
   const handler = createNewHandler(createServiceDouble({
     discoverRepository: async () => { calls.push("discover"); return repository; },
@@ -72,7 +72,7 @@ test("new resolves a configured ticket after base selection and creates from its
       return base;
     },
     resolveJiraTicket: async (received, key) => {
-      expect([received, key]).toEqual([jiraConfig, "ABU-834"]);
+      expect([received, key]).toEqual([jiraConfig, "ENG-834"]);
       calls.push("jira");
       return ticket;
     },
@@ -97,16 +97,16 @@ test("new resolves a configured ticket after base selection and creates from its
     },
   }));
 
-  await handler("ABU-834", { base: "trunk", editor: false }, h.value);
+  await handler("ENG-834", { base: "trunk", editor: false }, h.value);
   expect(calls).toEqual(["discover", "config", "base", "jira", "create", "setup", "editor"]);
   expect(h.output()).toBe(`Created ${branch} at ${tree.path}\nJira: ${ticket.url}\n${ticket.key} - ${ticket.title}\n`);
 });
 
 test("new skips Jira lookup for unconfigured IDs and configured literal branches", async () => {
   for (const scenario of [
-    { input: "ABU-834", selectedConfig: config },
-    { input: "feature/ABU-834", selectedConfig: { ...config, jira: { siteUrl: "https://example.atlassian.net" } } },
-    { input: "ABU-834-fix", selectedConfig: { ...config, jira: { siteUrl: "https://example.atlassian.net" } } },
+    { input: "ENG-834", selectedConfig: config },
+    { input: "feature/ENG-834", selectedConfig: { ...config, jira: { siteUrl: "https://example.atlassian.net" } } },
+    { input: "ENG-834-fix", selectedConfig: { ...config, jira: { siteUrl: "https://example.atlassian.net" } } },
   ]) {
     const h = context();
     const tree = worktreeFixture({ path: "/repo-worktrees/literal", branch: scenario.input, isPrimary: false });
@@ -192,15 +192,15 @@ test("new keeps exact Jira matching on the raw whole input before sentence norma
     resolveBase: async () => base,
     resolveJiraTicket: async () => { lookups++; throw new Error("unexpected Jira lookup"); },
     createWorktree: async (_received, request) => {
-      expect(request).toEqual({ kind: "new", branch: "abu-834", base });
-      return worktreeFixture({ path: "/repo-worktrees/abu-834", branch: "abu-834", isPrimary: false });
+      expect(request).toEqual({ kind: "new", branch: "eng-834", base });
+      return worktreeFixture({ path: "/repo-worktrees/eng-834", branch: "eng-834", isPrimary: false });
     },
     launchEditor: async () => ({ kind: "skipped" }),
   }));
 
-  await handler(" ABU-834 ", { editor: false }, h.value);
+  await handler(" ENG-834 ", { editor: false }, h.value);
   expect(lookups).toBe(0);
-  expect(h.output()).toContain("Created abu-834 at /repo-worktrees/abu-834");
+  expect(h.output()).toContain("Created eng-834 at /repo-worktrees/eng-834");
 });
 
 test("new lookup failure stops before creation, setup, editor, and success output", async () => {
@@ -213,7 +213,7 @@ test("new lookup failure stops before creation, setup, editor, and success outpu
     resolveJiraTicket: async () => { calls.push("jira"); throw new Error("Jira returned unavailable."); },
   }));
 
-  await expect(handler("ABU-834", {}, h.value)).rejects.toThrow("Jira returned unavailable.");
+  await expect(handler("ENG-834", {}, h.value)).rejects.toThrow("Jira returned unavailable.");
   expect(calls).toEqual(["discover", "base", "jira"]);
   expect(h.output()).toBe("");
 });
@@ -224,19 +224,19 @@ test("new offers a same-project prefix choice after an exact missing ticket, the
   const jiraConfig = { siteUrl: "https://example.atlassian.net" };
   const configured: RepositoryConfig = { ...config, jira: jiraConfig };
   const staleSuggestion = {
-    key: "ABU-40", title: "Old title", url: "https://example.atlassian.net/browse/ABU-40",
+    key: "ENG-40", title: "Old title", url: "https://example.atlassian.net/browse/ENG-40",
   };
   const freshTicket = {
-    key: "ABU-40", title: "Fresh café summary", url: "https://example.atlassian.net/browse/ABU-40",
+    key: "ENG-40", title: "Fresh café summary", url: "https://example.atlassian.net/browse/ENG-40",
   };
-  const branch = "ABU-40-fresh-cafe-summary";
+  const branch = "ENG-40-fresh-cafe-summary";
   const tree = worktreeFixture({ path: `/repo-worktrees/${branch}`, branch, isPrimary: false });
   const h = context(async (message, choices) => {
     calls.push("choose");
     expect(message).toMatch(/unavailable or not visible[\s\S]*Did you mean/i);
     expect(message).toEndWith("\nDid you mean one of these?");
-    expect(choices).toEqual([{ value: "ABU-40", label: "ABU-40 - Old title" }]);
-    return "ABU-40";
+    expect(choices).toEqual([{ value: "ENG-40", label: "ENG-40 - Old title" }]);
+    return "ENG-40";
   });
   const handler = createNewHandler(createServiceDouble({
     discoverRepository: async () => { calls.push("discover"); return repository; },
@@ -244,12 +244,12 @@ test("new offers a same-project prefix choice after an exact missing ticket, the
     resolveBase: async () => { calls.push("base"); return base; },
     resolveJiraTicket: async (_config, key) => {
       calls.push(`jira:${key}`);
-      if (key === "ABU-4") throw new JiraLookupFailure("Jira issue is unavailable or not visible (404); check the key and access.", "not-found");
-      expect(key).toBe("ABU-40");
+      if (key === "ENG-4") throw new JiraLookupFailure("Jira issue is unavailable or not visible (404); check the key and access.", "not-found");
+      expect(key).toBe("ENG-40");
       return freshTicket;
     },
     findJiraSuggestions: async (_config, key) => {
-      expect(key).toBe("ABU-4");
+      expect(key).toBe("ENG-4");
       calls.push("suggestions");
       return [staleSuggestion];
     },
@@ -261,16 +261,16 @@ test("new offers a same-project prefix choice after an exact missing ticket, the
     launchEditor: async () => { calls.push("editor"); return { kind: "skipped" }; },
   }));
 
-  await handler("ABU-4", { editor: false }, h.value);
+  await handler("ENG-4", { editor: false }, h.value);
 
   expect(calls).toEqual([
-    "discover", "base", "jira:ABU-4", "suggestions", "choose", "jira:ABU-40", "create", "editor",
+    "discover", "base", "jira:ENG-4", "suggestions", "choose", "jira:ENG-40", "create", "editor",
   ]);
   expect(h.output()).toBe(`Created ${branch} at ${tree.path}\nJira: ${freshTicket.url}\n${freshTicket.key} - ${freshTicket.title}\n`);
 });
 
 test("new offers exactly one suggestion through the chooser and cancellation stops before mutation", async () => {
-  for (const selected of ["ABU-40", null]) {
+  for (const selected of ["ENG-40", null]) {
     const calls: string[] = [];
     const h = context(async (_message, choices) => {
       calls.push("choose");
@@ -283,51 +283,51 @@ test("new offers exactly one suggestion through the chooser and cancellation sto
       resolveBase: async () => base,
       resolveJiraTicket: async (_config, key) => {
         calls.push(`jira:${key}`);
-        if (key === "ABU-4") throw new JiraLookupFailure("Jira issue is unavailable or not visible (404); check the key and access.", "not-found");
+        if (key === "ENG-4") throw new JiraLookupFailure("Jira issue is unavailable or not visible (404); check the key and access.", "not-found");
         return { key, title: "Selected issue", url: `https://example.atlassian.net/browse/${key}` };
       },
       findJiraSuggestions: async () => [{
-        key: "ABU-40", title: "Selected issue", url: "https://example.atlassian.net/browse/ABU-40",
+        key: "ENG-40", title: "Selected issue", url: "https://example.atlassian.net/browse/ENG-40",
       }],
-      createWorktree: async () => { calls.push("create"); return worktreeFixture({ path: "/tree", branch: "ABU-40-selected-issue" }); },
+      createWorktree: async () => { calls.push("create"); return worktreeFixture({ path: "/tree", branch: "ENG-40-selected-issue" }); },
       launchEditor: async () => ({ kind: "skipped" }),
     }));
 
     if (selected === null) {
-      await handler("ABU-4", {}, h.value);
-      expect(calls).toEqual(["jira:ABU-4", "choose"]);
+      await handler("ENG-4", {}, h.value);
+      expect(calls).toEqual(["jira:ENG-4", "choose"]);
       expect(h.output()).toBe("Cancelled.\n");
     } else {
-      await handler("ABU-4", {}, h.value);
-      expect(calls).toEqual(["jira:ABU-4", "choose", "jira:ABU-40", "create"]);
+      await handler("ENG-4", {}, h.value);
+      expect(calls).toEqual(["jira:ENG-4", "choose", "jira:ENG-40", "create"]);
     }
   }
 });
 
 test("new stops when the selected suggestion became done without suggesting again", async () => {
   for (const chosenFailure of [
-    { reason: "done" as const, message: "Jira issue ABU-40 is complete; refusing to create a branch." },
+    { reason: "done" as const, message: "Jira issue ENG-40 is complete; refusing to create a branch." },
     { reason: "not-found" as const, message: "Jira issue is unavailable or not visible (404); check the key and access." },
   ]) {
     const calls: string[] = [];
-    const h = context(async () => "ABU-40");
+    const h = context(async () => "ENG-40");
     const handler = createNewHandler(createServiceDouble({
       discoverRepository: async () => repositoryFixture(),
       loadConfig: async () => ({ ...config, jira: { siteUrl: "https://example.atlassian.net" } }),
       resolveBase: async () => base,
       resolveJiraTicket: async (_config, key) => {
         calls.push(`jira:${key}`);
-        if (key === "ABU-4") throw new JiraLookupFailure("Jira issue ABU-4 is complete; refusing to create a branch.", "done");
+        if (key === "ENG-4") throw new JiraLookupFailure("Jira issue ENG-4 is complete; refusing to create a branch.", "done");
         throw new JiraLookupFailure(chosenFailure.message, chosenFailure.reason);
       },
       findJiraSuggestions: async () => { calls.push("suggestions"); return [{
-        key: "ABU-40", title: "Fresh candidate", url: "https://example.atlassian.net/browse/ABU-40",
+        key: "ENG-40", title: "Fresh candidate", url: "https://example.atlassian.net/browse/ENG-40",
       }]; },
       createWorktree: async () => { calls.push("create"); return worktreeFixture(); },
     }));
 
-    await expect(handler("ABU-4", {}, h.value)).rejects.toThrow(chosenFailure.message);
-    expect(calls).toEqual(["jira:ABU-4", "suggestions", "jira:ABU-40"]);
+    await expect(handler("ENG-4", {}, h.value)).rejects.toThrow(chosenFailure.message);
+    expect(calls).toEqual(["jira:ENG-4", "suggestions", "jira:ENG-40"]);
     expect(h.output()).toBe("");
   }
 });
@@ -342,15 +342,15 @@ test("new preserves exact lookup failure when suggestions fail", async () => {
     findJiraSuggestions: async () => { throw new JiraLookupFailure("Jira suggestions could not be loaded completely; retry when service is reachable."); },
   }));
 
-  await expect(handler("ABU-4", {}, h.value)).rejects.toThrow(/unavailable or not visible \(404\).*suggestions could not be loaded/i);
+  await expect(handler("ENG-4", {}, h.value)).rejects.toThrow(/unavailable or not visible \(404\).*suggestions could not be loaded/i);
   expect(h.output()).toBe("");
 });
 
 test("new shows at most five suggestions and the total when no interactive chooser is available", async () => {
   const suggestions = Array.from({ length: 8 }, (_, index) => ({
-    key: `ABU-${40 + index}`, title: index === 4
+    key: `ENG-${40 + index}`, title: index === 4
       ? "Candidate title 5\u001b[2J" : `Candidate title ${index + 1}`,
-    url: `https://example.atlassian.net/browse/ABU-${40 + index}`,
+    url: `https://example.atlassian.net/browse/ENG-${40 + index}`,
   }));
   const h = context();
   const handler = createNewHandler(createServiceDouble({
@@ -362,7 +362,7 @@ test("new shows at most five suggestions and the total when no interactive choos
     createWorktree: async () => { throw new Error("must not mutate"); },
   }));
 
-  const failure = await handler("ABU-4", {}, h.value).then(() => null, error => error as Error);
+  const failure = await handler("ENG-4", {}, h.value).then(() => null, error => error as Error);
   expect(failure?.message).toMatch(/8 unfinished Jira prefix matches.*showing 5/);
   expect(failure?.message).toContain("Candidate title 5\\u001b[2J");
   expect(failure?.message).not.toContain("Candidate title 6");
@@ -373,7 +373,7 @@ test("new shows at most five suggestions and the total when no interactive choos
 
 test("new rejects a chooser value outside the exact suggestions", async () => {
   const calls: string[] = [];
-  const h = context(async () => "ABU-41");
+  const h = context(async () => "ENG-41");
   const handler = createNewHandler(createServiceDouble({
     discoverRepository: async () => repositoryFixture(),
     loadConfig: async () => ({ ...config, jira: { siteUrl: "https://example.atlassian.net" } }),
@@ -383,13 +383,13 @@ test("new rejects a chooser value outside the exact suggestions", async () => {
       throw new JiraLookupFailure("Jira issue is unavailable or not visible (404); check the key and access.", "not-found");
     },
     findJiraSuggestions: async () => [{
-      key: "ABU-40", title: "Candidate", url: "https://example.atlassian.net/browse/ABU-40",
+      key: "ENG-40", title: "Candidate", url: "https://example.atlassian.net/browse/ENG-40",
     }],
     createWorktree: async () => { calls.push("create"); return worktreeFixture(); },
   }));
 
-  await expect(handler("ABU-4", {}, h.value)).rejects.toThrow(/unknown suggestion/i);
-  expect(calls).toEqual(["jira:ABU-4"]);
+  await expect(handler("ENG-4", {}, h.value)).rejects.toThrow(/unknown suggestion/i);
+  expect(calls).toEqual(["jira:ENG-4"]);
   expect(h.output()).toBe("");
 });
 
@@ -406,14 +406,14 @@ test("new does not search after authentication or untyped failures", async () =>
       resolveJiraTicket: async () => { throw failure; },
       findJiraSuggestions: async () => { calls.push("suggestions"); return []; },
     }));
-    await expect(handler("ABU-4", {}, context().value)).rejects.toThrow(failure.message);
+    await expect(handler("ENG-4", {}, context().value)).rejects.toThrow(failure.message);
     expect(calls).toEqual([]);
   }
 });
 
 test("new emits ticket details only after worktree creation succeeds", async () => {
   const h = context();
-  const ticket = { key: "ABU-834", title: "Fix login", url: "https://example.atlassian.net/browse/ABU-834" };
+  const ticket = { key: "ENG-834", title: "Fix login", url: "https://example.atlassian.net/browse/ENG-834" };
   const handler = createNewHandler(createServiceDouble({
     discoverRepository: async () => repositoryFixture(),
     loadConfig: async () => ({ ...config, jira: { siteUrl: "https://example.atlassian.net" } }),
@@ -422,7 +422,7 @@ test("new emits ticket details only after worktree creation succeeds", async () 
     createWorktree: async () => { throw new Error("branch collision"); },
   }));
 
-  await expect(handler("ABU-834", {}, h.value)).rejects.toThrow("branch collision");
+  await expect(handler("ENG-834", {}, h.value)).rejects.toThrow("branch collision");
   expect(h.output()).toBe("");
 });
 
@@ -453,7 +453,7 @@ test("new stops before creation and editor when base selection fails", async () 
     resolveBase: async () => { calls.push("base"); throw new Error("base ambiguous"); },
     resolveJiraTicket: async () => { calls.push("jira"); throw new Error("lookup must not happen"); },
   }));
-  await expect(handler("ABU-834", {}, h.value)).rejects.toThrow("base ambiguous");
+  await expect(handler("ENG-834", {}, h.value)).rejects.toThrow("base ambiguous");
   expect(calls).toEqual(["base"]);
   expect(h.output()).toBe("");
 });

@@ -19,7 +19,7 @@ to describe Linux, including Orca and POSIX process-group behavior.
 2. Git operations use the detected repository, not a hardcoded current directory.
 3. `new <branch...>` creates a new branch from the configured or explicit base. The CLI joins its positional words with literal spaces; if the joined input contains U+0020, trim surrounding U+0020, lowercase, and replace each internal run of U+0020 with one hyphen. If the branch exists, report it and suggest `open`.
 4. `open <input>` resolves an existing worktree, exact local branch, then exact remote branch. An explicit remote such as `origin/feature/foo` selects that remote. When cached refs cannot identify one local target, `open` discovers live remote heads without changing refs, respecting the explicit/configured remote or checking all remotes. Discovery failure blocks materialization; existing local targets remain offline.
-5. A ticket prefix such as `ABU-834` may match branch names on a delimiter boundary. Multiple matches must include every distinct candidate in one chooser when interactive; mark candidates that require manual selection, and do not mutate if one is selected. Without a chooser, show at most five sorted candidates and the total, with exact manual-selection guidance. Do not use arbitrary substring matching.
+5. A ticket prefix such as `ENG-834` may match branch names on a delimiter boundary. Multiple matches must include every distinct candidate in one chooser when interactive; mark candidates that require manual selection, and do not mutate if one is selected. Without a chooser, show at most five sorted candidates and the total, with exact manual-selection guidance. Do not use arbitrary substring matching.
 6. Refresh the selected remote before creating from a remote branch. An existing local worktree can open offline. A failed remote refresh must not be reported as success.
 7. Base selection: `--base`, repository/global config, configured remote's default branch, then an unambiguous existing `main` or `master`. Never guess if resolution is ambiguous. `done` selects its integration target from `--base`, then the worktree's saved base, then repository/global config and existing default discovery. `done --base <ref>` selects an invocation-local integration target using the existing branch/ref resolver; it never writes TOML or changes a local branch tip. An explicit missing, invalid, ambiguous, or target-local-branch base fails before hooks or removal, even with verified publication or `--keep-branch`. Revalidate the same selected ref/commit before removal and branch deletion. An absent saved association preserves configured/default-base and live-publication behavior. A missing saved ref fails without fallback, even with verified publication or `--keep-branch`. Malformed/unreadable metadata blocks cleanup; stale identity metadata requires an explicit replacement. Cleanup never rewrites the saved association. Re-read the association before removal and retain its selected input for base revalidation after Git removes the metadata. No automatic parent-branch inference. Before cleanup, automatically refresh a selected remote base (explicit, saved, configured or default); explicitly selected local bases remain local. Fetch only its exact remote branch without tags, pruning, submodule recursion or destination ref, verify FETCH_HEAD against its live advertisement, then conditionally update only the selected direct remote-tracking ref without following symbolic refs. Discovery/fetch failure, a moved advertised tip or concurrent cached-ref change stops before hooks/removal with no cached fallback. Re-read worktree identity, status and the selected base after refresh; changing base selection also stops. Fetch metadata and the selected remote-tracking ref may change even if subsequent safety checks refuse cleanup. Read-only inspection does not fetch.
 8. Worktree paths default to a sibling directory, `../<repository-name>-worktrees/<safe-branch-slug>`. Resolve config paths relative to the primary repository root. Reject collisions, path traversal, and attempts to target the primary repository.
@@ -414,8 +414,8 @@ even if the environment contains credentials.
 
 Only a whole input matching `^[A-Z][A-Z0-9]*-[0-9]+$` is recognized as a ticket,
 and only in a Jira-enabled repository. Do not trim or change case. Inputs such as
-`feature/foo`, `ABU-834-fix`, and `abu-834` remain literal branch names; a
-ticket-looking literal can be named explicitly as `feature/ABU-834`.
+`feature/foo`, `ENG-834-fix`, and `eng-834` remain literal branch names; a
+ticket-looking literal can be named explicitly as `feature/ENG-834`.
 
 Lookup uses Basic authentication with the Atlassian account email and API token,
 `Accept: application/json`, and one
@@ -443,7 +443,7 @@ authoritative for branch validity, existing refs, and path collisions; do not ap
 numeric suffixes or bypass collisions. Report the generated branch and browse URL
 only after creation succeeds. The title contributes to a public-looking Git branch,
 so use a literal branch when a title is sensitive. If a title changes, `new` may name
-a different branch; use `open ABU-834` to resume an existing ticket branch offline.
+a different branch; use `open ENG-834` to resume an existing ticket branch offline.
 
 Only legacy unprefixed Jira, without an explicit default or `-c`, offers suggestions.
 In that flow, an exact issue 404 or a `done` status-category result enables suggestions. The

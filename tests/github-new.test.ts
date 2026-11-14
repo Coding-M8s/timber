@@ -30,7 +30,7 @@ test("GitHub new keeps selected issue repository independent of base and uses or
 
 test("issue-only flags refuse literal routing and malformed selectors refuse before lookup", async () => {
   const handler = createNewHandler(createServiceDouble({ discoverRepository: async () => repositoryFixture(), loadConfig: async () => config }));
-  for (const [input, options] of [["feature", { allowClosed: true }], ["ABU-123", { remote: "origin" }], ["github:123 extra", {}]] as const) {
+  for (const [input, options] of [["feature", { allowClosed: true }], ["ENG-123", { remote: "origin" }], ["github:123 extra", {}]] as const) {
     await expect(handler(input, options, { cwd: "/repo", io })).rejects.toThrow(/issue selector/u);
   }
 });
