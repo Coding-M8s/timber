@@ -1,7 +1,7 @@
 # Timber CLI licensing
 
 Timber CLI uses the [MIT License plus Commons Clause License Condition v1.0](../LICENSE).
-The copyright holder and licensor is Coding-M8s Club. These terms apply to this
+The copyright holder and licensor is Coding-M8s. These terms apply to this
 CLI repository, not Timber IDE. The combined terms are source-available and are
 not an OSI-approved open-source license. Package metadata uses the custom
 `SEE LICENSE IN LICENSE` designation rather than claiming plain `MIT`.
@@ -38,7 +38,7 @@ This audit covers the checkout used for
   Friend, Ben Sebring/Bsebring, and Rafal/Rafal Puk identities. Git authorship
   does not establish copyright ownership or assignment.
 - The repository owner confirmed ownership and licensing authority for this
-  repository through Coding-M8s Club and selected MIT plus Commons Clause after
+  repository through Coding-M8s and selected MIT plus Commons Clause after
   discussion of its broader commercial restrictions. The copyright year is 2026,
   matching the initial history. This records the owner's confirmation; no separate
   assignment agreements were available in the repository for independent review.
