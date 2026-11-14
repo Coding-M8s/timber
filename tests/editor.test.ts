@@ -317,8 +317,11 @@ test("parent exits before the long-lived editor heartbeat and the editor survive
     expect(result).toEqual({ kind: "launched" });
     expect(parent.stderr).toBe("");
 
-    expect(await waitForFile(heartbeatPath, 3000)).toBe("parent-exited");
+    // The stub writes the heartbeat once, then the finished marker. Waiting for
+    // the marker first avoids reading the heartbeat after creation but before
+    // its content is written.
     await waitForFileContent(`${heartbeatPath}.finished`, "finished", 3000);
+    expect(await readFile(heartbeatPath, "utf8")).toBe("parent-exited");
   } finally {
     if (parentInvoked) {
       await waitForFileContent(`${heartbeatPath}.finished`, "finished", 3000).catch(() => {});
