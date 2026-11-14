@@ -692,7 +692,8 @@ test("done rechecks the saved base association after hooks even when both bases 
     const file = await saveBase(primary, path, "refs/heads/trunk");
     await git(primary, "branch", "other");
     const hook = join(directory, "change-base.sh");
-    await writeFile(hook, 'sed -i "s@refs/heads/trunk@refs/heads/other@" "$TIMBER_BASE_RECORD"\n');
+    // In-place sed flags differ between GNU and BSD, so rewrite through a temporary file.
+    await writeFile(hook, 'sed "s@refs/heads/trunk@refs/heads/other@" "$TIMBER_BASE_RECORD" > "$TIMBER_BASE_RECORD.next" && mv "$TIMBER_BASE_RECORD.next" "$TIMBER_BASE_RECORD"\n');
     await writeFile(join(primary, ".timber.toml"), `base_branch = "trunk"\n[hooks]\npre_delete = ['sh "${hook}"']\n`);
     const before = await snapshot(primary);
     const result = await execa(process.execPath, [entry, "done", path], {

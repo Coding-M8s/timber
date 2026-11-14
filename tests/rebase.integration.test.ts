@@ -379,14 +379,16 @@ test("interrupting Timber stops its owned Git hook descendants without later sid
       // ps reports a caught SIGTERM; do not rely on a fixed startup delay.
       const deadline = Date.now() + 2_000;
       let handlesTermination = false;
+      let probe = "not run";
       while (Date.now() < deadline) {
         const status = await execa("/bin/ps", ["-p", String(child.pid), "-o", "sigcatch="], { reject: false });
+        probe = JSON.stringify({ exitCode: status.exitCode, stdout: status.stdout, stderr: status.stderr });
         const caught = /^[0-9a-f]+$/i.test(status.stdout.trim()) ? status.stdout.trim() : undefined;
         handlesTermination = caught !== undefined && (BigInt(`0x${caught}`) & (1n << BigInt(constants.signals.SIGTERM - 1))) !== 0n;
         if (handlesTermination) break;
         await new Promise(resolve => setTimeout(resolve, 10));
       }
-      expect(handlesTermination).toBe(true);
+      expect(handlesTermination, `last ps probe: ${probe}`).toBe(true);
       process.kill(child.pid!, "SIGTERM");
       const result = await child;
       expect(result.exitCode).toBe(143);

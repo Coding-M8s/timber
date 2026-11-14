@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -10,7 +10,8 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 }
 
 async function withTempDir(run: (directory: string) => Promise<void>): Promise<void> {
-  const directory = await mkdtemp(join(tmpdir(), "timber repository "));
+  // Git reports resolved paths; macOS temporary directories sit behind a symlink.
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "timber repository ")));
   try {
     await run(directory);
   } finally {
