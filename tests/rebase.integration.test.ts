@@ -380,15 +380,21 @@ test("interrupting Timber stops its owned Git hook descendants without later sid
       const deadline = Date.now() + 2_000;
       let handlesTermination = false;
       let probe = "not run";
+      let probeUnsupported = false;
       while (Date.now() < deadline) {
         const status = await execa("/bin/ps", ["-p", String(child.pid), "-o", "sigcatch="], { reject: false });
-        probe = JSON.stringify({ exitCode: status.exitCode, stdout: status.stdout, stderr: status.stderr });
+        probe = JSON.stringify({ exitCode: status.exitCode, stderr: status.stderr });
+        // macOS ps has no caught-signal keyword and rejects the request.
+        if (process.platform === "darwin" && status.exitCode !== 0) { probeUnsupported = true; break; }
         const caught = /^[0-9a-f]+$/i.test(status.stdout.trim()) ? status.stdout.trim() : undefined;
         handlesTermination = caught !== undefined && (BigInt(`0x${caught}`) & (1n << BigInt(constants.signals.SIGTERM - 1))) !== 0n;
         if (handlesTermination) break;
         await new Promise(resolve => setTimeout(resolve, 10));
       }
-      expect(handlesTermination, `last ps probe: ${probe}`).toBe(true);
+      // Without a probe, the best available readiness signal is a settle delay
+      // after the hook has started, which happens after Timber registers its handler.
+      if (probeUnsupported) await new Promise(resolve => setTimeout(resolve, 500));
+      else expect(handlesTermination, `last ps probe: ${probe}`).toBe(true);
       process.kill(child.pid!, "SIGTERM");
       const result = await child;
       expect(result.exitCode).toBe(143);
