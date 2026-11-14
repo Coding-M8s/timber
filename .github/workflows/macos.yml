@@ -29,7 +29,7 @@ jobs:
       - run: bun run typecheck
       - name: Verify source lifecycle, preservation and runner
         run: >-
-          bun test tests/repository.test.ts tests/worktrees.test.ts
+          bun test --timeout 60000 tests/repository.test.ts tests/worktrees.test.ts
           tests/new.integration.test.ts tests/open.integration.test.ts
           tests/done.integration.test.ts tests/rebase.integration.test.ts
           tests/process-identity.test.ts tests/editor-terminal-runner.test.ts

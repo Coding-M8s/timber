@@ -147,7 +147,9 @@ jobs off every push; tagged releases run their own native beta checks.
 4. The job downloads the draft assets, compares metadata and checksums with the
    candidate, rechecks the tag, and reruns the container smoke on the download.
    Existing drafts must match; mismatched assets fail without replacement.
-   Published releases are never modified. A dependent native Windows job checks
+   Published releases are never modified. Draft releases are visible only to
+   write-scoped tokens, so the job passes the Windows and macOS bytes it
+   downloaded to the read-only native jobs. A dependent native Windows job checks
    downloaded Windows metadata/checksums and the live tag, then runs its
    PowerShell harness against the downloaded executable. Dependent native macOS
    jobs compare downloaded metadata/checksums, recheck the live tag and smoke each

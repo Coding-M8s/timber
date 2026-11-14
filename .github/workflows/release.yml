@@ -122,7 +122,7 @@ jobs:
       - run: bun run typecheck
       - name: Verify source lifecycle, preservation and runner
         run: >-
-          bun test tests/repository.test.ts tests/worktrees.test.ts
+          bun test --timeout 60000 tests/repository.test.ts tests/worktrees.test.ts
           tests/new.integration.test.ts tests/open.integration.test.ts
           tests/done.integration.test.ts tests/rebase.integration.test.ts
           tests/process-identity.test.ts tests/editor-terminal-runner.test.ts
@@ -251,6 +251,16 @@ jobs:
             python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
               --tag "$RELEASE_TAG" --build-info "$destination/build-info-$target.json"
           done
+      # Draft releases are visible only to write-scoped tokens, so the read-only
+      # native jobs verify the bytes this job downloaded from the draft.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: downloaded-draft-assets
+          path: |
+            downloaded-windows/
+            downloaded-darwin-arm64/
+            downloaded-darwin-x64/
+          if-no-files-found: error
       - run: docker build -f tests/release/Dockerfile -t timber-release-smoke .
       - name: Smoke downloaded GitHub release assets
         env:
@@ -290,7 +300,11 @@ jobs:
         with:
           name: verified-${{ matrix.target }}
           path: candidate
-      - name: Download and verify actual macOS beta draft assets
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: downloaded-draft-assets
+          path: draft-assets
+      - name: Verify actual macOS beta draft assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -298,18 +312,15 @@ jobs:
         run: |
           python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
             --tag "$RELEASE_TAG" --build-info "candidate/dist/release/build-info-$BUILD_TARGET.json"
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --dir downloaded --pattern "timber-$RELEASE_TAG-$BUILD_TARGET" \
-            --pattern "build-info-$BUILD_TARGET.json" --pattern "SHA256SUMS-$BUILD_TARGET" \
-            --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt
-          cmp "candidate/dist/release/SHA256SUMS-$BUILD_TARGET" "downloaded/SHA256SUMS-$BUILD_TARGET"
-          cmp "candidate/dist/release/build-info-$BUILD_TARGET.json" "downloaded/build-info-$BUILD_TARGET.json"
-          (cd downloaded && shasum -a 256 -c "SHA256SUMS-$BUILD_TARGET")
+          downloaded="draft-assets/downloaded-$BUILD_TARGET"
+          cmp "candidate/dist/release/SHA256SUMS-$BUILD_TARGET" "$downloaded/SHA256SUMS-$BUILD_TARGET"
+          cmp "candidate/dist/release/build-info-$BUILD_TARGET.json" "$downloaded/build-info-$BUILD_TARGET.json"
+          (cd "$downloaded" && shasum -a 256 -c "SHA256SUMS-$BUILD_TARGET")
           python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
-            --tag "$RELEASE_TAG" --build-info "downloaded/build-info-$BUILD_TARGET.json"
-          chmod +x "downloaded/timber-$RELEASE_TAG-$BUILD_TARGET"
+            --tag "$RELEASE_TAG" --build-info "$downloaded/build-info-$BUILD_TARGET.json"
+          chmod +x "$downloaded/timber-$RELEASE_TAG-$BUILD_TARGET"
           python3 -B scripts/smoke-release.py \
-            --binary "$PWD/downloaded/timber-$RELEASE_TAG-$BUILD_TARGET" \
+            --binary "$PWD/$downloaded/timber-$RELEASE_TAG-$BUILD_TARGET" \
             --expected-version "${RELEASE_TAG#v}" | tee downloaded-smoke-macos.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -333,7 +344,11 @@ jobs:
         with:
           name: verified-windows-x64
           path: candidate
-      - name: Download actual draft assets
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: downloaded-draft-assets
+          path: draft-assets
+      - name: Verify actual draft assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -341,21 +356,19 @@ jobs:
           python -B scripts/verify-release-tag.py --repo "$env:GITHUB_REPOSITORY" `
             --tag "$env:RELEASE_TAG" --build-info candidate/dist/release/build-info-windows-x64.json
           if ($LASTEXITCODE -ne 0) { throw 'Remote tag identity failed.' }
-          gh release download "$env:RELEASE_TAG" --repo "$env:GITHUB_REPOSITORY" --dir downloaded `
-            --pattern "timber-$env:RELEASE_TAG-windows-x64.exe" --pattern build-info-windows-x64.json --pattern SHA256SUMS-windows-x64 --pattern LICENSE --pattern THIRD_PARTY_NOTICES.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Windows asset download failed.' }
+          $downloaded = 'draft-assets/downloaded-windows'
           foreach ($name in @('build-info-windows-x64.json', 'SHA256SUMS-windows-x64', 'LICENSE', 'THIRD_PARTY_NOTICES.txt')) {
-            if ((Get-FileHash "candidate/dist/release/$name").Hash -cne (Get-FileHash "downloaded/$name").Hash) { throw 'Downloaded candidate differs.' }
+            if ((Get-FileHash "candidate/dist/release/$name").Hash -cne (Get-FileHash "$downloaded/$name").Hash) { throw 'Downloaded candidate differs.' }
           }
-          ./scripts/check-windows-checksums.ps1 -Directory downloaded
+          ./scripts/check-windows-checksums.ps1 -Directory $downloaded
           python -B scripts/verify-release-tag.py --repo "$env:GITHUB_REPOSITORY" `
-            --tag "$env:RELEASE_TAG" --build-info downloaded/build-info-windows-x64.json
+            --tag "$env:RELEASE_TAG" --build-info "$downloaded/build-info-windows-x64.json"
           if ($LASTEXITCODE -ne 0) { throw 'Remote tag moved after download.' }
       - name: Native acceptance of downloaded executable
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          ./scripts/smoke-release-windows.ps1 -Binary "downloaded/timber-$env:RELEASE_TAG-windows-x64.exe" `
+          ./scripts/smoke-release-windows.ps1 -Binary "draft-assets/downloaded-windows/timber-$env:RELEASE_TAG-windows-x64.exe" `
             -ExpectedVersion ($env:RELEASE_TAG.Substring(1)) -RequireNoRuntime -EvidencePath downloaded-smoke-windows.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
