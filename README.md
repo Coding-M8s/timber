@@ -23,25 +23,22 @@ rebases and cleanup, and applies the same safety checks every time.
 
 ## Quick start
 
-You need Git and Bun 1.4.2. Linux x86_64 is the tested platform.
+You need Git. Linux x86_64 is the tested platform.
 macOS is available in [beta for Apple Silicon and Intel](docs/releases.md#macos-beta).
 
 ```bash
-git clone https://github.com/Coding-M8s/timber.git
-cd timber
-bun install --frozen-lockfile
-bun link
+curl -fsSL https://github.com/Coding-M8s/timber/releases/latest/download/install.sh | sh
 timber --help
 ```
 
-Keep Bun and the checkout in place when using `bun link`. If `timber` isn't
-found, add `~/.bun/bin` to your PATH.
+The installer verifies the download and puts `timber` in `~/.local/bin`. If
+`timber` isn't found, add that directory to your PATH. Run the same command
+again to update.
 
-To run Timber without Bun, download a standalone executable from the
-[releases page](https://github.com/Coding-M8s/timber/releases) and follow the
-[install steps](docs/guide.md#install-the-standalone-cli), or
-[build and install locally](docs/local-install.md). Windows x64 downloads are
-provisional; see the [Windows guide](docs/windows.md).
+To read the script first, pin a version, or install by hand, see the
+[install steps](docs/guide.md#install-the-standalone-cli). Windows x64 downloads
+are provisional; see the [Windows guide](docs/windows.md). To work on Timber
+itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Choose defaults in an interactive terminal:
 
