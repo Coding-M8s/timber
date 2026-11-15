@@ -26,6 +26,8 @@ jobs:
           zsh --version
           fish --version
       - run: bun run typecheck
+      - name: Lint the installer
+        run: shellcheck --shell=sh install.sh
       - run: bun test
       - run: bun run build
       - run: bun dist/index.js --help

@@ -35,7 +35,7 @@ jobs:
           tests/process-identity.test.ts tests/editor-terminal-runner.test.ts
           tests/editor-terminals.integration.test.ts tests/editor-terminal-compiled.test.ts tests/orca.test.ts
           tests/release.test.ts tests/release.integration.test.ts
-          tests/smoke-platform.test.ts
+          tests/smoke-platform.test.ts tests/install.test.ts
       - run: bun run build
       - run: bun dist/index.js --help
       - name: Build native candidate

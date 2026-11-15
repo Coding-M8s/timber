@@ -123,6 +123,25 @@ It checks selected source lifecycle, preservation and runner tests, native build
 checksums and standalone smoke. It publishes nothing. Manual triggering keeps macOS
 jobs off every push; tagged releases run their own native beta checks.
 
+## Installer script
+
+`install.sh` at the repository root is a POSIX shell installer for Linux x86_64
+and the macOS beta targets. It resolves the latest published tag (or
+`TIMBER_VERSION`), downloads that release's executable, metadata, checksums,
+license and notices, verifies the checksums, runs the new executable, and only
+then replaces `$HOME/.local/bin/timber` (or `TIMBER_INSTALL_DIR/timber`). It
+refuses other systems before downloading anything. Windows keeps the PowerShell
+steps in the [Windows guide](windows.md).
+
+Each release publishes the script as an asset. It is not listed in the platform
+checksum files; the release workflow compares the published asset with the
+tagged source instead. Releases before the first one that contains `install.sh`
+do not have the asset, so the one-line install command is documented for users
+only after that release is published and the command has been run against it.
+
+`tests/install.test.ts` runs the script against a local HTTPS fixture release
+with `uname` and `getconf` doubles. CI also lints it with `shellcheck`.
+
 ## Publish a release
 
 1. Review [licensing and the Bun runtime distribution caveat](licensing.md),
@@ -142,10 +161,11 @@ jobs off every push; tagged releases run their own native beta checks.
 3. The draft job depends on all four platform candidates and verifies the live
    GitHub tag still points to the built commit, then creates a draft containing
    twelve platform assets (executable, metadata and checksums for each target)
-   plus the shared license and third-party notices. Only that job has write
-   permission; PR CI is read-only.
+   plus the shared license, third-party notices and `install.sh`. Only that job
+   has write permission; PR CI is read-only.
 4. The job downloads the draft assets, compares metadata and checksums with the
    candidate, rechecks the tag, and reruns the container smoke on the download.
+   It also compares the downloaded `install.sh` byte for byte with the tagged source.
    Existing drafts must match; mismatched assets fail without replacement.
    Published releases are never modified. Draft releases are visible only to
    write-scoped tokens, so the job passes the Windows and macOS bytes it
