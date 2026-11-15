@@ -135,9 +135,10 @@ steps in the [Windows guide](windows.md).
 
 Each release publishes the script as an asset. It is not listed in the platform
 checksum files; the release workflow compares the published asset with the
-tagged source instead. Releases before the first one that contains `install.sh`
-do not have the asset, so the one-line install command is documented for users
-only after that release is published and the command has been run against it.
+tagged source instead. v0.1.0 was published before the script existed and does
+not have the asset; the script from a later release can still install it with
+`TIMBER_VERSION=v0.1.0`. The user-facing command is in the
+[guide](guide.md#one-line-install).
 
 `tests/install.test.ts` runs the script against a local HTTPS fixture release
 with `uname` and `getconf` doubles. CI also lints it with `shellcheck`.
@@ -188,5 +189,5 @@ credentials and private task data out of those records. Historical local test
 counts do not establish that a new release passes.
 
 See [download and installation](guide.md#install-the-standalone-cli) for user steps
-and [local installation](local-install.md) to replace a development link.
+and [local installation](local-install.md) to install a build from a checkout.
 Checksums detect corruption; they do not independently authenticate the publisher.

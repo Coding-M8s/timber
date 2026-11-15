@@ -28,6 +28,48 @@ in [beta](releases.md#macos-beta); a minimum macOS version is not established.
 Other Linux distributions, architectures and musl/Alpine are not verified.
 See the [Windows guide](windows.md) for provisional Windows x64 downloads.
 
+### One-line install
+
+On Linux x86_64 and macOS, this installs the latest published release:
+
+```bash
+curl -fsSL https://github.com/Coding-M8s/timber/releases/latest/download/install.sh | sh
+```
+
+The script downloads the release assets for your machine, verifies their
+checksums, runs the new executable, and only then replaces
+`~/.local/bin/timber`. A failed run leaves an existing install unchanged. It
+refuses unsupported systems before downloading anything, and it never uses
+`sudo` or edits shell startup files. If `~/.local/bin` is not on your `PATH`,
+it prints the line to add. Run the same command again to update.
+
+| Variable | Effect |
+| --- | --- |
+| `TIMBER_VERSION` | Install this release tag, such as `v0.1.0`, instead of the latest |
+| `TIMBER_INSTALL_DIR` | Install into this absolute directory instead of `~/.local/bin` |
+
+Set a variable on the `sh` side of the pipe:
+
+```bash
+curl -fsSL https://github.com/Coding-M8s/timber/releases/latest/download/install.sh | TIMBER_VERSION=v0.1.0 sh
+```
+
+To read the script before running it, download it first:
+
+```bash
+curl -fsSLO https://github.com/Coding-M8s/timber/releases/latest/download/install.sh
+less install.sh
+sh install.sh
+```
+
+The script and the executables come from the same GitHub releases. Checksums
+detect altered or damaged downloads; they do not independently authenticate the
+publisher. macOS support is beta; see the
+[beta notes](releases.md#macos-beta). On Windows, follow the
+[Windows guide](windows.md).
+
+### Manual install
+
 Published releases are listed on the
 [releases page](https://github.com/Coding-M8s/timber/releases). Download the
 executable, build-info, checksum, `LICENSE` and `THIRD_PARTY_NOTICES.txt` assets
@@ -959,8 +1001,8 @@ leave an extra ignore entry. External ignore-rule edits can change visibility
 after setup's check. First-use markers live under
 `${XDG_STATE_HOME:-$HOME/.local/state}/timber/`, outside repositories.
 
-To replace a development `bun link` with this branch's standalone executable,
-follow the [local installation and smoke-test guide](local-install.md).
+To install a standalone executable built from your checkout, follow the
+[local installation and smoke-test guide](local-install.md).
 
 ## Orca editor terminals
 
