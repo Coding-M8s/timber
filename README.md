@@ -1,8 +1,25 @@
+<p align="center"><img src="docs/assets/logo.png" width="120" alt="Timber logo"></p>
+
 # Timber
+
+Git worktrees without the bookkeeping.
+
+![Timber creating two worktrees, listing them, and removing one](docs/assets/demo.gif)
 
 Work on several Git branches at once, each in its own folder. Timber creates,
 opens, lists, rebases, and removes Git worktrees. It can also run setup scripts
 and launch your editor or coding assistant.
+
+## Compared with plain `git worktree`
+
+| Task | Plain Git | Timber |
+| --- | --- | --- |
+| Start a branch in its own folder | `git worktree add -b fix-login-bug ../acme-worktrees/fix-login-bug main` | `timber new "Fix login bug"` |
+| See every worktree and its state | `git worktree list`, then `git status` in each folder | `timber ls` |
+| Clean up when finished | `git worktree remove ../acme-worktrees/fix-login-bug`, then `git branch -d fix-login-bug` | `timber done fix-login-bug` |
+
+Timber picks the folder and branch name, remembers each branch's base for
+rebases and cleanup, and applies the same safety checks every time.
 
 ## Quick start
 
