@@ -1,3 +1,4 @@
 # Release assets must be byte-identical on every build platform.
 LICENSE text eol=lf
 THIRD_PARTY_NOTICES.txt text eol=lf
+install.sh text eol=lf

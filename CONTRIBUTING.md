@@ -33,6 +33,31 @@ bun run typecheck
 bun test
 ```
 
+### Run your changes
+
+Keep `timber` for the installed release and run work in progress under a
+different name, so you always know which one you are using. Do not use
+`bun link`: it puts a second `timber` on your `PATH` that can hide the installed
+one.
+
+Inside the checkout, pass arguments after the script name:
+
+```bash
+bun run dev ls
+bun run dev new "Fix login bug"
+```
+
+That acts on the Timber repository itself. To try your changes in another
+repository, add an alias to your shell startup file, with the path to your
+checkout:
+
+```bash
+alias timber-dev='bun ~/projects/timber/src/index.ts'
+```
+
+Then `timber-dev ls` runs your checkout from any directory, and `timber ls` still
+runs the installed release.
+
 Linux x86_64 is the tested development platform. See the
 [development section of the guide](docs/guide.md#development) and
 [building and releasing](docs/releases.md) for standalone builds.

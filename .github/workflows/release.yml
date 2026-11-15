@@ -35,6 +35,8 @@ jobs:
           zsh --version
           fish --version
       - run: bun run typecheck
+      - name: Lint the installer
+        run: shellcheck --shell=sh install.sh
       - run: bun test
       - run: bun run build
       - run: bun dist/index.js --help
@@ -128,7 +130,7 @@ jobs:
           tests/process-identity.test.ts tests/editor-terminal-runner.test.ts
           tests/editor-terminals.integration.test.ts tests/editor-terminal-compiled.test.ts tests/orca.test.ts
           tests/release.test.ts tests/release.integration.test.ts
-          tests/smoke-platform.test.ts
+          tests/smoke-platform.test.ts tests/install.test.ts
       - name: Build exact tagged macOS beta source
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -217,7 +219,8 @@ jobs:
               candidate-macos/verified-darwin-arm64/dist/release/SHA256SUMS-darwin-arm64 \
               "candidate-macos/verified-darwin-x64/dist/release/timber-$RELEASE_TAG-darwin-x64" \
               candidate-macos/verified-darwin-x64/dist/release/build-info-darwin-x64.json \
-              candidate-macos/verified-darwin-x64/dist/release/SHA256SUMS-darwin-x64
+              candidate-macos/verified-darwin-x64/dist/release/SHA256SUMS-darwin-x64 \
+              install.sh
           fi
           mkdir downloaded
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
@@ -229,6 +232,12 @@ jobs:
           chmod +x "downloaded/timber-$RELEASE_TAG-linux-x64"
           python3 -B scripts/verify-release-tag.py --repo "$GITHUB_REPOSITORY" \
             --tag "$RELEASE_TAG" --build-info downloaded/build-info.json
+          # The installer is published once, from this job. It is not in the platform
+          # checksum files, so compare the draft asset with the tagged source instead.
+          mkdir downloaded-installer
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir downloaded-installer --pattern install.sh
+          git show HEAD:install.sh | cmp - downloaded-installer/install.sh
           mkdir downloaded-windows
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --dir downloaded-windows --pattern "timber-$RELEASE_TAG-windows-x64.exe" \
