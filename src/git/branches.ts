@@ -206,6 +206,25 @@ function exactBaseRef(repository: RepositoryContext, branches: readonly Branch[]
   return matches.length === 1 ? matches[0]!.ref : null;
 }
 
+const noCommits = "This repository has no commits yet. Make an initial commit, then try again.";
+
+/**
+ * Failure-path only: a symbolic HEAD with no refs of any kind is unborn, so the
+ * repository has no commit to branch from. Tags or other refs mean commits exist.
+ */
+async function unbornRepository(repository: RepositoryContext, rows: readonly RefRow[]): Promise<boolean> {
+  if (rows.length) return false;
+  const options = { cwd: repository.primaryWorktreeRoot, reject: false, env: { GIT_OPTIONAL_LOCKS: "0" } } as const;
+  try {
+    const head = await execa("git", ["symbolic-ref", "--quiet", "HEAD"], options);
+    if (head.exitCode !== 0) return false;
+    const anyRef = await execa("git", ["for-each-ref", "--count=1", "--format=%(refname)"], options);
+    return anyRef.exitCode === 0 && anyRef.stdout === "";
+  } catch {
+    return false;
+  }
+}
+
 /** Select exactly one existing branch and pin its current commit. */
 export async function resolveBase(
   repository: RepositoryContext, config: RepositoryConfig, explicitBase?: string,
@@ -213,13 +232,17 @@ export async function resolveBase(
   if (config.remote !== null && !repository.remotes.some(remote => remote.name === config.remote)) {
     throw new Error(`Configured remote ${config.remote} does not exist in this repository.`);
   }
-  const branches = branchRows(repository, await refs(repository));
+  const rows = await refs(repository);
+  const branches = branchRows(repository, rows);
   const selectedRemote = config.remote ?? (repository.remotes.length === 1 ? repository.remotes[0]!.name : null);
   if (explicitBase !== undefined || config.baseBranch !== null) {
     const input = explicitBase ?? config.baseBranch!;
     const source = explicitBase !== undefined ? "explicit" : "config";
     const ref = exactBaseRef(repository, branches, input, selectedRemote);
-    if (!ref) throw new Error(`Base branch ${input} is missing or ambiguous. Select an exact branch.`);
+    if (!ref) {
+      if (await unbornRepository(repository, rows)) throw new Error(noCommits);
+      throw new Error(`Base branch ${input} is missing or ambiguous. Select an exact branch.`);
+    }
     return validatedBase(repository, ref, source);
   }
 
@@ -230,6 +253,7 @@ export async function resolveBase(
 
   const fallbacks = branches.filter(branch => branch.kind === "local" && (branch.name === "main" || branch.name === "master"));
   if (fallbacks.length !== 1) {
+    if (!fallbacks.length && await unbornRepository(repository, rows)) throw new Error(noCommits);
     throw new Error(fallbacks.length ? "Base branch is ambiguous: both main and master exist." : "Could not find a base branch. Use --base or configure base_branch.");
   }
   return validatedBase(repository, fallbacks[0]!.ref, "fallback");

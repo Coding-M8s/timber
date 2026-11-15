@@ -79,7 +79,7 @@ async function remoteBase(repository: RepositoryContext, config: RepositoryConfi
   if (canonical && !qualified) throw new Error("Saved remote base no longer exists; choose a replacement with --base <ref>.");
   const remoteName = qualified?.name ?? config.remote ?? (repository.remotes.length === 1 ? repository.remotes[0]!.name : null);
   const remote = repository.remotes.find(candidate => candidate.name === remoteName);
-  if (!remote) throw new Error("Remote is missing or ambiguous; configure remote or use --base <remote/branch>.");
+  if (!remote) throw new Error("Remote is missing or ambiguous; configure remote, use --base <remote/branch>, or use --base refs/heads/<branch> for a local base.");
   const requested = qualified ? input!.slice(qualified.name.length + 1 + (canonical ? "refs/remotes/".length : 0)) : input;
   if (requested !== null) {
     const checked = await git(cwd, ["check-ref-format", `refs/heads/${requested}`]);
