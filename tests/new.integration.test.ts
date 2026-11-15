@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
@@ -285,5 +286,60 @@ test("new editor failure safely renders and executes retry for a control-charact
     expect(retried.stderr).toContain("Could not start the configured editor");
     expect(await git(primary, "rev-parse", "refs/heads/feature/retry-control"))
       .toBe(await git(target, "rev-parse", "HEAD"));
+  });
+});
+
+test("new refuses a repository with no commits, with and without --base, and creates nothing", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "timber unborn ")));
+  const primary = join(directory, "empty repo");
+  try {
+    await mkdir(primary);
+    await git(primary, "init", "-b", "trunk");
+    await writeFile(join(primary, "draft.txt"), "untracked draft\n");
+    const headBefore = await readFile(join(primary, ".git", "HEAD"), "utf8");
+
+    for (const args of [["Fix login bug"], ["Fix login bug", "--base", "master"], ["Fix login bug", "--base", "trunk"]]) {
+      const result = await cli(primary, ...args, "--no-editor", "--no-agent");
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("error: This repository has no commits yet. Make an initial commit, then try again.");
+    }
+
+    expect(await git(primary, "for-each-ref")).toBe("");
+    expect(await readFile(join(primary, ".git", "HEAD"), "utf8")).toBe(headBefore);
+    expect(await readFile(join(primary, "draft.txt"), "utf8")).toBe("untracked draft\n");
+    expect(await git(primary, "worktree", "list", "--porcelain")).not.toContain("fix-login-bug");
+    expect((await readdir(directory)).sort()).toEqual(["empty repo"]);
+    expect(await absent(join(directory, "empty repo-worktrees"))).toBe(true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("new keeps the generic base diagnostic for an orphan checkout in a repository with commits", async () => {
+  await withRepository(async (primary, directory) => {
+    await git(primary, "checkout", "--orphan", "orphan");
+    const before = await git(primary, "show-ref");
+
+    const result = await cli(primary, "feature/orphan", "--no-editor", "--no-agent");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("error: Could not find a base branch. Use --base or configure base_branch.");
+    expect(await git(primary, "show-ref")).toBe(before);
+    expect(await absent(join(directory, "primary repo-worktrees"))).toBe(true);
+  });
+});
+
+test("new keeps the generic base diagnostic when only tags hold commits", async () => {
+  await withRepository(async (primary, directory) => {
+    await git(primary, "tag", "v1");
+    await git(primary, "checkout", "--orphan", "orphan");
+    await git(primary, "branch", "-D", "trunk");
+    const before = await git(primary, "show-ref");
+
+    const result = await cli(primary, "feature/tagged", "--no-editor", "--no-agent");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("error: Could not find a base branch. Use --base or configure base_branch.");
+    expect(await git(primary, "show-ref")).toBe(before);
+    expect(await absent(join(directory, "primary repo-worktrees"))).toBe(true);
   });
 });

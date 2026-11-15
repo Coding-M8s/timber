@@ -454,3 +454,19 @@ test("inherited submodule recursion cannot overwrite ignored submodule content",
     expect(await git(modulePath, "rev-parse", "HEAD")).toBe(original);
   });
 });
+
+test("rebase without any remote refuses and points at a local refs/heads base", async () => {
+  await withRepository(async primary => {
+    expect(await git(primary, "remote")).toBe("");
+    const refsBefore = await git(primary, "show-ref");
+    const headBefore = await git(primary, "rev-parse", "HEAD");
+
+    const result = await cli(primary, "rebase", "trunk");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("error: Remote is missing or ambiguous; configure remote, use --base <remote/branch>, or use --base refs/heads/<branch> for a local base.");
+    expect(await git(primary, "show-ref")).toBe(refsBefore);
+    expect(await git(primary, "rev-parse", "HEAD")).toBe(headBefore);
+    expect(await git(primary, "status", "--porcelain")).toBe("");
+    expect(await readFile(join(primary, "tracked.txt"), "utf8")).toBe("original\n");
+  });
+});
