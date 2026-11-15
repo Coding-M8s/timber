@@ -75,6 +75,20 @@ export function retryForDisplay(path: string, ordinaryRetry: string, options = "
     : ordinaryRetry;
 }
 
+/** Workflows are not remembered, so a retry has to name the one its invocation used. */
+export function workflowRetryFlag(workflow: string | null | undefined): string {
+  return workflow ? ` --workflow ${workflow}` : "";
+}
+
+/** Repeat the invocation's workflow in a launcher's retry command. */
+export function retryNamingWorkflow<T extends { message: string; retryCommand: string }>(
+  failure: T, workflow: string | null | undefined,
+): T {
+  if (!workflow) return failure;
+  const retryCommand = failure.retryCommand.replace(" -- ", () => `${workflowRetryFlag(workflow)} -- `);
+  return { ...failure, message: failure.message.replace(failure.retryCommand, () => retryCommand), retryCommand };
+}
+
 /** Render a launch failure so its retry command stays pasteable even for control-character paths. */
 export function failureWithRetry(message: string, retryCommand: string, path: string, options = ""): string {
   const retry = retryForDisplay(path, retryCommand, options);

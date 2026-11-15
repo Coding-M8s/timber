@@ -1,14 +1,13 @@
 import { createServiceDouble } from "./helpers/services";
 import { writeBaseAssociation } from "../src/git/base-metadata";
 import { expect, test } from "bun:test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createNewHandler } from "../src/commands/new";
 import { createOpenHandler } from "../src/commands/open";
 import { loadRepositoryConfig } from "../src/config";
 import { resolveBase } from "../src/git/branches";
 import { createWorktree } from "../src/git/create-worktree";
-import { readWorkflowAssociation, writeWorkflowAssociation } from "../src/git/workflow-metadata";
 import { resolveOpenTarget } from "../src/git/open-target";
 import { discoverRepository } from "../src/git/repository";
 import { listWorktrees } from "../src/git/worktrees";
@@ -29,7 +28,7 @@ function settings() {
     `[workflows.review.agent]\ncommand = "review-agent"\nargs = ["initial prompt"]\n`;
 }
 
-test("new and repeated open preserve creation-only actions with global agent defaults enabled", async () => {
+test("new and repeated open apply a workflow only when it is named, with global agent defaults enabled", async () => {
   await withRepository(async (primary, directory) => {
     await mkdir(join(directory, "config", "timber"), { recursive: true });
     await writeFile(join(directory, "config", "timber", "config.toml"),
@@ -39,8 +38,7 @@ test("new and repeated open preserve creation-only actions with global agent def
       loadRepositoryConfig(repo, { HOME: directory, XDG_CONFIG_HOME: join(directory, "config") });
     const editors: string[] = [];
     const agents: string[] = [];
-    const shared = { discoverRepository, loadConfig, createWorktree, readWorkflowAssociation,
-      writeWorkflowAssociation, runSetup,
+    const shared = { discoverRepository, loadConfig, createWorktree, runSetup,
       launchEditor: async (_tree: unknown, config: Awaited<ReturnType<typeof loadConfig>>) => {
         editors.push(config.editor?.command ?? "off"); return { kind: "launched" as const };
       },
@@ -59,22 +57,24 @@ test("new and repeated open preserve creation-only actions with global agent def
     await open("review", {}, context(nested));
     await open("review", { workflow: "review" }, context(primary));
     await writeFile(join(primary, ".timber.toml"), settings().replace('command = "review-editor"', 'command = "edited-editor"'));
-    await open("review", {}, context(primary));
+    await open("review", { workflow: "review" }, context(primary));
     expect(await readFile(join(tree.path, "steps.log"), "utf8")).toBe("ordinary:review\nreview:review\n");
-    expect(editors).toEqual(["review-editor", "review-editor", "review-editor", "edited-editor"]);
-    expect(agents).toEqual(["review-agent"]);
-    expect(await readWorkflowAssociation(repository, tree)).toEqual({ kind: "assigned", name: "review" });
+    // The plain open in between forgets the workflow and follows ordinary and global defaults.
+    expect(editors).toEqual(["review-editor", "off", "review-editor", "edited-editor"]);
+    expect(agents).toEqual(["review-agent", "global-agent"]);
+    const saved = join(await git(tree.path, "rev-parse", "--absolute-git-dir"), "timber", "workflow.json");
+    expect(await access(saved).then(() => true, () => false)).toBe(false);
     expect(await git(primary, "show-ref", "--verify", "refs/heads/review")).toContain("refs/heads/review");
   });
 });
 
-test("open materialization remembers workflow and explicit retries alone replay setup or agent", async () => {
+test("open materialization applies the workflow once and retries replay it only when it is named again", async () => {
   await withRepository(async (primary) => {
     await writeFile(join(primary, ".timber.toml"), settings());
     await git(primary, "branch", "coworkers-branch");
     const agents: string[] = [];
     const services = { discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget,
-      createWorktree, readWorkflowAssociation, writeWorkflowAssociation, runSetup,
+      createWorktree, runSetup,
       launchEditor: async () => ({ kind: "skipped" as const }),
       launchAgent: async (_tree: unknown, command: { command: string } | null) => {
         agents.push(command?.command ?? "off"); return { kind: "exited" as const, exitCode: 0, signal: null };
@@ -87,9 +87,11 @@ test("open materialization remembers workflow and explicit retries alone replay 
     await open("coworkers-branch", {}, context(primary));
     expect(agents).toEqual(["review-agent"]);
     await open("coworkers-branch", { setup: true, agent: false }, context(primary));
+    expect(await readFile(join(tree.path, "steps.log"), "utf8")).toBe("ordinary:review\nreview:review\nordinary:\n");
+    await open("coworkers-branch", { setup: true, agent: false, workflow: "review" }, context(primary));
     expect(await readFile(join(tree.path, "steps.log"), "utf8")).toBe(
-      "ordinary:review\nreview:review\nordinary:review\nreview:review\n");
-    await open("coworkers-branch", { agent: true }, context(primary));
+      "ordinary:review\nreview:review\nordinary:\nordinary:review\nreview:review\n");
+    await open("coworkers-branch", { agent: true, workflow: "review" }, context(primary));
     expect(agents).toEqual(["review-agent", "review-agent"]);
   });
 });
@@ -102,17 +104,15 @@ test("failed workflow setup retains refs and files; ordinary open never retries 
       `[hooks]\npost_create = [${JSON.stringify(ordinary)}]\n` +
       `[workflows.review]\npost_create = [${JSON.stringify(workflow)}]\n`);
     let editors = 0;
-    const shared = { discoverRepository, loadConfig: loadRepositoryConfig, createWorktree,
-      readWorkflowAssociation, writeWorkflowAssociation, runSetup,
+    const shared = { discoverRepository, loadConfig: loadRepositoryConfig, createWorktree, runSetup,
       launchEditor: async () => { editors++; return { kind: "launched" as const }; },
       launchAgent: async () => ({ kind: "skipped" as const }) };
     const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, ...shared, resolveBase,
       resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [] });
     await expect(create("review", { base: "trunk", workflow: "review" }, context(primary)))
-      .rejects.toThrow(/workflow post_create step 2 failed/);
+      .rejects.toThrow(/workflow post_create step 2 failed.*timber open --setup --workflow review -- '/s);
     const repository = await discoverRepository(primary);
     const tree = (await listWorktrees(repository)).find(item => item.branch === "review")!;
-    expect(await readWorkflowAssociation(repository, tree)).toEqual({ kind: "assigned", name: "review" });
     expect(await readFile(join(tree.path, "steps.log"), "utf8")).toBe("ordinary\n");
     expect(editors).toBe(0);
     expect(await git(primary, "show-ref", "--verify", "refs/heads/review")).toContain("refs/heads/review");
@@ -132,7 +132,7 @@ test("workflow creation in CI skips implicit agent and explicit agent fails befo
     await writeFile(join(primary, ".timber.toml"), settings());
     let agentCalls = 0;
     const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, discoverRepository, loadConfig: loadRepositoryConfig,
-      resolveBase, createWorktree, writeWorkflowAssociation, runSetup,
+      resolveBase, createWorktree, runSetup,
       resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [],
       launchEditor: async () => ({ kind: "skipped" }),
       launchAgent: async () => { agentCalls++; return { kind: "skipped" }; } });

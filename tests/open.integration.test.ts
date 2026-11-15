@@ -338,8 +338,6 @@ test("interactive ambiguity creates only the explicitly selected local branch wo
       loadConfig: loadRepositoryConfig,
       resolveOpenTarget,
       createWorktree,
-      readWorkflowAssociation: async () => ({ kind: "unassigned" }),
-      writeWorkflowAssociation: async () => {},
       runSetup,
       launchEditor,
       launchAgent: async () => ({ kind: "skipped" }),

@@ -43,17 +43,17 @@ test("timber ls works offline from nested and linked paths and preserves real Gi
     const fromLinked = await cli(linkedNested);
     expect(fromPrimary.exitCode).toBe(0);
     expect(fromLinked.exitCode).toBe(0);
-    expect(fromPrimary.stderr).toContain("warning: Cannot read workflow association");
+    expect(fromPrimary.stderr).toContain("warning: Cannot read base association");
     expect(fromLinked.stderr).toBe(fromPrimary.stderr);
     expect(fromPrimary.stdout).toBe(fromLinked.stdout);
     const linkedRows = [
-      { path: linked, cells: ["linked", branch, "-", "-", "dirty (1 modified, 1 untracked); 1 ignored", linked] },
-      { path: detached, cells: ["linked", "(detached HEAD)", "-", "-", "clean", JSON.stringify(detached)] },
-      { path: stale, cells: ["linked", "stale", "?", "?", "unknown (Worktree path is missing); missing; prunable", stale] },
+      { path: linked, cells: ["linked", branch, "-", "dirty (1 modified, 1 untracked); 1 ignored", linked] },
+      { path: detached, cells: ["linked", "(detached HEAD)", "-", "clean", JSON.stringify(detached)] },
+      { path: stale, cells: ["linked", "stale", "?", "unknown (Worktree path is missing); missing; prunable", stale] },
     ].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
     const cells = [
-      ["WORKTREE", "BRANCH", "BASE", "WORKFLOW", "STATUS", "PATH"],
-      ["primary", "trunk", "-", "-", "dirty (0 modified, 1 untracked)", primary],
+      ["WORKTREE", "BRANCH", "BASE", "STATUS", "PATH"],
+      ["primary", "trunk", "-", "dirty (0 modified, 1 untracked)", primary],
       ...linkedRows.map(row => row.cells),
     ];
     // Known fixture text has seven display cells but ten UTF-16 code units.

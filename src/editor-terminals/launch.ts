@@ -1,4 +1,4 @@
-import { retryForDisplay, safeDisplay } from "../display";
+import { retryForDisplay, safeDisplay, workflowRetryFlag } from "../display";
 import type { CommandIO, EditorTerminalLaunch } from "../services";
 import { createOrcaSession, OrcaSelectionFailure } from "./orca";
 import { createTerminalRequest, RunnerStartupFailure } from "./request";
@@ -13,7 +13,7 @@ interface Dependencies {
   request?: typeof createTerminalRequest;
 }
 
-function retry(path: string, flags: string) {
+function retryCommand(path: string, flags: string) {
   return retryForDisplay(path, `timber open ${flags} -- '${path.replaceAll("'", "'\\''")}'`, flags);
 }
 
@@ -25,6 +25,8 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
       throw new Error("Editor terminal launch requires an enabled Orca integration.");
     }
     const needsSetup = launch.setup && ((config.hooks?.postCreate.length ?? 0) + (launch.workflowScripts?.length ?? 0) > 0);
+    // The workflow is not remembered, so every retry names it again.
+    const retry = (path: string, flags: string) => retryCommand(path, flags + workflowRetryFlag(launch.workflowName));
     const retained = `Workspace retained at ${safeDisplay(worktree.path)}.`;
     const definitive = (flags: string) => `${retained} Retry with: ${retry(worktree.path, flags)}`;
     let session: Session;

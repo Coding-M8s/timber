@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { failureWithRetry, safeDisplay, shellQuoteForDisplay } from "./display";
+import { failureWithRetry, retryNamingWorkflow, safeDisplay, shellQuoteForDisplay, workflowRetryFlag } from "./display";
 import { NativeExecutableError, resolveNativeCommand } from "./platform/executable";
 import { childExitCode } from "./platform/signals";
 import type { CommandIO } from "./services";
@@ -81,10 +81,13 @@ export async function launchAgent(
 }
 
 /** Report only Timber diagnostics; agent stdout/stderr stay attached to the terminal. */
-export function reportAgentResult(result: AgentResult, worktree: Worktree, io: CommandIO): number {
+export function reportAgentResult(
+  result: AgentResult, worktree: Worktree, io: CommandIO, workflow?: string | null,
+): number {
   if (result.kind === "skipped") return 0;
   if (result.kind === "failed") {
-    io.stderr(`error: ${failureWithRetry(result.message, result.retryCommand, worktree.path, "--agent --no-editor")}\n`);
+    const failure = retryNamingWorkflow(result, workflow);
+    io.stderr(`error: ${failureWithRetry(failure.message, failure.retryCommand, worktree.path, `--agent --no-editor${workflowRetryFlag(workflow)}`)}\n`);
     return 1;
   }
   if (result.exitCode !== 0) {

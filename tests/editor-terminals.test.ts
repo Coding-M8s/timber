@@ -134,7 +134,7 @@ test("readiness failure reports the retained path and one retry for everything n
     const error = await launch(request, io).catch(e => e);
     expect(error.message).toContain("not ready");
     expect(error.message).toContain("Workspace retained at /repo");
-    expect(error.message).toContain(`Retry with: timber open ${flags} -- '/repo'`);
+    expect(error.message).toContain(`Retry with: timber open ${flags} --workflow review -- '/repo'`);
   }
 });
 
@@ -148,10 +148,10 @@ test("a refused terminal creation fences the request and reports a definitive re
       cleanup: async () => { events.push(`${task.kind}-cleaned`); } }) });
   const error = await launch(input(), io).catch(e => e);
   expect(error.message).toContain("Orca refused permission.");
-  expect(error.message).toContain("Retry with: timber open --editor --setup --agent -- '/repo'");
+  expect(error.message).toContain("Retry with: timber open --editor --setup --agent --workflow review -- '/repo'");
   expect(events).toEqual(["setup-fenced", "setup-cleaned"]);
   const agentOnly = await launch({ ...input(), setup: false }, io).catch(e => e);
-  expect(agentOnly.message).toContain("Retry with: timber open --editor --agent -- '/repo'");
+  expect(agentOnly.message).toContain("Retry with: timber open --editor --agent --workflow review -- '/repo'");
 });
 
 test.each(["setup", "agent"])("selection failure retains the known %s terminal and awaits required setup", async failed => {

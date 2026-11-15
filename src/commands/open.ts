@@ -2,7 +2,7 @@ import { reportAgentResult, resolveAgentCommand } from "../agent";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
 
-import { FormattedError, failureWithRetry, jsonDisplay, safeDisplay } from "../display";
+import { FormattedError, failureWithRetry, jsonDisplay, retryNamingWorkflow, safeDisplay, workflowRetryFlag } from "../display";
 import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 
 function exactSelector(target: OpenTarget): string {
@@ -108,7 +108,7 @@ function branchRequest(branch: Branch) {
 export function createOpenHandler(
   services: Pick<CommandServices,
     "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" |
-    "readWorkflowAssociation" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">,
+    "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">,
 ): CommandHandlers["open"] {
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
@@ -166,18 +166,8 @@ export function createOpenHandler(
     }
     const created = selected.kind === "branch";
     if (selected.kind === "worktree") await context.machine?.worktree(selected.worktree, false);
-    let workflowName = options.workflow ?? null;
-    let savedName: string | null = null;
-    if (selected.kind === "worktree") {
-      const association = await services.readWorkflowAssociation(repository, selected.worktree);
-      if (association.kind === "invalid" && options.workflow === undefined) {
-        throw new Error("Workflow metadata is stale or unreadable. Inspect the worktree's private Git metadata or assign a configured workflow explicitly with --workflow <name>.");
-      }
-      if (association.kind === "assigned") {
-        savedName = association.name;
-        if (options.workflow === undefined) workflowName = association.name;
-      }
-    }
+    // A workflow applies only to the invocation that names it; nothing is remembered.
+    const workflowName = options.workflow ?? null;
     const workflow = selectWorkflow(config, workflowName);
     const selectedEditor = workflowEditor(config, workflow, options.editor);
     const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
@@ -191,10 +181,6 @@ export function createOpenHandler(
       await context.machine?.worktree(worktree, true);
     } else {
       worktree = selected.worktree;
-    }
-
-    if (options.workflow !== undefined && (created || savedName !== options.workflow)) {
-      await services.writeWorkflowAssociation(repository, worktree, options.workflow);
     }
 
     if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
@@ -214,11 +200,12 @@ export function createOpenHandler(
 
     const editor = await services.launchEditor(worktree, editorConfig, options.editor === false);
     if (editor.kind === "failed") {
-      context.io.stderr(`error: ${failureWithRetry(editor.message, editor.retryCommand, worktree.path, "--editor")}\n`);
+      const failure = retryNamingWorkflow(editor, workflowName);
+      context.io.stderr(`error: ${failureWithRetry(failure.message, failure.retryCommand, worktree.path, `--editor${workflowRetryFlag(workflowName)}`)}\n`);
     }
 
     context.io.stdout(`${created ? "Created" : "Opened existing"} worktree at ${safeDisplay(worktree.path)}\n`);
     if (editor.kind === "failed" || agentCommand === null) return;
-    return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io);
+    return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io, workflowName);
   };
 }

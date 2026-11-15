@@ -101,7 +101,7 @@ wait_for_setup = true
 
 ## What Timber does
 
-1. Completes Git work (creation, workflow association) as before.
+1. Completes Git work (creation, saved base) as before.
 2. Checks Orca status and worktree readiness. Only `selector_not_found` is
    retried, under one 15 second deadline. Command, permission, malformed and
    runtime failures stop before any terminal exists.

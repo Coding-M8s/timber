@@ -6,7 +6,6 @@ import type {
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
 import type { BaseAssociationRead } from "./git/base-metadata";
-import type { WorkflowAssociationRead } from "./git/workflow-metadata";
 import type { TerminalChooser } from "./selection";
 import type { GithubRepository } from "./github/repository";
 import type { LinearTicket } from "./linear/client";
@@ -47,8 +46,6 @@ export interface CommandServices {
   createWorktree(repository: RepositoryContext, request: CreateWorktreeRequest, config: RepositoryConfig): Promise<Worktree>;
   readBaseAssociation(repository: RepositoryContext, worktree: Worktree): Promise<BaseAssociationRead>;
   writeBaseAssociation(repository: RepositoryContext, worktree: Worktree, ref: string): Promise<void>;
-  readWorkflowAssociation(repository: RepositoryContext, worktree: Worktree): Promise<WorkflowAssociationRead>;
-  writeWorkflowAssociation(repository: RepositoryContext, worktree: Worktree, name: string): Promise<void>;
   /** Select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     explicitBase: string | undefined, io: CommandIO): Promise<number>;

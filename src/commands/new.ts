@@ -1,5 +1,5 @@
 import { reportAgentResult } from "../agent";
-import { FormattedError, failureWithRetry, safeDisplay, shellQuoteForDisplay } from "../display";
+import { FormattedError, failureWithRetry, retryNamingWorkflow, safeDisplay, shellQuoteForDisplay, workflowRetryFlag } from "../display";
 import type { CommandHandlers, CommandServices } from "../services";
 import { JiraLookupFailure } from "../jira/client";
 import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
@@ -12,7 +12,7 @@ import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflo
 type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
   "resolveGithubRepository" | "resolveGithubTicket" | "resolveLinearTicket" |
-  "createWorktree" | "writeBaseAssociation" | "writeWorkflowAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
+  "createWorktree" | "writeBaseAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
@@ -109,7 +109,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     } catch {
       throw new FormattedError(`Could not save the base association; created worktree retained at ${safeDisplay(worktree.path)}. Setup and launch have not run. Inspect its private Git metadata and permissions, then retry with:\ntimber rebase --base ${shellQuoteForDisplay(base.ref)} -- ${shellQuoteForDisplay(worktree.path)}`);
     }
-    if (options.workflow) await services.writeWorkflowAssociation(repository, worktree, options.workflow);
+    await context.machine?.refreshBase();
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
     if (ticket) {
       const provider = input.kind === "github" ? "GitHub" : input.kind === "linear" ? "Linear" : "Jira";
@@ -131,10 +131,11 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
 
     const editor = await services.launchEditor(worktree, editorConfig, options.editor === false);
     if (editor.kind === "failed") {
-      throw new Error(failureWithRetry(editor.message, editor.retryCommand, worktree.path, "--editor"));
+      const failure = retryNamingWorkflow(editor, options.workflow);
+      throw new Error(failureWithRetry(failure.message, failure.retryCommand, worktree.path, `--editor${workflowRetryFlag(options.workflow)}`));
     }
     if (agentCommand === null) return;
-    return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io);
+    return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io, options.workflow);
   };
 }
 

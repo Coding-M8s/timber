@@ -429,7 +429,7 @@ and unrelated worktrees stay intact.
 Run `timber ls` (or `bun run dev ls`) from any nested directory in the primary
 or a linked worktree. Timber reads Git's inventory, including worktrees created
 manually and outside the default Timber directory. It prints a space-aligned
-table with `WORKTREE`, `BRANCH`, `WORKFLOW`, `STATUS`, and absolute `PATH` columns, primary
+table with `WORKTREE`, `BRANCH`, `BASE`, `STATUS`, and absolute `PATH` columns, primary
 first and linked paths sorted deterministically.
 
 The primary worktree is marked `primary`; detached HEAD shows `(detached HEAD)`.
@@ -439,8 +439,8 @@ Ignored content is reported separately and does not by itself make Git status
 dirty. Missing or inaccessible worktrees stay visible with `unknown` status;
 `missing`, `locked`, and `prunable` markers describe their state. Control
 characters in paths are escaped so each worktree occupies one row.
-`WORKFLOW` shows the saved name, `-` when unassigned, and `?` when local
-workflow metadata cannot be trusted. A narrow terminal may wrap a complete row.
+`BASE` shows the [saved base](worktree-bases.md), `-` when none is saved, and `?`
+when local base metadata cannot be trusted. A narrow terminal may wrap a complete row.
 
 Listing works offline and requires no `.timber.toml`. It does not fetch, prune,
 refresh the index, open an editor, launch an agent, or change files or refs.
@@ -499,7 +499,7 @@ to remove all inherited names. Both config scopes are validated even when one
 overrides the other. `timber setup` preserves existing workflow values and shows
 the effective count; edit workflow definitions directly in TOML.
 
-Outside enabled Orca integration, on creation Timber saves the selected workflow, runs ordinary setup scripts,
+Outside enabled Orca integration, on creation Timber runs ordinary setup scripts,
 then workflow setup scripts, opens the selected editor, then starts its optional
 initial agent in the invoking terminal. `open` creating a worktree for an
 existing branch counts as creation. The scripts receive `TIMBER_WORKFLOW` as an
@@ -507,26 +507,28 @@ environment variable; Timber never substitutes it into shell source. A custom
 agent wrapper can supply its prompt and open a separate window if desired.
 Timber passes executable arguments literally. With [Orca integration](editor-terminals.md), setup and agents use separate editor terminals instead.
 
-Later `open` commands remember the workflow and use its current editor settings.
-They do not rerun setup or launch an implicit agent, including when ordinary
-agent defaults are enabled. Repeating `open -w review` on the same worktree also
-skips those creation actions. Assigning another workflow to an existing
-worktree changes its editor without replaying creation actions. `open --setup`
-deliberately reruns ordinary and workflow scripts once; `open --agent` deliberately
-starts the selected agent again. `--editor` explicitly starts the selected editor;
+A workflow is a one-off choice: it applies only to the command that names it, and
+Timber does not remember it for the worktree. A later `open` without `-w` follows
+your ordinary editor, agent and hook settings. Running `open -w review` on an
+existing worktree uses that workflow's editor for this one command, without
+rerunning setup or launching an implicit agent, including when ordinary agent
+defaults are enabled. `open --setup -w review` deliberately reruns ordinary and
+workflow scripts once (without `-w`, only ordinary scripts run); `open --agent -w
+review` deliberately starts that workflow's agent again. `--editor` explicitly
+starts the selected editor;
 `--no-editor` and `--no-agent` suppress their
 respective launches. Explicit `--agent` requires an interactive terminal with CI
 off or an enabled, selected Orca editor integration. A normal reopen never retries
 a failed setup or initial prompt.
 
-The selected name is saved only in that worktree's private Git administrative
-metadata, with identity checks; it is not a committed file or branch tag. Git
-worktree removal removes the association. If a saved definition is deleted,
-restore it or run `open --workflow <valid-name>` to reassign the worktree.
+Timber stores nothing about the workflow in the worktree, and `timber ls` does
+not show it.
 Creation-stage failures retain the worktree and refs. After fixing a failed
 script, run `timber open --setup -- '<absolute-worktree-path>'`; for editor
 startup, run `timber open --editor -- '<absolute-worktree-path>'`; for an initial
 agent retry, run `timber open --agent --no-editor -- '<absolute-worktree-path>'`.
+When the failed command named a workflow, add the same `-w <name>` before `--`,
+as the printed retry command does.
 Explicit script retries start from the first step; make scripts safe to rerun.
 No exactly-once guarantee is made across crashes. Keep secrets out of TOML,
 scripts, and diagnostics.

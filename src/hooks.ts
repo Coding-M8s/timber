@@ -1,12 +1,13 @@
 import { execa } from "execa";
 import { hookShell } from "./platform/hook-shell";
-import { retryForDisplay, shellQuoteForDisplay } from "./display";
+import { retryForDisplay, shellQuoteForDisplay, workflowRetryFlag } from "./display";
 import type { CommandIO } from "./services";
 import type { CleanupOptions, RepositoryConfig, RepositoryContext, Worktree } from "./types";
 
 /** Ordinary paths use POSIX quoting; control characters use a printable Bash command. */
-function retryCommand(path: string): string {
-  return retryForDisplay(path, `timber open --setup -- '${path.replaceAll("'", "'\\''")}'`, "--setup");
+function retryCommand(path: string, workflow?: string): string {
+  const flags = `--setup${workflowRetryFlag(workflow)}`;
+  return retryForDisplay(path, `timber open ${flags} -- '${path.replaceAll("'", "'\\''")}'`, flags);
 }
 
 function displayPath(path: string): string {
@@ -25,10 +26,10 @@ function failureReason(error: unknown): string {
 }
 
 export class SetupFailure extends Error {
-  constructor(public readonly step: number, public readonly phase: string, public readonly reason: string, path: string) {
+  constructor(public readonly step: number, public readonly phase: string, public readonly reason: string, path: string, workflow?: string) {
     super(`${phase === "ordinary" ? "Setup" : "Setup workflow"} post_create step ${step} failed (${reason}). ` +
       `The branch/worktree and setup files are retained at ${displayPath(path)}. ` +
-      `Fix the hook or its prerequisites, then retry all setup steps with: ${retryCommand(path)}`);
+      `Fix the hook or its prerequisites, then retry all setup steps with: ${retryCommand(path, workflow)}`);
   }
 }
 
@@ -104,7 +105,7 @@ export async function runSetupTask(task: SetupTask, io: CommandIO): Promise<void
       await runHook(step.source, task.cwd, env, io);
     } catch (error) {
       // Execa's message includes shell source/output, so report only structured failure metadata.
-      throw new SetupFailure(index + 1, step.phase, failureReason(error), task.cwd);
+      throw new SetupFailure(index + 1, step.phase, failureReason(error), task.cwd, task.workflow);
     }
   }
 }

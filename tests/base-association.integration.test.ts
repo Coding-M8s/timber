@@ -40,9 +40,9 @@ test("new saves a private local base and ls displays it without guessing bases f
     expect((await lstat(await metadata(target))).mode & 0o777).toBe(0o600);
     const result = await cli(target, "ls");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toMatch(/BRANCH\s+BASE\s+WORKFLOW/);
-    expect(result.stdout).toMatch(/linked\s+feature\s+refs\/heads\/trunk\s+-/);
-    expect(result.stdout).toMatch(/primary\s+trunk\s+-\s+-/);
+    expect(result.stdout).toMatch(/BRANCH\s+BASE\s+STATUS/);
+    expect(result.stdout).toMatch(/linked\s+feature\s+refs\/heads\/trunk\s+clean/);
+    expect(result.stdout).toMatch(/primary\s+trunk\s+-\s+/);
     expect(await git(target, "status", "--porcelain")).toBe("");
   });
 });
@@ -148,7 +148,7 @@ test.each(["malformed", "stale"])("ls retains %s base rows and rebase refuses be
     await writeFile(file, scenario === "malformed" ? "not JSON" : JSON.stringify({ ...record, worktreePath: primary }));
     const result = await cli(primary, "ls");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toMatch(/linked\s+feature\s+\?\s+-/);
+    expect(result.stdout).toMatch(/linked\s+feature\s+\?\s+clean/);
     expect(result.stderr).toContain("base association");
     expect((await cli(primary, "rebase", target)).exitCode).toBe(1);
     expect(await git(target, "status", "--porcelain")).toBe("");

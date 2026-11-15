@@ -12,7 +12,6 @@ import { createWorktree } from "../src/git/create-worktree";
 import { discoverRepository } from "../src/git/repository";
 import { resolveOpenTarget } from "../src/git/open-target";
 import { listWorktrees } from "../src/git/worktrees";
-import { readWorkflowAssociation, writeWorkflowAssociation } from "../src/git/workflow-metadata";
 import { createEditorTerminalLauncher } from "../src/editor-terminals/launch";
 import { createTerminalRequest } from "../src/editor-terminals/request";
 import type { EditorTerminalLaunch } from "../src/services";
@@ -34,7 +33,7 @@ test.each([false, true])("real Git creation retains setup edits, workflow and re
           return `term_${commands.length}`;
         }, select: async () => {} }) });
     const services = { ...createServiceDouble(), discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, createWorktree, writeBaseAssociation,
-      resolveOpenTarget, listBranches, readBaseAssociation, readWorkflowAssociation, writeWorkflowAssociation,
+      resolveOpenTarget, listBranches, readBaseAssociation,
       resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [],
       runSetup: async () => { throw new Error("foreground fallback"); },
       launchEditor: async () => { throw new Error("generic fallback"); },
@@ -51,13 +50,12 @@ test.each([false, true])("real Git creation retains setup edits, workflow and re
       expect(await Bun.file(join(tree.path, "agent-started")).exists()).toBe(!dependent);
       expect(await git(primary, "show-ref", "--verify", "refs/heads/review")).toContain("refs/heads/review");
       expect(await readFile(join(primary, "tracked.txt"), "utf8")).toBe("original\n");
-      expect(await readWorkflowAssociation(repository, tree)).toEqual({ kind: "assigned", name: "review" });
       let observed: EditorTerminalLaunch | undefined;
-      await createOpenHandler({ ...services, launchEditorTerminals: async launch => { observed = launch; } })("review", {}, ctx);
+      await createOpenHandler({ ...services, launchEditorTerminals: async launch => { observed = launch; } })("review", { workflow: "review" }, ctx);
       expect(observed).toMatchObject({ setup: false, agent: null, workflowName: "review" });
       await writeFile(join(tree.path, "user-untracked"), "preserve me\n");
       await expect(createOpenHandler({ ...services, launchEditorTerminals: async () => { throw new Error("readiness failed"); } })
-        ("review", { setup: true, agent: false }, ctx)).rejects.toThrow(/readiness/);
+        ("review", { setup: true, agent: false, workflow: "review" }, ctx)).rejects.toThrow(/readiness/);
       expect(await readFile(join(tree.path, "user-untracked"), "utf8")).toBe("preserve me\n");
       expect(await readFile(join(tree.path, "setup-edits"), "utf8")).toBe("ordinaryworkflow");
       expect(await git(primary, "show-ref", "--verify", "refs/heads/review")).toContain("refs/heads/review");

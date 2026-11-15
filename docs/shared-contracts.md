@@ -53,7 +53,7 @@ or zombie records. PID-only and whole-second fallbacks are not accepted. Native
 macOS release checks run natively; desktop integration and broader OS compatibility
 remain under test. See [macOS beta](releases.md#macos-beta).
 
-Saved bases and workflows belong to private Git-admin metadata. Arena adds
+Saved bases belong to private Git-admin metadata; workflows are never saved. Arena adds
 versioned manifests, task digests, reciprocal worktree UUIDs, and invocation locks.
 Preserve existing record versions and exact recorded configuration during recovery;
 never reinterpret a previous run through a current model catalog. Metadata membership

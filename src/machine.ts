@@ -1,16 +1,29 @@
 import { open, lstat, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { safeDiagnostic } from "./display";
+import { readBaseAssociation, type BaseAssociationRead } from "./git/base-metadata";
 import type { CommandContext } from "./services";
 import type { RepositoryContext, Worktree } from "./types";
 
 /** Experimental v1 transport. Git's registered path remains authoritative. */
 export interface MachineReporter {
   repository(repository: RepositoryContext): Promise<void>;
+  /** Captures the worktree with the base saved at this moment. */
   worktree(worktree: Worktree, materialized: boolean): Promise<void>;
-  inventory(worktrees: readonly Worktree[]): Promise<void>;
+  /** Reads the captured worktree's saved base again, after the command changed it. */
+  refreshBase(): Promise<void>;
+  inventory(entries: readonly InventoryEntry[]): Promise<void>;
   cancelled(): void;
 }
+
+/** A listed worktree with the saved base the listing already read. */
+export interface InventoryEntry {
+  worktree: Worktree;
+  base: BaseAssociationRead;
+}
+
+/** Saved-base read; reports invalid metadata as a value and never throws. */
+export type BaseReader = (repository: RepositoryContext, worktree: Worktree) => Promise<BaseAssociationRead>;
 
 interface RepositoryIdentity {
   commonGitDir: string;
@@ -22,6 +35,8 @@ interface WorktreeRecord extends Worktree {
   detached: boolean;
   /** Null when the registered path cannot be verified; never adopt a replacement. */
   canonicalPath: string | null;
+  /** Saved canonical base ref as stored; its existence is not checked. */
+  base: BaseAssociationRead;
 }
 
 export interface MachineRecord {
@@ -37,18 +52,21 @@ export interface MachineRecord {
   worktrees?: WorktreeRecord[];
 }
 
-async function worktreeRecord(tree: Worktree): Promise<WorktreeRecord> {
+async function worktreeRecord({ worktree: tree, base }: InventoryEntry): Promise<WorktreeRecord> {
   // Status inspection already checks reciprocal Git identity. Unknown rows must
   // not acquire a different identity through a stale path or replacement symlink.
   const canonicalPath = tree.pathExists && tree.status.kind === "known"
     ? await realpath(tree.path).catch(() => null) : null;
-  return { ...tree, detached: tree.branch === null, canonicalPath };
+  return { ...tree, detached: tree.branch === null, canonicalPath, base };
 }
+
+const unread = { kind: "invalid", reason: "unreadable" } as const;
 
 /** One result after handler completion. Hooks keep their ordinary terminal IO. */
 export async function runMachineCommand(
   command: MachineRecord["command"], context: CommandContext,
   action: (context: CommandContext) => Promise<void | number>, resultFile?: string,
+  readBase: BaseReader = readBaseAssociation,
 ): Promise<number> {
   const destination = resultFile === undefined ? null : resolve(context.cwd, resultFile);
   // Exclusive creation rejects existing files and symlinks before any command work.
@@ -56,16 +74,27 @@ export async function runMachineCommand(
   const record: MachineRecord = { schemaVersion: 1, command, outcome: "succeeded", exitCode: 0,
     repository: null, worktree: null, materialized: false, diagnostic: null,
     ...(command === "ls" ? { worktrees: [] } : {}) };
+  let discovered: RepositoryContext | null = null;
+  let captured: Worktree | null = null;
+  // Without a discovered repository there is no identity to read metadata against.
+  const savedBase = async (tree: Worktree): Promise<BaseAssociationRead> =>
+    discovered === null ? unread : readBase(discovered, tree);
   const machine: MachineReporter = {
     repository: async repository => {
+      discovered = repository;
       record.repository = { commonGitDir: await realpath(repository.commonGitDir),
         primaryWorktreeRoot: repository.primaryWorktreeRoot, currentWorktreeRoot: repository.currentWorktreeRoot };
     },
     worktree: async (tree, materialized) => {
-      // Save actual returned state before the optional canonical-path read.
+      // Save actual returned state before the optional canonical-path and metadata reads.
       record.materialized = materialized;
-      record.worktree = { ...tree, detached: tree.branch === null, canonicalPath: null };
-      record.worktree = await worktreeRecord(tree);
+      captured = tree;
+      record.worktree = { ...tree, detached: tree.branch === null, canonicalPath: null, base: unread };
+      record.worktree = await worktreeRecord({ worktree: tree, base: await savedBase(tree) });
+    },
+    refreshBase: async () => {
+      if (captured === null || record.worktree === null) return;
+      record.worktree = { ...record.worktree, base: await savedBase(captured) };
     },
     inventory: async trees => { record.worktrees = await Promise.all(trees.map(worktreeRecord)); },
     cancelled: () => { record.outcome = "cancelled"; },
