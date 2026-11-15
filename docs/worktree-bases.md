@@ -1,7 +1,7 @@
 # Remembered worktree bases
 
 Timber remembers the branch selected when `timber new` creates a worktree. `timber ls`
-shows that choice in its BASE column, alongside the workflow. The saved base is the
+shows that choice in its BASE column. The saved base is the
 intended target for future rebases and cleanup; it follows the branch's current tip.
 
 ```sh
@@ -56,7 +56,7 @@ Use `timber rebase my-feature --base <ref>` to assign a base when needed.
 Missing saved branches require an explicit replacement; Timber does not silently
 switch to a configured default.
 
-Saved bases live in private Git worktree metadata, alongside workflow associations,
+Saved bases live in private Git worktree metadata,
 without changing TOML or tracked files. `ls` remains offline and shows `?` with a
 warning for malformed, stale, or unreadable metadata. Repair malformed/unreadable
 records before retrying; an explicit rebase base can replace a stale identity record.

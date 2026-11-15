@@ -20,7 +20,6 @@ function harness(existing = false, loaded = config) {
     resolveOpenTarget: async () => ({ kind: "found", value: existing ? { kind: "worktree", worktree: worktreeFixture() }
       : { kind: "branch", branch: { kind: "local", name: "feature", ref: "refs/heads/feature", upstream: null } } }),
     createWorktree: async () => { calls.push("create"); return worktreeFixture(); },
-    writeWorkflowAssociation: async () => { calls.push("save-workflow"); },
     runSetup: async () => { calls.push("foreground-setup"); },
     launchEditor: async () => { calls.push("generic-editor"); return { kind: "skipped" }; },
     launchAgent: async () => { calls.push("foreground-agent"); return { kind: "skipped" }; },
@@ -33,7 +32,7 @@ for (const command of ["new", "open"] as const) {
     const h = harness();
     const handler = command === "new" ? createNewHandler(h.services) : createOpenHandler(h.services);
     await handler("feature", { workflow: "review" }, ctx);
-    expect(h.calls).toEqual(["create", "save-workflow", "editor-terminals"]);
+    expect(h.calls).toEqual(["create", "editor-terminals"]);
     expect(h.launches[0]).toMatchObject({ setup: true, workflowName: "review", workflowScripts: ["workflow"],
       agent: { command: "codex", args: ["prompt"], waitForSetup: false } });
   });
@@ -49,7 +48,7 @@ for (const command of ["new", "open"] as const) {
       const h = harness(false, workflow ? config : ordinaryConfig);
       const handler = command === "new" ? createNewHandler(h.services) : createOpenHandler(h.services);
       await handler("feature", { ...(workflow ? { workflow } : {}), ...(agent ? { agent } : {}) }, { ...ctx, interactive: false });
-      expect(h.calls).toEqual(["create", ...(workflow ? ["save-workflow"] : []), "editor-terminals"]);
+      expect(h.calls).toEqual(["create", "editor-terminals"]);
       expect(h.launches[0]?.agent).toMatchObject(workflow
         ? { command: "codex", args: ["prompt"], waitForSetup: false }
         : { command: "claude", args: [], waitForSetup: true });
@@ -160,19 +159,21 @@ test.each(["new", "open"] as const)(
 );
 
 
-test("noninteractive open uses the saved workflow editor and agent", async () => {
+test("noninteractive open uses the named workflow editor and agent for that invocation only", async () => {
   const loaded: RepositoryConfig = { ...config, editor: { command: "zed", args: [], enabled: true },
     workflows: { review: { postCreate: [], editor: { command: "orca-ide", args: [], integration: "orca" },
       agent: { command: "codex", args: ["saved review"] } } } };
   const h = harness(true, loaded);
-  h.services.readWorkflowAssociation = async () => ({ kind: "assigned", name: "review" });
   const open = createOpenHandler(h.services);
-  await open("main", { agent: true }, { ...ctx, interactive: false });
+  await open("main", { agent: true, workflow: "review" }, { ...ctx, interactive: false });
   expect(h.launches[0]).toMatchObject({ setup: false, workflowName: "review",
     agent: { command: "codex", args: ["saved review"] } });
-  await open("main", {}, { ...ctx, interactive: false });
+  await open("main", { workflow: "review" }, { ...ctx, interactive: false });
   expect(h.launches[1]?.agent).toBeNull();
   expect(h.calls).toEqual(["editor-terminals", "editor-terminals"]);
+  // Nothing is remembered: a later plain open uses the ordinary editor.
+  await open("main", {}, { ...ctx, interactive: false });
+  expect(h.calls).toEqual(["editor-terminals", "editor-terminals", "generic-editor"]);
 });
 
 test.each(["new", "open"] as const)("%s noninteractive Orca handoff failure never falls back", async command => {

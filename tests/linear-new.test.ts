@@ -20,14 +20,13 @@ for (const orca of [false, true]) {
       resolveLinearTicket: async key => { expect(key).toBe("ENG-123"); calls.push("lookup"); return { key: "ENG-123", title: "Fix café login", url: "https://linear.app/w/issue/ENG-123" }; },
       createWorktree: async (_repo, request) => { expect(request).toEqual({ kind: "new", branch: "ENG-123-fix-cafe-login", base }); calls.push("create"); return worktreeFixture(); },
       writeBaseAssociation: async () => { calls.push("base metadata"); },
-      writeWorkflowAssociation: async (_repo, _tree, name) => { expect(name).toBe("fix"); calls.push("workflow metadata"); },
       runSetup: async (_repo, _tree, _config, _io, name, scripts) => { expect(name).toBe("fix"); expect(scripts).toEqual(["workflow hook"]); calls.push("setup"); },
       launchEditor: async () => { calls.push("editor"); return { kind: "skipped" }; },
       launchAgent: async () => { calls.push("agent"); return { kind: "exited", exitCode: 0, signal: null }; },
       launchEditorTerminals: async launch => { expect(launch.setup).toBe(true); expect(launch.agent?.command).toBe("assistant"); calls.push("orca"); },
     }));
     await handler("linear:ENG-123", { base: "main", workflow: "fix" }, { cwd: "/repo", interactive: true, io: { ...io, stdout: text => { output += text; } } });
-    expect(calls).toEqual(["base", "lookup", "create", "base metadata", "workflow metadata", ...(orca ? ["orca"] : ["setup", "editor", "agent"])]);
+    expect(calls).toEqual(["base", "lookup", "create", "base metadata", ...(orca ? ["orca"] : ["setup", "editor", "agent"])]);
     expect(output).toContain("Created ENG-123-fix-cafe-login");
     expect(output).toContain("Linear: https://linear.app/w/issue/ENG-123");
   });

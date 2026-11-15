@@ -32,7 +32,6 @@ import { resolveOpenTarget } from "./git/open-target";
 import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
 import { readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
-import { readWorkflowAssociation, writeWorkflowAssociation } from "./git/workflow-metadata";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
 import { resolveGithubRepository } from "./github/repository";
 import { resolveLinearTicket } from "./linear/client";
@@ -90,20 +89,19 @@ process.exitCode = await runCli(process.argv.slice(2), {
       resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
       resolveGithubRepository, resolveGithubTicket,
       resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
-      createWorktree, writeBaseAssociation, writeWorkflowAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
+      createWorktree, writeBaseAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
     }),
     open: createOpenHandler({
       discoverRepository,
       loadConfig: loadRepositoryConfig,
       resolveOpenTarget,
-      createWorktree, readWorkflowAssociation, writeWorkflowAssociation,
+      createWorktree,
       runSetup,
       launchEditor,
       launchAgent,
       launchEditorTerminals,
     }),
-    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig,
-      readWorkflowAssociation, readBaseAssociation }),
+    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig, readBaseAssociation }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
     done: createDoneHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,

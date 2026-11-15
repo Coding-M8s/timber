@@ -92,15 +92,15 @@ continuation/abort suffice; no Timber continuation flags or AI resolution.
 
 `new` saves its resolved canonical base ref in private, versioned Git-admin metadata
 before setup or launches. Store the moving branch identity, not its creation commit.
-Metadata is bound to the canonical repository/worktree paths, validated like workflow
-associations, and published atomically with private permissions. Save failure retains
+Metadata is bound to the canonical repository/worktree paths, validated against Git's
+reciprocal worktree identity, and published atomically with private permissions. Save failure retains
 the created worktree and reports recovery guidance. `open` never prompts for,
 resolves, reads or writes a base association. Opening an unassigned branch leaves
 its base unset; existing saved or invalid associations
 remain unchanged. Use `rebase --base <ref>` to assign a base later.
 Arena creation is unchanged.
 
-`ls` adds a BASE column before WORKFLOW: remote bases display `remote/branch`, local
+`ls` shows a BASE column after BRANCH: remote bases display `remote/branch`, local
 bases display `refs/heads/branch`, absent records display `-`, and invalid records
 show `?` plus a warning without hiding the Git row. Listing remains offline and does
 not validate whether a saved branch still exists. Never infer parent branches from
@@ -187,13 +187,13 @@ Each workflow table accepts only `description` (a nonblank string), `post_create
 
 Both config scopes are validated independently. Workflow definitions merge by name: a repository definition replaces the complete same-name global definition, including scripts and launcher arguments. A repository `[workflows]` table can set `review = false` to remove that inherited name; root `workflows = false` disables all inherited names. Hook lists and argument arrays never concatenate across scopes. Guided `timber setup` preserves workflow values through save and displays the effective count; edit workflow definitions directly in TOML.
 
-Outside enabled Orca integration, on local worktree creation, including `open` materializing an existing local or remote branch, Timber saves the selected name, runs ordinary `post_create` hooks, runs workflow `post_create` hooks, opens the effective editor, then starts the initial agent. The name is saved before scripts run. Setup receives `TIMBER_WORKFLOW` as environment data; an unassigned worktree has no inherited `TIMBER_WORKFLOW`. Shell source is never interpolated. A user's executable or wrapper may supply its preferred prompt or open a separate window; Timber itself keeps the agent in the invoking foreground terminal and passes arguments literally.
+Outside enabled Orca integration, on local worktree creation, including `open` materializing an existing local or remote branch, Timber runs ordinary `post_create` hooks, runs the selected workflow's `post_create` hooks, opens the effective editor, then starts the initial agent. A workflow applies only to the invocation that names it: Timber saves nothing about it in the worktree, and `ls` and the machine records do not report it. Setup receives `TIMBER_WORKFLOW` as environment data; an invocation without `--workflow` has no inherited `TIMBER_WORKFLOW`. Shell source is never interpolated. A user's executable or wrapper may supply its preferred prompt or open a separate window; Timber itself keeps the agent in the invoking foreground terminal and passes arguments literally.
 
-An existing worktree can be assigned or reassigned with `open --workflow <name>`; this saves the name and applies the selected editor launch policy without creation scripts or an implicit agent. Ordinary later `open` uses the saved name and the current workflow editor configuration, but never replays creation scripts or any implicit agent, even when global `[agent].enabled = true`. Repeating `open --workflow <same-name>` behaves the same. `open --setup` deliberately reruns ordinary then workflow scripts from the start once; it does not imply an agent launch. `open --agent` deliberately launches the current workflow agent or inherited ordinary agent, including its initial prompt arguments; `--no-agent` suppresses it. Agent launch requires either an interactive stdin/stdout terminal with CI off or an enabled, selected Orca editor integration. Without either host, explicit agent launch fails before mutation and config-driven agent launch skips.
+`open --workflow <name>` on an existing worktree applies the selected editor launch policy for that invocation, without creation scripts or an implicit agent, even when global `[agent].enabled = true`. Repeating it behaves the same. A later `open` without `--workflow` remembers nothing and follows ordinary `[editor]`, `[agent]` and hook settings, exactly as for a worktree that never used a workflow. `open --setup` deliberately reruns ordinary scripts from the start once, followed by workflow scripts only when `--workflow <name>` is given again; it does not imply an agent launch. `open --agent --workflow <name>` deliberately launches that workflow's agent or its inherited ordinary agent, including its initial prompt arguments; `--no-agent` suppresses it. Agent launch requires either an interactive stdin/stdout terminal with CI off or an enabled, selected Orca editor integration. Without either host, explicit agent launch fails before mutation and config-driven agent launch skips.
 
-The association is local JSON inside the selected worktree's private Git administrative directory, never a committed worktree file or a branch/release tag. It stores a version, name, and Git/worktree identity paths only. Reads verify Git's reciprocal identity and record identity. Missing records mean unassigned; stale or malformed records never select another workflow. A missing workflow definition leaves the saved name visible in `ls` and makes ordinary `open` fail with guidance to restore it or explicitly assign a valid one. `ls` shows `?` and a safe warning for unreadable/stale metadata while keeping every Git row. Git removal of a linked worktree removes its private administrative metadata; retaining a branch does not retain the workflow association.
+No workflow association is stored. A `timber/workflow.json` file left in a worktree's private Git administrative directory by an earlier version is ignored: it is never read, shown, or modified, and Git removes it with the linked worktree. An unknown workflow name fails before any mutation or launch.
 
-Failures after creation retain the worktree, refs, and script files. In foreground mode, script failures stop editor and agent launch; editor startup failure stops agent launch. An ordinary reopen does not retry creation actions. Repair and deliberately rerun scripts with `timber open --setup -- '<absolute-worktree-path>'`; retry the editor with `timber open --editor -- '<absolute-worktree-path>'`; retry the agent with `timber open --agent --no-editor -- '<absolute-worktree-path>'`. A failed association write reports an explicit `open --workflow <name>` repair command. Scripts must tolerate explicit reruns. Timber does not promise exactly-once side effects across crashes. Keep secrets out of config, metadata, and diagnostics.
+Failures after creation retain the worktree, refs, and script files. In foreground mode, script failures stop editor and agent launch; editor startup failure stops agent launch. An ordinary reopen does not retry creation actions. Repair and deliberately rerun scripts with `timber open --setup -- '<absolute-worktree-path>'`; retry the editor with `timber open --editor -- '<absolute-worktree-path>'`; retry the agent with `timber open --agent --no-editor -- '<absolute-worktree-path>'`. When the failed invocation named a workflow, each printed retry command repeats `--workflow <name>` before `--`, because the workflow is not remembered. Scripts must tolerate explicit reruns. Timber does not promise exactly-once side effects across crashes. Keep secrets out of config, metadata, and diagnostics.
 
 ## Default issue tracker
 
@@ -356,7 +356,7 @@ described above. Never disclose keys, response bodies, raw GraphQL messages or r
 Generate `<canonical-key>-<title-slug>` with the existing Jira slug algorithm and
 120-character total cap. Git remains authoritative for collisions, without appended
 suffixes. Print branch/path and the Linear browse URL after creation. Reuse saved
-base/workflow metadata, setup, hooks and editor/agent sequencing. Titles become
+base metadata, workflow selection, setup, hooks and editor/agent sequencing. Titles become
 potentially public branch text; title changes can generate different branch names.
 Offline ticket matching and hook `TIMBER_TASK_ID` extraction remain unchanged.
 `open`, `ls` and `done` never contact Linear.

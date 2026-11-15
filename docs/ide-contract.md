@@ -25,15 +25,17 @@ command execution, including discovery/configuration/listing failures. Diagnosti
 and metadata warnings go to stderr. It suppresses first-use installation guidance
 and its marker write. Inventory remains offline, validates ordinary configuration,
 and includes manual Git worktrees. Sort primary first, then by registered path.
-Unknown status or invalid saved metadata never hides a Git worktree row. Saved
-base/workflow metadata warnings remain human stderr diagnostics, not new JSON fields.
+Unknown status or invalid saved metadata never hides a Git worktree row. Each row
+carries its saved `base`; the matching stderr warning for invalid metadata remains.
 
 `new` and `open` accept `--result-file <path>`. Both explicit `--no-editor` and
 `--no-agent` are required, even when configuration has no launchers. Positive and
 negative launch flags conflict as usual. This prevents configured ordinary,
 workflow, and Orca launches. Required setup still runs: ordinary hooks precede
 workflow hooks; existing opens rerun them only with `--setup`. Provider resolution,
-workflow assignment, saved bases and preflight checks retain their ordinary behavior.
+workflow selection, saved bases and preflight checks retain their ordinary behavior.
+A workflow applies only to the invocation that names it with `--workflow`; Timber
+does not save it, so it is not part of any record.
 
 Result-file mode keeps human stdout/stderr and chooser output unchanged. Hook
 stdout/stderr keep their ordinary channels and cannot become machine records.
@@ -90,6 +92,10 @@ type WorktreeRecord = {
   status:
     | { kind: "known"; modified: string[]; untracked: string[]; ignored: string[] }
     | { kind: "unknown"; reason: string };
+  base:                      // saved base this worktree rebases onto and is cleaned up against
+    | { kind: "assigned"; ref: string } // canonical refs/remotes/... or refs/heads/...
+    | { kind: "unassigned" }
+    | { kind: "invalid"; reason: "malformed" | "stale" | "unreadable" };
 };
 
 type RecordV1 = {
@@ -116,6 +122,36 @@ terminal text. Status may become stale immediately. A locked existing worktree c
 still open under ordinary Open rules; a missing/unverifiable one fails without
 recreation. Listing never implies permission for mutation.
 
+## Saved base
+
+An app can show which base each worktree rebases onto and is cleaned up against
+from `base` on every `WorktreeRecord`. Read it from this field; do not parse the
+human table.
+
+- `assigned`: `base.ref` is the saved canonical ref exactly as stored, either
+  `refs/remotes/<remote>/<branch>` or `refs/heads/<branch>`, not the shortened
+  form the human table prints. Timber reads it offline and does not check that
+  the ref still exists, so the app should treat it as a saved choice, not as
+  proof of a current ref.
+- `unassigned`: nothing is saved, as for the primary worktree, worktrees added
+  with plain Git, and worktrees opened without a base. Timber does not infer a
+  parent, and the app should not guess one.
+- `invalid`: saved metadata exists but cannot be used. `malformed` means the
+  record or its storage is not in the expected form, `stale` means it does not
+  match this worktree's identity (or that identity could not be verified), and
+  `unreadable` means it could not be read. The row stays listed and the matching
+  warning still goes to stderr. Show the value as unknown, not as unassigned.
+
+Reading this field never fetches, writes files, or changes refs. Ahead or
+behind counts against the base and upstream sync state are not part of this
+interface; read them from Git.
+
+New, Open and Done records carry the same field on `worktree`. New reports the
+base it saved, read before setup hooks run; if saving failed, it reports what was
+readable when the worktree was captured. Open never changes a base and reports
+the one already saved. Done reports the base of the captured worktree before
+deletion.
+
 ## Outcomes, exit status and recovery
 
 | Outcome | Process exit | Meaning |
@@ -135,7 +171,7 @@ was not confirmed by that service; it does not prove nothing was created. Git ca
 succeed before verification fails. A null target never licenses automatic retry.
 The record contains observed state, not a guess from user input or a hook output line.
 
-An existing Open returns `materialized: false`. Failed base/workflow metadata or
+An existing Open returns `materialized: false`. Failed base metadata or
 setup after verified creation returns `failed`, exit 1, `materialized: true` and the
 actual target. Existing-worktree setup failure returns the existing target with
 `materialized: false`. Completed files, refs and hook side effects remain. Timber

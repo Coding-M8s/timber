@@ -63,6 +63,7 @@ test("provider canonical branch and metadata failure report the real retained wo
     expect(data).toMatchObject({ outcome: "failed", materialized: true,
       worktree: { branch: "ENG-999-actual-canonical-issue", path: join(directory, "primary repo-worktrees", "ENG-999-actual-canonical-issue") } });
     expect(data.diagnostic).toContain("base association");
+    expect(data.worktree.base).toEqual({ kind: "unassigned" });
     expect(await git(primary, "show-ref")).toContain(refs);
     expect(await readFile(join(data.worktree.path, "tracked.txt"), "utf8")).toBe("original\n");
   });

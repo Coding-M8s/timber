@@ -29,7 +29,7 @@ function statusSummary(tree: Worktree): string {
 }
 
 export function createListHandler(
-  services: Pick<CommandServices, "discoverRepository" | "listWorktrees" | "loadConfig" | "readWorkflowAssociation" | "readBaseAssociation">,
+  services: Pick<CommandServices, "discoverRepository" | "listWorktrees" | "loadConfig" | "readBaseAssociation">,
 ): CommandHandlers["list"] {
   return async context => {
     const repository = await services.discoverRepository(context.cwd);
@@ -43,31 +43,26 @@ export function createListHandler(
     const sorted = [...trees].sort((a, b) =>
       Number(b.isPrimary) - Number(a.isPrimary) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const rows = await Promise.all(sorted.map(async tree => {
-      const association = await services.readWorkflowAssociation(repository, tree);
       const base = await services.readBaseAssociation(repository, tree);
       return {
+        entry: { worktree: tree, base },
         baseWarning: base.kind === "invalid"
           ? `warning: Cannot read base association for ${display(tree.path)} (${base.reason}); Git worktree remains listed.\n` : null,
-        warning: association.kind === "invalid"
-          ? `warning: Cannot read workflow association for ${display(tree.path)} (${association.reason}); Git worktree remains listed.\n`
-          : null,
         cells: [
           tree.isPrimary ? "primary" : "linked",
           tree.branch === null ? "(detached HEAD)" : display(tree.branch),
           base.kind === "assigned" ? display(base.ref.replace(/^refs\/remotes\//u, "")) : base.kind === "unassigned" ? "-" : "?",
-          association.kind === "assigned" ? display(association.name) : association.kind === "unassigned" ? "-" : "?",
           statusSummary(tree),
           display(tree.path),
         ],
       };
     }));
     if (context.machine) {
-      await context.machine.inventory(sorted);
+      await context.machine.inventory(rows.map(row => row.entry));
     }
     for (const row of rows) {
       if (row.baseWarning !== null) context.io.stderr(row.baseWarning);
-      if (row.warning !== null) context.io.stderr(row.warning);
     }
-    if (!context.machine) context.io.stdout(alignedRows(["WORKTREE", "BRANCH", "BASE", "WORKFLOW", "STATUS", "PATH"], rows.map(row => row.cells)));
+    if (!context.machine) context.io.stdout(alignedRows(["WORKTREE", "BRANCH", "BASE", "STATUS", "PATH"], rows.map(row => row.cells)));
   };
 }

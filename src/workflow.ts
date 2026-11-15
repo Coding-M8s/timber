@@ -23,7 +23,7 @@ export function workflowEditor(
   return editor === null || explicit === undefined ? editor : { ...editor, enabled: explicit };
 }
 
-/** A saved workflow has no implicit agent on reopen, including global defaults. */
+/** A workflow named on an existing worktree has no implicit agent, including global defaults. */
 export function resolveWorkflowAgent(
   config: RepositoryConfig, workflow: WorkflowConfig | null,
   explicit: boolean | undefined, canHostAgent: boolean, created: boolean,

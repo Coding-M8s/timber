@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { access, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
@@ -263,5 +263,101 @@ test("existing open setup failure retains selected path with materialized false"
     expect(await record(output)).toMatchObject({ outcome: "failed", materialized: false, worktree: { path: target, branch: "existing" } });
     expect(await readFile(join(target, "setup-file"), "utf8")).toBe("retain me");
     expect(await git(primary, "show-ref")).toBe(refs);
+  });
+});
+
+const savedBase = async (tree: string) => join(await git(tree, "rev-parse", "--absolute-git-dir"), "timber", "base.json");
+const listed = (data: { worktrees: { path: string }[] }, path: string) =>
+  data.worktrees.find(tree => tree.path === path);
+
+test("listing reports saved canonical bases offline without changing files or refs", async () => {
+  await withRepository(async (primary, directory) => {
+    await configure(primary, [], "[workflows.review]\npost_create = []");
+    const remote = join(directory, "remote.git");
+    await git(directory, "init", "--bare", remote);
+    await git(primary, "remote", "add", "origin", remote);
+    await git(primary, "push", "origin", "trunk:main");
+    const output = join(directory, "new.json");
+    expect((await cli(primary, "new", "feature", "--base", "origin/main", "--workflow", "review", ...flags(output))).exitCode).toBe(0);
+    const created = await record(output);
+    const assigned = { kind: "assigned", ref: "refs/remotes/origin/main" };
+    expect(created.worktree.base).toEqual(assigned);
+    // A workflow applies to one invocation; it is neither saved nor reported.
+    expect(created.worktree).not.toHaveProperty("workflow");
+    const manual = join(directory, "manual tree");
+    await git(primary, "worktree", "add", "-b", "manual", manual);
+    // Neither the remote nor the saved ref has to exist for an offline listing.
+    await rm(remote, { recursive: true });
+    await git(primary, "update-ref", "-d", "refs/remotes/origin/main");
+    const refs = await git(primary, "show-ref");
+    const saved = await readFile(await savedBase(created.worktree.path), "utf8");
+    const statuses = () => Promise.all([primary, manual, created.worktree.path]
+      .map(tree => git(tree, "status", "--porcelain", "--ignored")));
+    const before = await statuses();
+    const result = await cli(primary, "ls", "--json");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const data = JSON.parse(result.stdout);
+    expect(listed(data, created.worktree.path)).toMatchObject({ base: assigned });
+    for (const tree of data.worktrees) expect(tree).not.toHaveProperty("workflow");
+    expect(listed(data, manual)).toEqual(expect.objectContaining({ base: { kind: "unassigned" } }));
+    expect(listed(data, primary)).toEqual(expect.objectContaining({ base: { kind: "unassigned" } }));
+    expect(await git(primary, "show-ref")).toBe(refs);
+    expect(await readFile(await savedBase(created.worktree.path), "utf8")).toBe(saved);
+    expect(await statuses()).toEqual(before);
+  });
+});
+
+test.each(["malformed", "stale", "unreadable"] as const)("listing keeps a row whose saved base is %s and reports the reason", async reason => {
+  if (reason === "unreadable" && process.getuid?.() === 0) return; // root ignores file modes
+  await withRepository(async (primary, directory) => {
+    await configure(primary);
+    expect((await cli(primary, "new", "feature", "--base", "trunk", "--no-editor", "--no-agent")).exitCode).toBe(0);
+    const target = join(directory, "primary repo-worktrees", "feature");
+    const file = await savedBase(target);
+    if (reason === "malformed") await writeFile(file, "not JSON");
+    if (reason === "stale") await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, "utf8")), worktreePath: primary }));
+    if (reason === "unreadable") await chmod(file, 0o000);
+    const refs = await git(primary, "show-ref");
+    const result = await cli(primary, "ls", "--json");
+    expect(result.exitCode).toBe(0);
+    const data = JSON.parse(result.stdout);
+    expect(data.worktrees).toHaveLength(2);
+    expect(listed(data, target)).toMatchObject({ branch: "feature", status: { kind: "known" },
+      base: { kind: "invalid", reason } });
+    expect(result.stderr).toBe(`warning: Cannot read base association for ${target} (${reason}); Git worktree remains listed.`);
+    expect(await git(primary, "show-ref")).toBe(refs);
+  });
+});
+
+test("new, open and done records carry the saved base of their worktree", async () => {
+  await withRepository(async (primary, directory) => {
+    await configure(primary);
+    const created = join(directory, "created.json");
+    expect((await cli(primary, "new", "feature", "--base", "trunk", ...flags(created))).exitCode).toBe(0);
+    const target = (await record(created)).worktree.path;
+    const saved = { kind: "assigned", ref: "refs/heads/trunk" };
+    expect((await record(created)).worktree.base).toEqual(saved);
+
+    const reopened = join(directory, "reopened.json");
+    expect((await cli(primary, "open", target, ...flags(reopened))).exitCode).toBe(0);
+    expect(await record(reopened)).toMatchObject({ materialized: false, worktree: { path: target, base: saved } });
+
+    await git(primary, "branch", "local");
+    const opened = join(directory, "opened.json");
+    expect((await cli(primary, "open", "local", ...flags(opened))).exitCode).toBe(0);
+    expect(await record(opened)).toMatchObject({ materialized: true, worktree: { branch: "local" } });
+    expect((await record(opened)).worktree.base).toEqual({ kind: "unassigned" });
+
+    const preview = await cli(primary, "__ide-done", "preview", "--", target);
+    expect(preview.exitCode).toBe(0);
+    const approval = join(directory, "approval.json");
+    await writeFile(approval, preview.stdout);
+    const removed = join(directory, "removed.json");
+    const applied = await cli(primary, "__ide-done", "apply", "--approval-file", approval, "--result-file", removed, "--", target);
+    expect(applied.stderr).toBe("");
+    expect(applied.exitCode).toBe(0);
+    expect(await record(removed)).toMatchObject({ command: "done", outcome: "succeeded", worktree: { path: target, base: saved } });
+    expect(await exists(target)).toBe(false);
   });
 });
