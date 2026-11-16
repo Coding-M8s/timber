@@ -1,9 +1,9 @@
 # Experimental IDE machine interface (v1)
 
-This additive interface is experimental. It supports repository inventory and
-ordinary New/Open outcomes for IDE integration. It does not change the existing
+This additive interface is experimental. It supports repository inventory,
+ordinary New/Open outcomes, and Rebase outcomes for app consumers. It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
-No IDE consumer or Rebase interface is included. Native cleanup approval is described below. Linux x86_64 is the tested
+No IDE consumer is included. Rebase records and native cleanup approval are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
 
@@ -18,6 +18,7 @@ timber ls --json
 timber new 'feature name' --result-file /private/temp/new.json --no-editor --no-agent
 timber open 'GH-123' --result-file /private/temp/open.json --no-editor --no-agent
 timber open --setup --result-file /private/temp/retry.json --no-editor --no-agent -- '/absolute/worktree path'
+timber rebase --result-file /private/temp/rebase.json -- '/absolute/worktree path'
 ```
 
 `ls --json` writes exactly one UTF-8 JSON object plus newline to stdout after
@@ -36,6 +37,10 @@ workflow hooks; existing opens rerun them only with `--setup`. Provider resoluti
 workflow selection, saved bases and preflight checks retain their ordinary behavior.
 A workflow applies only to the invocation that names it with `--workflow`; Timber
 does not save it, so it is not part of any record.
+
+`rebase` accepts `--result-file <path>` with the same reservation, write and
+failure rules. Rebase launches no editor or agent, so it has no launch flags to
+require. See [Rebase outcome](#rebase-outcome).
 
 Result-file mode keeps human stdout/stderr and chooser output unchanged. Hook
 stdout/stderr keep their ordinary channels and cannot become machine records.
@@ -69,7 +74,8 @@ content, so do not publish raw streams or result files as public logs.
 ## Version 1 schema
 
 The following TypeScript notation defines the JSON values, not an importable SDK.
-All fields are required except the `worktrees` array, which exists only on `ls`.
+All fields are required except the `worktrees` array, which exists only on `ls`,
+and the `rebase` object, which exists only on `rebase`.
 There are no `undefined` values.
 
 ```ts
@@ -98,9 +104,18 @@ type WorktreeRecord = {
     | { kind: "invalid"; reason: "malformed" | "stale" | "unreadable" };
 };
 
+type RebaseRecord = {
+  result: "rebased" | "up-to-date" | "conflicts" | "refused" | "failed";
+  base: string | null;        // canonical base ref that was selected
+  baseCommit: string | null;  // pinned commit that was rebased onto
+  originalTip: string | null; // branch tip before the rebase
+  conflicts: string[];        // worktree-relative unmerged paths; empty unless result is "conflicts"
+  baseSaved: boolean;         // this run wrote the saved base association
+};
+
 type RecordV1 = {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done";
+  command: "ls" | "new" | "open" | "done" | "rebase";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -108,6 +123,7 @@ type RecordV1 = {
   materialized: boolean;
   diagnostic: string | null;
   worktrees?: WorktreeRecord[]; // always present for ls, including failed ls
+  rebase?: RebaseRecord;        // always present for rebase, including refusals
 };
 ```
 
@@ -160,6 +176,10 @@ deletion.
 | `cancelled` | 0 | Existing interactive chooser cancelled before materialization, without command mutation. |
 | `failed` | 1 | Command failed. `diagnostic` contains terminal-safe failure text, not a stable error code. |
 
+Rebase is the exception to the `failed` row: a failed rebase exits with Git's own
+status or a signal status (for example 130 or 143), not always 1. `exitCode`
+always equals the real process exit code.
+
 `ls` always has `worktree: null`, `materialized: false`, and `worktrees` (empty on
 failure before inventory completes). `repository` stays null until discovery and
 canonical common-directory identification succeed. New/Open have no `worktrees`.
@@ -189,6 +209,66 @@ retry. Do not automatically rerun setup or creation. Deliberate recovery uses or
 `open` on the exact retained path, adding `--setup` only when the user chooses to
 rerun all required steps. The IDE remains responsible for serializing its mutations
 and retaining user state; this interface adds no daemon or global registry.
+
+## Rebase outcome
+
+`timber rebase <branch-or-worktree> [--base <ref>] --result-file <path>` lets an
+app learn how a rebase ended without reading human output. Target selection, base
+selection, fetching, safety checks, human stdout/stderr and exit codes are the
+same as without the flag; see the [CLI contract](cli-contract.md). Git hook
+output keeps its ordinary handling and never enters the record.
+
+The record has `command: "rebase"`, `materialized: false`, no `worktrees`, and a
+`rebase` object whose `result` is the value to branch on:
+
+| `result` | `outcome` | Exit | Meaning |
+| --- | --- | --- | --- |
+| `rebased` | `succeeded` | 0 | Git replayed the branch onto `baseCommit`. Commit IDs changed. |
+| `up-to-date` | `succeeded` | 0 | The branch already contained `baseCommit`. Nothing was rewritten. |
+| `conflicts` | `failed` | nonzero | Git paused with unmerged paths, listed in `conflicts`. The paused state is left for the user. |
+| `refused` | `failed` | 1 | Timber declined before starting Git's rebase. The branch, files and saved base are unchanged. |
+| `failed` | `failed` | nonzero | An operation broke: remote discovery or fetch, Git itself, a Git hook, an interruption, or saving the base. |
+
+- `refused` covers selection and safety stops: no matching, an ambiguous, or an
+  unregistered target; a detached, missing, locked or unverifiable worktree;
+  modified or untracked files; an operation already in progress; an unusable
+  base; and ignored files the rebase could overwrite. `diagnostic` says which.
+- `failed` before Git's rebase starts (discovery or fetch) leaves the branch and
+  files as they were; fetch metadata may have changed. A hook rejection or an
+  interruption normally leaves the branch at `originalTip`, but the app should
+  confirm that with Git instead of assuming it.
+- `failed` with a non-null `baseCommit` and `baseSaved: false` can also mean the
+  rebase itself finished and only saving the base failed. `diagnostic` says so,
+  and the branch was rewritten. Timber never resets or aborts in response.
+
+`base`, `baseCommit` and `originalTip` hold what this run verified before it
+stopped, so each is null when the run ended first: a refusal over modified files
+has all three null, and a fetch failure has `base` but a null `baseCommit`.
+`base` is the canonical ref (`refs/remotes/<remote>/<branch>` or
+`refs/heads/<branch>`), not the shortened form in human output.
+
+`conflicts` lists every unmerged path as a worktree-relative Git path, including
+binary and add/delete conflicts, with unusual characters JSON-escaped. To finish,
+the user resolves and stages them and runs `git rebase --continue` in the
+worktree, which can stop again at a later commit, or runs `git rebase --abort`.
+Timber has no continue or abort flags, resolves nothing itself, and refuses a new
+rebase while one is paused. Later pauses are Git's to report, not this record's.
+
+`baseSaved` is true only when this run wrote the saved base association: after
+`rebased`, `up-to-date`, and a verified pause with conflicts. It is false for
+every refusal and failure, and for a pause or completion whose save failed. A
+later `git rebase --abort` does not restore the previous saved base.
+
+`worktree` is the selected worktree as it was before the rebase, so its `head`
+is the old tip and its file status predates Git's work; its `base` is read again
+after the rebase and reflects the saved association at exit. `worktree` is null
+when no single target was selected. An ambiguous target fails with the existing
+exact-selection guidance, even in a terminal: result-file mode never opens a
+chooser, so `cancelled` does not occur. Select by exact branch or absolute path.
+
+After any outcome, refresh `ls --json` and read Git state before acting on the
+worktree. Never retry automatically after `conflicts` or `failed`. Progress
+streaming and automatic conflict resolution are not part of this interface.
 
 ## Native cleanup approval (experimental v1)
 

@@ -6,6 +6,7 @@ import type {
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
 import type { BaseAssociationRead } from "./git/base-metadata";
+import type { RebaseReport } from "./git/rebase";
 import type { TerminalChooser } from "./selection";
 import type { GithubRepository } from "./github/repository";
 import type { LinearTicket } from "./linear/client";
@@ -48,7 +49,7 @@ export interface CommandServices {
   writeBaseAssociation(repository: RepositoryContext, worktree: Worktree, ref: string): Promise<void>;
   /** Select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
-    explicitBase: string | undefined, io: CommandIO): Promise<number>;
+    explicitBase: string | undefined, io: CommandIO, report?: RebaseReport): Promise<number>;
   /** Inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
   /** Recheck identity and safety at mutation time. Confirmed upstream absence or

@@ -1,4 +1,7 @@
 import { expect, mock, test } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCli } from "../src/cli";
 import { createRebaseHandler } from "../src/commands/rebase";
 import { createServiceDouble, repositoryFixture, worktreeFixture } from "./helpers/services";
@@ -79,5 +82,28 @@ test("unchecked branches and missing targets cannot trigger rebase", async () =>
     const h = harness({ resolveOpenTarget: async () => resolution, rebaseWorktree: rebase });
     expect(await h.invoke()).toBe(1);
     expect(rebase).not.toHaveBeenCalled();
+  }
+});
+
+test("result-file ambiguity fails with exact-selection guidance instead of opening an available chooser", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "timber rebase "));
+  try {
+    const choose = mock(async () => "/repo/a");
+    const rebase = mock(async () => 0);
+    // The record canonicalizes the common Git directory, so it has to exist.
+    const h = harness({ discoverRepository: async () => ({ ...repository, commonGitDir: directory }),
+      resolveOpenTarget: async () => ({ kind: "ambiguous", candidates: [found("/repo/b"), found("/repo/a")] }),
+      rebaseWorktree: rebase }, choose);
+    const output = join(directory, "result.json");
+    expect(await h.invoke(["rebase", "TIM-28", "--result-file", output])).toBe(1);
+    expect(choose).not.toHaveBeenCalled();
+    expect(rebase).not.toHaveBeenCalled();
+    expect(h.output().stderr).toContain("Use an exact branch or absolute path");
+    const data = JSON.parse(await readFile(output, "utf8"));
+    expect(data).toMatchObject({ command: "rebase", outcome: "failed", exitCode: 1, worktree: null, materialized: false,
+      rebase: { result: "refused", base: null, baseCommit: null, originalTip: null, conflicts: [], baseSaved: false } });
+    expect(data.diagnostic).toContain("matches 2 worktrees");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
