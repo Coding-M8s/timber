@@ -1,9 +1,19 @@
 name: Windows CI
 
+# Windows runs once per PR push and after merge to main. Docs-only changes skip it.
+# PRs run typecheck and source tests; the slow standalone .exe acceptance runs on
+# main, on demand, and in the release workflow.
 on:
   push:
+    branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    paths-ignore: ["docs/**", "**/*.md"]
+  workflow_dispatch:
+
+# A newer push to the same PR cancels its superseded run.
+concurrency:
+  group: windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
@@ -28,14 +38,18 @@ jobs:
         run: bun test --timeout 120000 tests/platform-windows.test.ts tests/windows.integration.test.ts tests/release.test.ts
       - run: bun run build
       - run: bun dist/index.js --help
-      - run: bun run build:release --target windows-x64
-      - run: ./scripts/check-windows-checksums.ps1 -Directory dist/release
+      - if: github.event_name != 'pull_request'
+        run: bun run build:release --target windows-x64
+      - if: github.event_name != 'pull_request'
+        run: ./scripts/check-windows-checksums.ps1 -Directory dist/release
       - name: Native standalone acceptance with isolated runtime discovery
+        if: github.event_name != 'pull_request'
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           ./scripts/smoke-release-windows.ps1 -Binary "dist/release/timber-v$version-windows-x64.exe" `
             -ExpectedVersion $version -RequireNoRuntime -EvidencePath windows-candidate-smoke.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name != 'pull_request'
         with:
           name: windows-candidate-evidence
           path: windows-candidate-smoke.json

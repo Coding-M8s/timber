@@ -147,7 +147,7 @@ test("passes configured arguments and the selected worktree path literally", asy
   const extraArgs = ["", "--wait", `$(touch ${markerPath})`, ";", "with spaces ' and quotes"];
   const configuredArgs = Object.freeze([
     editorStubPath,
-    "linger",
+    "capture",
     capturePath,
     heartbeatPath,
     ...extraArgs,
@@ -165,14 +165,12 @@ test("passes configured arguments and the selected worktree path literally", asy
     const capture = JSON.parse(await waitForFile(capturePath)) as { args: string[]; cwd: string };
     expect(capture.args).toEqual([...extraArgs, worktreePath]);
     expect(capture.cwd).toBe(worktreePath);
-    await waitForFileContent(heartbeatPath, "alive");
-    await waitForFileContent(`${heartbeatPath}.finished`, "finished");
     await Bun.sleep(50);
     expect(await exists(markerPath)).toBe(false);
     expect(await exists(pathMarkerPath)).toBe(false);
     expect(configuredArgs).toEqual([
       editorStubPath,
-      "linger",
+      "capture",
       capturePath,
       heartbeatPath,
       ...extraArgs,

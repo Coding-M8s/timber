@@ -142,7 +142,7 @@ test("assistant name matching avoids ambiguous human names and pathological rege
     expect(hasAIAttribution(`Co-authored-by: ${name} <human@example.invalid>`)).toBe(false);
   }
   const code = `import { hasAIAttribution } from ${JSON.stringify(checker)}; if (hasAIAttribution("Co-authored-by: Claude " + "1.".repeat(200) + "!")) process.exit(1);`;
-  const result = await execa(process.execPath, ["--no-env-file", "-e", code], { timeout: 2000, reject: false });
+  const result = await execa(process.execPath, ["--no-env-file", "-e", code], { timeout: 30_000, reject: false });
   expect(result.exitCode).toBe(0);
 });
 

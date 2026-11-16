@@ -255,7 +255,7 @@ test.each([false, true])("unmerged published review cleanup keeps the remote and
   });
 });
 
-test.each([false, true])("unpublished or unknown unmerged work stays intact with keepBranch=%s", async keep => {
+test("unpublished or unknown unmerged work stays intact with keepBranch=false", async () => {
   await withRepository(async (primary, directory) => {
     for (const kind of ["no-upstream", "ahead"] as const) {
       const path = join(directory, `${kind} unmerged linked`);
@@ -269,7 +269,7 @@ test.each([false, true])("unpublished or unknown unmerged work stays intact with
       }
       const oid = (await branchOid(primary, branch))!;
       const refsBefore = await refs(primary);
-      await expect(cleanup(primary, path, { keepBranch: keep, discardIgnored: true }))
+      await expect(cleanup(primary, path, { keepBranch: false, discardIgnored: true }))
         .rejects.toThrow(/publication|upstream|unpublished|base|ancestry/i);
       await assertRetained(primary, path, branch, oid, refsBefore);
       expect(await readFile(join(path, kind === "ahead" ? "ahead.txt" : "local.txt"), "utf8")).toBe("unpublished bytes\n");

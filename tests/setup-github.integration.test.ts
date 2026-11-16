@@ -35,7 +35,7 @@ test.each([false, true])("GitHub setup entry works in both scopes and cancellati
 test.skipIf(process.platform === "win32").each([false, true])("real setup login terminal handoff handles child exit and interrupt=%s", async interrupt => {
   let output = ""; let childAnswered = false; let parentAnswered = false; let confirmed = false;
   const fixture = new URL("./fixtures/setup-github-parent.ts", import.meta.url).pathname;
-  const child = Bun.spawn([process.execPath, "--no-env-file", fixture], { timeout: 5000,
+  const child = Bun.spawn([process.execPath, "--no-env-file", fixture], { timeout: 30_000,
     terminal: { data(terminal, bytes) {
       output += Buffer.from(bytes).toString("utf8");
       if (!confirmed && output.includes("Run gh auth login for github.com now?")) { confirmed = true; terminal.write("1"); }

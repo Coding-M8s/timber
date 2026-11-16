@@ -7,7 +7,7 @@ import { git, withRepository } from "./helpers/git";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (cwd: string, ...args: string[]) => execa(process.execPath, [entry, ...args], {
-  cwd, reject: false, timeout: 5_000, env: { CI: "true", TIMBER_TASK_ID: "stale-parent-task" },
+  cwd, reject: false, timeout: 30_000, env: { CI: "true", TIMBER_TASK_ID: "stale-parent-task" },
 });
 const exists = (path: string) => access(path).then(() => true, () => false);
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";

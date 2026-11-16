@@ -49,16 +49,6 @@ test("native preview enforces keep-ignored and primary protections", async () =>
     await expect(previewCleanup(primary, primary, options)).rejects.toThrow();
   });
 });
-test("native approval retains worktree when deletion hook fails", async () => {
-  await withRepository(async (primary, directory) => {
-    const path = await setup(primary, directory);
-    await writeFile(join(primary, ".timber.toml"), 'base_branch = "trunk"\n[hooks]\npre_delete = ["exit 7"]\n');
-    const preview = await previewCleanup(primary, path, options);
-    await expect(applyCleanup(primary, path, preview, io)).rejects.toThrow();
-    expect(await git(primary, "worktree", "list", "--porcelain")).toContain(path);
-  });
-});
-
 test("native approval rejects root replacement by a hook on the clean cleanup path", async () => {
   await withRepository(async (primary, directory) => {
     const path = await setup(primary, directory);

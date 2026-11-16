@@ -12,7 +12,7 @@ test("first-use hint appears once and ordinary commands remain quiet without any
     await git(primary, "branch", "-m", "main");
     const env = { CI: "true", HOME: directory, XDG_CONFIG_HOME: join(directory, "machine/config"),
       XDG_STATE_HOME: join(directory, "machine/state") };
-    const cli = (...args: string[]) => execa(process.execPath, [entry, ...args], { cwd: primary, env, reject: false, timeout: 5000 });
+    const cli = (...args: string[]) => execa(process.execPath, [entry, ...args], { cwd: primary, env, reject: false, timeout: 30_000 });
     const before = await git(primary, "status", "--porcelain=v1");
     const first = await cli("--help");
     expect(first.exitCode).toBe(0);

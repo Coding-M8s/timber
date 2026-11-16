@@ -24,6 +24,11 @@ $powershellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\pow
 $lab = Join-Path ([IO.Path]::GetTempPath()) ('timber Windows ' + [guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $lab
 $checks = New-Object 'Collections.Generic.List[string]'
+$clock = [Diagnostics.Stopwatch]::StartNew()
+function Add-Check([string]$Name) {
+    $script:checks.Add($Name)
+    Write-Host ('[' + $clock.Elapsed.TotalSeconds.ToString('F1') + 's] ' + $Name)
+}
 
 function Assert-That([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -146,7 +151,7 @@ try {
     }
     $null = Timber-Fixture @('setup', '--global') $lab -ExpectedExit 1
     Assert-That (-not (Test-Path -LiteralPath (Join-Path $childEnv.XDG_CONFIG_HOME 'timber\config.toml'))) 'Unattended setup wrote config.'
-    $checks.Add('version, relocation, help, first-use marker and noninteractive setup')
+    Add-Check ('version, relocation, help, first-use marker and noninteractive setup')
 
     $null = New-Item -ItemType Directory -Path $primary
     $null = Git-Fixture @('init', '-b', 'main')
@@ -164,7 +169,7 @@ try {
     Write-Utf8 (Join-Path $core 'tracked.txt') "local work`n"
     Write-Utf8 (Join-Path $core 'untracked.txt') "untracked work`n"
     Refuses-Unchanged @('done', 'core') $core
-    $checks.Add('new, open with slash aliases, nested linked discovery, primary and dirty cleanup refusals')
+    Add-Check ('new, open with slash aliases, nested linked discovery, primary and dirty cleanup refusals')
 
     $null = Timber-Fixture @('new', 'Topic', '--base', 'main', '--no-editor', '--no-agent')
     Refuses-Unchanged @('new', 'topic', '--base', 'main', '--no-editor', '--no-agent') (Join-Path $trees 'Topic')
@@ -174,7 +179,7 @@ try {
     $null = Timber-Fixture @('new', 'unicode-path', '--no-editor', '--no-agent')
     $null = Timber-Fixture @('open', (Join-Path $unicodeRoot 'unicode-path'), '--no-editor', '--no-agent')
     Remove-Item -LiteralPath (Join-Path $primary '.timber.toml')
-    $checks.Add('Unicode, spaces, reserved filenames and case-insensitive collision preservation')
+    Add-Check ('Unicode, spaces, reserved filenames and case-insensitive collision preservation')
 
     # Rebase actual commits, then verify a conflict leaves native Git state intact.
     $null = Timber-Fixture @('new', 'rebased', '--base', 'main', '--no-editor', '--no-agent')
@@ -202,7 +207,7 @@ try {
     Refuses-Unchanged @('done', 'conflict') $conflict
     $null = Git-Fixture @('-c', 'core.editor=true', 'rebase', '--abort') $conflict
     Assert-That ((Git-Fixture @('rev-parse', 'HEAD') $conflict) -ceq $originalTip) 'Explicit native abort failed to restore the original tip.'
-    $checks.Add('local-base rebase, conflicts, operation refusal and explicit native abort')
+    Add-Check ('local-base rebase, conflicts, operation refusal and explicit native abort')
 
     $null = Timber-Fixture @('new', 'clean', '--base', 'main', '--no-editor', '--no-agent')
     $clean = Join-Path $trees 'clean'
@@ -211,7 +216,7 @@ try {
     $null = Timber-Fixture @('done', 'clean')
     Assert-That (-not (Test-Path -LiteralPath $clean)) 'Integrated cleanup did not remove its worktree.'
     $null = Invoke-Fixture $gitPath @('show-ref', '--verify', '--quiet', 'refs/heads/clean') $primary -ExpectedExit 1
-    $checks.Add('integrated cleanup, ignored-file retention and default discard')
+    Add-Check ('integrated cleanup, ignored-file retention and default discard')
 
     $remote = Join-Path $lab 'origin.git'
     $null = Git-Fixture @('init', '--bare', '--initial-branch=main', $remote) $lab
@@ -241,7 +246,7 @@ try {
     $null = Timber-Fixture @('open', 'core', '--no-editor', '--no-agent')
     Refuses-Unchanged @('open', 'origin/missing', '--no-editor', '--no-agent') $primary
     $null = Git-Fixture @('remote', 'set-url', 'origin', $remote)
-    $checks.Add('remote materialization, publication, unpublished-commit refusal and offline reopen')
+    Add-Check ('remote materialization, publication, unpublished-commit refusal and offline reopen')
 
     # POSIX hook source is unchanged; a failed step must retain all side effects.
     Write-Utf8 (Join-Path $primary '.timber.toml') "base_branch = `"main`"`n[hooks]`npost_create = ['printf preserved > hook-file.txt; exit 23']`n"
@@ -260,7 +265,7 @@ try {
     $null = Timber-Fixture @('new', 'editor-failure', '--no-agent') -ExpectedExit 1
     Assert-That (Test-Path -LiteralPath (Join-Path $trees 'editor-failure')) 'Editor failure removed the worktree.'
     $null = Git-Fixture @('show-ref', '--verify', 'refs/heads/editor-failure')
-    $checks.Add('Git for Windows POSIX hooks and editor startup failure retention')
+    Add-Check ('Git for Windows POSIX hooks and editor startup failure retention')
 
     # Arena performs many fresh ACL checks through Windows PowerShell processes.
     # Allow a bounded five minutes per Arena command on slower native hosts.
@@ -269,7 +274,7 @@ try {
     $null = Timber-Fixture @('arena', 'new', 'native', '--base', 'refs/heads/main', '--prompt', 'Synthetic Windows acceptance task', '--tool', 'manual', '--runs', '2', '--no-agent', '--no-editor') -TimeoutSeconds 300
     $null = Timber-Fixture @('arena', 'resume', 'native', '--attempt', 'manual-1', '--no-agent', '--no-editor') -TimeoutSeconds 300
     $null = Timber-Fixture @('ls')
-    $checks.Add('Arena new and resume with private metadata and retained identities')
+    Add-Check ('Arena new and resume with private metadata and retained identities')
 
     $os = Get-CimInstance Win32_OperatingSystem
     $evidence = [ordered]@{

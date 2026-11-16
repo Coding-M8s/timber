@@ -8,12 +8,12 @@ import { version } from "../package.json";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (...args: string[]) => execa(process.execPath, [entry, ...args], {
-  reject: false, timeout: 5_000, env: { CI: "true" },
+  reject: false, timeout: 30_000, env: { CI: "true" },
 });
 
 test("version works outside a repository and matches package metadata", async () => {
   const result = await execa(process.execPath, [entry, "--version"], {
-    cwd: tmpdir(), reject: false, timeout: 5_000,
+    cwd: tmpdir(), reject: false, timeout: 30_000,
   });
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe(version);
@@ -104,7 +104,7 @@ test("unhandled command failures render control characters safely", async () => 
   try {
     const cwd = join(directory, "outside \u001b[2J\nrow\u009b");
     await mkdir(cwd);
-    const result = await execa(process.execPath, [entry, "ls"], { cwd, reject: false, timeout: 5_000, env: { CI: "true" } });
+    const result = await execa(process.execPath, [entry, "ls"], { cwd, reject: false, timeout: 30_000, env: { CI: "true" } });
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("error:");

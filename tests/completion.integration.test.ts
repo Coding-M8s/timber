@@ -157,7 +157,7 @@ test("CLI completion cannot launch tools, contact remotes, inspect status, or wr
       const line = "timber " + command + " ";
       for (const request of [["__complete", "--", line], ["__complete", "--fish", "--", "", command]]) {
         const result = await execa(process.execPath, ["--no-env-file", entry, ...request], {
-          cwd: primary, env, timeout: 3_000,
+          cwd: primary, env, timeout: 30_000,
         });
         expect(result.stderr).toBe("");
         expect(result.stdout).toContain("linked\0");
@@ -170,7 +170,7 @@ test("CLI completion cannot launch tools, contact remotes, inspect status, or wr
     expect(await Bun.file(join(directory, "state/timber/setup-hint-shown")).exists()).toBe(false);
     // Missing Git must be as quiet as a missing repository.
     const result = await execa(process.execPath, ["--no-env-file", entry, "__complete", "--", "timber done "], {
-      cwd: primary, env: { ...env, PATH: join(directory, "missing-bin") }, timeout: 3_000,
+      cwd: primary, env: { ...env, PATH: join(directory, "missing-bin") }, timeout: 30_000,
     });
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
@@ -197,7 +197,7 @@ test("a stalled Git read ends quietly within the completion deadline", async () 
     const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
     const started = Date.now();
     const result = await execa(process.execPath, ["--no-env-file", entry, "__complete", "--", "timber open t"], {
-      cwd: primary, timeout: 5_000, env: {
+      cwd: primary, timeout: 30_000, env: {
         PATH: bin + ":" + process.env.PATH, XDG_STATE_HOME: join(directory, "state"),
         TIMBER_REAL_GIT: (await execa("which", ["git"])).stdout, TIMBER_BUN: process.execPath,
         TIMBER_STALL: stall, TIMBER_STALL_PID: pidFile,

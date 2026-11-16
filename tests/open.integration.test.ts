@@ -17,7 +17,7 @@ const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const editorStub = fileURLToPath(new URL("./fixtures/editor-stub.ts", import.meta.url));
 
 const cli = (cwd: string, ...args: string[]) => execa(process.execPath, [entry, ...args], {
-  cwd, reject: false, timeout: 5_000, env: { CI: "true" },
+  cwd, reject: false, timeout: 30_000, env: { CI: "true" },
 });
 
 async function exists(path: string): Promise<boolean> {

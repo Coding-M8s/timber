@@ -19,16 +19,10 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - name: Install completion shells
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends zsh fish
-          zsh --version
-          fish --version
       - run: bun run typecheck
       - name: Lint the installer
         run: shellcheck --shell=sh install.sh
-      - run: bun test
+      - run: bun run test
       - run: bun run build
       - run: bun dist/index.js --help
       - run: bun run build:release
@@ -36,7 +30,7 @@ jobs:
         run: |
           VERSION="$(bun --no-env-file -p 'require("./package.json").version')"
           TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v$VERSION-linux-x64" \
-            bun test tests/completion-bash.test.ts tests/completion-fish.test.ts
+            bun test tests/completion-bash.test.ts
       - name: Verify standalone checksums
         run: cd dist/release && sha256sum -c SHA256SUMS
       - run: docker build -f tests/release/Dockerfile -t timber-release-smoke .

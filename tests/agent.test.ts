@@ -117,7 +117,7 @@ test.each([["SIGINT", 130], ["SIGTERM", 143]] as const)(
       await writeFile(payload, JSON.stringify({
         cwd: path, command: { command: process.execPath, args: [stub, "hold", capture] },
       }));
-      const wrapper = execa(process.execPath, [parent, payload, report], { reject: false, timeout: 5000 });
+      const wrapper = execa(process.execPath, [parent, payload, report], { reject: false, timeout: 30_000 });
       try {
         const recorded = await waitForJson(capture);
         wrapper.kill(signal);
@@ -158,7 +158,7 @@ test.each([false, true])("foreground terminal inheritance and Ctrl-C=%s", async 
       cwd: path, command: [process.execPath, parent, payload, report],
       ...(interrupt ? { interrupt: true } : { input: "hello agent\n" }),
     }));
-    const run = await execa("python3", ["-B", ptyRunner, ptyPayload], { timeout: 8000 });
+    const run = await execa("python3", ["-B", ptyRunner, ptyPayload], { timeout: 30_000 });
     const result = JSON.parse(run.stdout);
     expect(result.exitCode).toBe(interrupt ? 130 : 0);
     const recorded = await waitForJson(capture);
@@ -181,7 +181,7 @@ test("one terminal Ctrl-C reaches a handling agent once and preserves its eventu
     await writeFile(ptyPayload, JSON.stringify({
       cwd: path, command: [process.execPath, parent, payload, report], interrupt: true,
     }));
-    const run = await execa("python3", ["-B", ptyRunner, ptyPayload], { timeout: 8000 });
+    const run = await execa("python3", ["-B", ptyRunner, ptyPayload], { timeout: 30_000 });
     const result = JSON.parse(run.stdout);
     expect(result.output.match(/AGENT_INTERRUPT:/g)).toHaveLength(1);
     expect(result.exitCode).toBe(0);
@@ -207,7 +207,7 @@ os.waitpid = lambda pid, options: waitpid(pid, 0)
 sys.argv = [sys.argv[1], sys.argv[2]]
 runpy.run_path(sys.argv[0], run_name="__main__")
 `;
-    const run = await execa("python3", ["-B", "-c", schedule, ptyRunner, payload], { timeout: 8000 });
+    const run = await execa("python3", ["-B", "-c", schedule, ptyRunner, payload], { timeout: 30_000 });
     const result = JSON.parse(run.stdout);
     expect(result.exitCode).toBe(23);
     expect(result.output).toContain("initial output");

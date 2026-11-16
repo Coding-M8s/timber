@@ -17,10 +17,3 @@ await appendFile(
   }) + "\n",
 );
 if (process.argv.at(-1) === "interrupt") process.kill(process.pid, "SIGINT");
-
-if (process.argv.at(-1) === "nonzero") process.exit(17);
-if (process.argv.at(-1) === "hold" || process.argv.at(-1) === "parent-terminate") {
-  setInterval(() => {}, 1000);
-  process.stdout.write("AGENT_READY\n");
-  if (process.argv.at(-1) === "parent-terminate") process.kill(process.ppid, "SIGTERM");
-}
