@@ -18,6 +18,7 @@ in source; update them and their consumers together when a shared interface chan
 | [editor.ts](../src/editor.ts), [agent.ts](../src/agent.ts) | Separate editor and foreground agent launching |
 | [editor-terminals](../src/editor-terminals) | Orca terminal handoff and private runner protocol |
 | [arena](../src/arena) | Attempt selection, planning, records, and recovery |
+| [backup](../src/backup) | Private worktree snapshots, records, verification, and restore |
 | [completion](../src/completion) | Read-only candidate lookup and shell adapters |
 
 ## Boundaries
@@ -57,7 +58,10 @@ Saved bases belong to private Git-admin metadata; workflows are never saved. Are
 versioned manifests, task digests, reciprocal worktree UUIDs, and invocation locks.
 Preserve existing record versions and exact recorded configuration during recovery;
 never reinterpret a previous run through a current model catalog. Metadata membership
-is not permission to delete work. See [saved bases](cli-contract.md#saved-worktree-bases-79),
+is not permission to delete work. Recovery backups live in `<commonGitDir>/timber/backups/` with a
+versioned record, a manifest digest and a private `refs/timber/backups/<id>` ref;
+only a renamed, verified directory is a usable backup. See
+[backups](cli-contract.md#worktree-recovery-backups-119). See [saved bases](cli-contract.md#saved-worktree-bases-79),
 [Arena creation](cli-contract.md#arena-creation-post-10-tim-20), and
 [resume](cli-contract.md#arena-resume-tim-21).
 

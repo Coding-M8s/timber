@@ -50,6 +50,10 @@ export interface CommandServices {
   /** Select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     explicitBase: string | undefined, io: CommandIO, report?: RebaseReport): Promise<number>;
+  /** Snapshot a verified, idle registered worktree into private Git-directory storage; never changes the source. */
+  createBackup(repository: RepositoryContext, worktree: Worktree, io: CommandIO): Promise<number>;
+  /** Recover a verified backup into a new worktree and recovery branch; never overwrites or runs repository code. */
+  restoreBackup(repository: RepositoryContext, id: string, destination: string, cwd: string, io: CommandIO): Promise<number>;
   /** Inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
   /** Recheck identity and safety at mutation time. Confirmed upstream absence or
@@ -117,6 +121,9 @@ export interface OpenOptions {
 
 export interface CommandHandlers {
   rebase?(input: string, options: { base?: string }, context: CommandContext): Promise<number>;
+  /** Optional for existing embedders; production entry point wires backups. */
+  backupCreate?(input: string, context: CommandContext): Promise<number>;
+  backupRestore?(id: string, destination: string, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires arena creation. */
   arenaNew?(name: string, options: ArenaNewOptions, context: CommandContext): Promise<number>;
   /** Existing attempts only; no materialization or ordinary agent substitution. */
