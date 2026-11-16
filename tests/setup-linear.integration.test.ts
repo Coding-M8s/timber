@@ -80,3 +80,27 @@ test("setup visibility scope switch discards the Linear draft before configuring
     expect(sessions).toBe(2); expect(await loadSavedLinearKey(env)).toBeNull();
   });
 });
+
+test("repository setup from a linked worktree selects the key for the whole repository; machine setup selects none", async () => {
+  await withRepository(async (primary, root) => {
+    const env = { HOME: root, XDG_CONFIG_HOME: join(root, "config") };
+    const linked = join(root, "linked");
+    await git(primary, "worktree", "add", "-b", "side", linked);
+    const initial = await readLinearCredentialStore(env);
+    initial.set("SYNTHETIC_ACME", "acme"); initial.set("SYNTHETIC_HOME", "home");
+    await withLinearCredentialSave(initial, async () => {});
+    const received: (string | null)[] = [];
+    const handler = (answers: (string | boolean | null)[]) => createSetupHandler({
+      inspectTarget: (global, cwd) => inspectSetupTarget(global, cwd, env), prompt: () => scripted(answers), checkExecutable: async () => true,
+      linear: commonGitDir => { received.push(commonGitDir); return createLinearSetupSession(env, async () => {}, commonGitDir); },
+      save: saveSetupConfig,
+    });
+    await handler(["connections", "linear", "use:acme", false, "back", "save"])({ global: false }, { cwd: linked, interactive: true, io: { stdout() {}, stderr() {} } });
+    await handler(["connections", "linear", "keep", "back", "save"])({ global: true }, { cwd: linked, interactive: true, io: { stdout() {}, stderr() {} } });
+    expect(received).toEqual([join(primary, ".git"), null]);
+    const { repositoryCredentialKey } = await import("../src/credential-selection");
+    const { discoverRepository } = await import("../src/git/repository");
+    expect(await loadSavedLinearKey(env, undefined, await repositoryCredentialKey((await discoverRepository(primary)).commonGitDir))).toBe("SYNTHETIC_ACME");
+    expect(await readFile(join(primary, ".timber.toml"), "utf8").catch(() => "")).not.toMatch(/SYNTHETIC|acme/u);
+  });
+}, 30_000);

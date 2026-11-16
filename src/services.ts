@@ -22,7 +22,8 @@ import type { GithubTicket } from "./github/client";
 import type { AssignTarget } from "./issue-assignment";
 
 export interface CommandServices {
-  resolveLinearTicket(key: string, allowClosed?: boolean): Promise<LinearTicket>;
+  /** The repository selects saved credentials when several exist. */
+  resolveLinearTicket(key: string, allowClosed?: boolean, repository?: RepositoryContext): Promise<LinearTicket>;
   resolveGithubRepository(repository: RepositoryContext, config: RepositoryConfig, remote?: string): Promise<GithubRepository>;
   resolveGithubTicket(repository: GithubRepository, number: number, allowClosed: boolean): Promise<GithubTicket>;
   /** The signed-in account of the issue's tracker, through Timber's own login. */
@@ -34,7 +35,7 @@ export interface CommandServices {
   /** Defaults + validated global/repository config; never search relative to caller cwd. */
   loadConfig(repository: RepositoryContext): Promise<RepositoryConfig>;
   /** Resolve one configured Jira Cloud issue; never fall back to a literal branch. */
-  resolveJiraTicket(config: JiraConfig, key: string, allowClosed?: boolean): Promise<JiraTicket>;
+  resolveJiraTicket(config: JiraConfig, key: string, allowClosed?: boolean, repository?: RepositoryContext): Promise<JiraTicket>;
   /** Installed Git is authoritative; include manual, detached, stale entries.
    * includeIgnored: false leaves status.ignored empty; use it only for listing. */
   listWorktrees(

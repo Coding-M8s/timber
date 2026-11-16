@@ -19,11 +19,7 @@ export interface SingleCredentialStore<T> {
 }
 
 /** What differs between stores: the file, the wording, and how the value is checked and written. */
-export interface CredentialFileSpec<T> {
-  /** File base name under credentials/, such as "linear" for linear.json. */
-  name: string;
-  /** Provider name used in every diagnostic, such as "Linear". */
-  label: string;
+export interface CredentialFileSpec<T> extends CredentialStorageSpec {
   /** Parse the stored JSON value; throws when it is not a valid version 1 record. */
   parse(value: unknown): T;
   /** The version 1 record for a value, or for no value. */
@@ -32,9 +28,29 @@ export interface CredentialFileSpec<T> {
   check(value: T): void;
 }
 
+/** What a save publishes: the bytes read at the start of setup and the draft that replaces them. */
+export interface CredentialDraft {
+  readonly path: string;
+  readonly original: string | null;
+  /** Whether the draft differs from the original. */
+  changed(): boolean;
+  /** True when nothing remains to save, so the file is deleted. */
+  empty(): boolean;
+  serialize(): string;
+}
+
+/** Where a store lives and how it is named in diagnostics. */
+export interface CredentialStorageSpec {
+  /** File base name under credentials/, such as "linear" for linear.json. */
+  name: string;
+  /** Provider name used in every diagnostic, such as "Linear". */
+  label: string;
+}
+
 const code = (error: unknown): unknown => typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
 
-export function credentialFile<T>(spec: CredentialFileSpec<T>) {
+/** Private, locked and atomically published storage for one credential file, whatever its format. */
+export function credentialStorage(spec: CredentialStorageSpec) {
   const { label } = spec;
   const storeError = () => new Error(`Cannot read ${label} credential store. Check its format, ownership and permissions; repair it privately or restore a backup, then rerun setup. Never include its contents in reports.`);
   const own = new RegExp(`^(Unsafe ${label}|${label} credential|Cannot read ${label})`, "u");
@@ -88,31 +104,12 @@ export function credentialFile<T>(spec: CredentialFileSpec<T>) {
     } finally { await handle?.close(); }
   }
 
-  const serialize = (value: T | null) => JSON.stringify({ version: 1, ...spec.record(value) }, null, 2) + "\n";
-
-  async function read(env: NodeJS.ProcessEnv = process.env, signal?: AbortSignal): Promise<SingleCredentialStore<T>> {
+  /** The store's path and its current bytes, or null when no file exists. */
+  async function read(env: NodeJS.ProcessEnv = process.env, signal?: AbortSignal): Promise<{ path: string; original: string | null }> {
     const path = join(dirname(globalConfigPath(env)), `credentials/${spec.name}.json`);
     const original = await readSource(path, signal);
     signal?.throwIfAborted();
-    let initial: T | null = null;
-    if (original !== null) {
-      try { initial = spec.parse(JSON.parse(original)); }
-      catch { throw storeError(); }
-    }
-    let value = initial;
-    return {
-      path, original,
-      get() { return value; },
-      set(next) {
-        if (next !== null) spec.check(next);
-        value = next;
-      },
-      changes() {
-        if (serialize(value) === serialize(initial)) return [];
-        return [{ action: value === null ? "remove" : "save" }];
-      },
-      serialize() { return serialize(value); },
-    };
+    return { path, original };
   }
 
   async function temporary(path: string, source: string): Promise<string> {
@@ -125,18 +122,18 @@ export function credentialFile<T>(spec: CredentialFileSpec<T>) {
   }
 
   /** Credentials publish first; config's successful publication is the shared commit point. */
-  async function save(store: SingleCredentialStore<T>, publishConfig: () => Promise<void>, signal?: AbortSignal,
+  async function save(store: CredentialDraft, publishConfig: () => Promise<void>, signal?: AbortSignal,
     files: Partial<Pick<typeof import("node:fs/promises"), "link">> = {}): Promise<void> {
     const cancel = () => { if (signal?.aborted) throw new SetupCancelled(); };
     cancel();
-    if (!store.changes().length) { await publishConfig(); return; }
+    if (!store.changed()) { await publishConfig(); return; }
     let lock: Awaited<ReturnType<typeof open>> | undefined;
     const lockPath = join(dirname(store.path), `.${spec.name}.lock`);
     const temps = new Set<string>();
     let published = false;
     let deleted = false;
     const next = store.serialize();
-    const emptied = store.get() === null;
+    const emptied = store.empty();
     const publishLink = files.link ?? link;
     try {
       if (process.platform === "win32") {
@@ -204,6 +201,46 @@ export function credentialFile<T>(spec: CredentialFileSpec<T>) {
       for (const path of temps) await unlink(path).catch(() => {});
       if (lock) { await lock.close(); await unlink(lockPath).catch(() => {}); }
     }
+  }
+
+  return { read, save, storeError };
+}
+
+/** A store holding a single version 1 value, such as a key or a login pair. */
+export function credentialFile<T>(spec: CredentialFileSpec<T>) {
+  const storage = credentialStorage(spec);
+  const serialize = (value: T | null) => JSON.stringify({ version: 1, ...spec.record(value) }, null, 2) + "\n";
+
+  async function read(env: NodeJS.ProcessEnv = process.env, signal?: AbortSignal): Promise<SingleCredentialStore<T>> {
+    const { path, original } = await storage.read(env, signal);
+    let initial: T | null = null;
+    if (original !== null) {
+      try { initial = spec.parse(JSON.parse(original)); }
+      catch { throw storage.storeError(); }
+    }
+    let value = initial;
+    return {
+      path, original,
+      get() { return value; },
+      set(next) {
+        if (next !== null) spec.check(next);
+        value = next;
+      },
+      changes() {
+        if (serialize(value) === serialize(initial)) return [];
+        return [{ action: value === null ? "remove" : "save" }];
+      },
+      serialize() { return serialize(value); },
+    };
+  }
+
+  /** Credentials publish first; config's successful publication is the shared commit point. */
+  function save(store: SingleCredentialStore<T>, publishConfig: () => Promise<void>, signal?: AbortSignal,
+    files: Partial<Pick<typeof import("node:fs/promises"), "link">> = {}): Promise<void> {
+    return storage.save({
+      path: store.path, original: store.original, serialize: () => store.serialize(),
+      changed: () => store.changes().length > 0, empty: () => store.get() === null,
+    }, publishConfig, signal, files);
   }
 
   return { read, save };

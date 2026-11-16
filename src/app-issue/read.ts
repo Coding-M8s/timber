@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 import { knownSecrets, safeAppDiagnostic } from "../app-config/input";
 import { readGithubToken } from "../github/auth";
 import type { IssueLinkRead } from "../git/issue-link";
+import { repositoryCredentialKey } from "../credential-selection";
 import { loadSavedCredentials } from "../jira/credentials";
 import { readLinearKey } from "../linear/auth";
 import { samePath } from "../platform/paths";
@@ -111,12 +112,17 @@ export async function readAppIssue(cwd: string, input: string, services: AppIssu
   }
 }
 
-export function defaultTrackerRuntime(env: NodeJS.ProcessEnv): AppIssueServices["trackers"] {
+/** `repository` resolves to the shared Git directory whose saved Linear key or Jira login applies. */
+export function defaultTrackerRuntime(env: NodeJS.ProcessEnv,
+  repository: () => Promise<string | undefined> = async () => undefined): AppIssueServices["trackers"] {
   return {
     env,
     fetch: (url, init) => fetch(url, init),
     githubToken: signal => readGithubToken(signal, { env }),
-    linearToken: signal => readLinearKey(env, undefined, signal),
-    jiraCredentials: config => loadSavedCredentials(config, env),
+    linearToken: async signal => readLinearKey(env, undefined, signal, await repository()),
+    jiraCredentials: async config => {
+      const commonGitDir = await repository();
+      return loadSavedCredentials(config, env, commonGitDir === undefined ? null : await repositoryCredentialKey(commonGitDir));
+    },
   };
 }

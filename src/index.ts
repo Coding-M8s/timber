@@ -51,9 +51,9 @@ import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
 import { clearBaseAssociation, readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
 import { readIssueLink, writeIssueLink } from "./git/issue-link";
-import { resolveJiraTicket } from "./jira/client";
+import { jiraRuntime, resolveJiraTicket } from "./jira/client";
 import { resolveGithubRepository } from "./github/repository";
-import { resolveLinearTicket } from "./linear/client";
+import { linearRuntime, resolveLinearTicket } from "./linear/client";
 import { resolveGithubTicket } from "./github/client";
 import { assignIssue, readTrackerUser } from "./issue-assignment";
 import { createLinearSetupSession } from "./setup/linear";
@@ -105,8 +105,8 @@ const openHandler = createOpenHandler({
   loadConfig: loadRepositoryConfig,
   resolveOpenTarget,
   resolveGithubRepository, resolveGithubTicket,
-  resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
-  resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
+  resolveLinearTicket: (key, allowClosed, repository) => resolveLinearTicket(key, linearRuntime(repository?.commonGitDir), allowClosed),
+  resolveJiraTicket: (config, key, allowClosed, repository) => resolveJiraTicket(config, key, jiraRuntime(repository?.commonGitDir), allowClosed),
   readIssueLink, writeIssueLink,
   createWorktree,
   runSetup,
@@ -140,16 +140,16 @@ process.exitCode = await runCli(process.argv.slice(2), {
     uninstall: createUninstallHandler({ executablePath: process.execPath, standalone: Bun.main.startsWith("/$bunfs/"),
       uid: process.getuid?.() }),
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
-      jira: createJiraSetupSession,
+      jira: commonGitDir => createJiraSetupSession(process.env, undefined, commonGitDir),
       github: createGithubSetupSession,
-      linear: createLinearSetupSession,
+      linear: commonGitDir => createLinearSetupSession(process.env, undefined, commonGitDir),
       bitbucket: createBitbucketSetupSession,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveBase,
-      resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
+      resolveJiraTicket: (config, key, allowClosed, repository) => resolveJiraTicket(config, key, jiraRuntime(repository?.commonGitDir), allowClosed),
       resolveGithubRepository, resolveGithubTicket,
-      resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
+      resolveLinearTicket: (key, allowClosed, repository) => resolveLinearTicket(key, linearRuntime(repository?.commonGitDir), allowClosed),
       createWorktree, inspectNewBranchCollision, writeBaseAssociation, writeIssueLink, runSetup, launchEditor, launchAgent, launchEditorTerminals,
       readTrackerUser, assignIssue,
       openExisting: openHandler,
