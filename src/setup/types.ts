@@ -38,3 +38,6 @@ export class SetupCancelled extends Error {
 }
 
 export class SetupVisibilityError extends Error {}
+
+/** A destination or credential store changed under a draft; nothing was published. */
+export class SetupChangedError extends Error {}

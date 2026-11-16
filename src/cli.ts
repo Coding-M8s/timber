@@ -1,3 +1,4 @@
+import { runAppConfig } from "./commands/app-config";
 import { runNativeCleanup } from "./machine-done";
 import { runMachineCommand } from "./machine";
 import { parseArenaGroups } from "./arena/participants";
@@ -217,6 +218,15 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--result-file <path>")
     .action(async (action: string, target: string, options) => {
       onExitCode(await runNativeCleanup(action, target, options, context));
+    });
+
+  program.command("__app-config <action> [integration]", { hidden: true })
+    .option("--scope <scope>")
+    .option("--input-file <path>")
+    .option("--result-file <path>")
+    .option("--edit-tracked")
+    .action(async (action: string, integration: string | undefined, options) => {
+      onExitCode(await runAppConfig(action, integration, options, context));
     });
 
   program.command("done <branch-or-worktree>")

@@ -112,20 +112,24 @@ export function parseConfigSource(source: string, configPath: string): ConfigFil
 
   const result = configFileSchema.safeParse(input);
   if (!result.success) {
-    const details = configIssues(result.error.issues).flatMap(issue => {
-      const paths = issue.code === "unrecognized_keys"
-        ? issue.keys.map(key => [...issue.path, key])
-        : [issue.path];
-      const problem = issue.code === "unrecognized_keys" ? "is not supported" : "is invalid";
-      return paths.map(path => {
-        const field = path.map(String).join(".") || "<root>";
-        return `${field} ${problem}`;
-      });
-    });
-    throw new Error(`Invalid config ${configPath}: ${details.join("; ")}`);
+    throw new Error(`Invalid config ${configPath}: ${configIssueFields(result.error.issues).join("; ")}`);
   }
 
   return result.data;
+}
+
+/** One "<field> is invalid" or "<field> is not supported" entry per issue; never a value. */
+export function configIssueFields(issues: readonly z.core.$ZodIssue[]): string[] {
+  return configIssues(issues).flatMap(issue => {
+    const paths = issue.code === "unrecognized_keys"
+      ? issue.keys.map(key => [...issue.path, key])
+      : [issue.path];
+    const problem = issue.code === "unrecognized_keys" ? "is not supported" : "is invalid";
+    return paths.map(path => {
+      const field = path.map(String).join(".") || "<root>";
+      return `${field} ${problem}`;
+    });
+  });
 }
 
 // The false/table unions retain the existing precise field diagnostics.
@@ -140,37 +144,59 @@ function normalizedAgent<T extends { wait_for_setup?: boolean | undefined }>(val
   return { ...command, ...(wait_for_setup === undefined ? {} : { waitForSetup: wait_for_setup }) };
 }
 
-export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): RepositoryConfig {
+/**
+ * File-shaped settings after inheritance. Repository keys replace machine defaults,
+ * workflow and arena tables merge by name, and everything switched off is dropped.
+ */
+export function effectiveConfigValues(scopes: ConfigScopes): ConfigFile {
   const config = { ...scopes.global.values, ...scopes.local?.values };
   const globalWorkflows = scopes.global.values.workflows;
   const localWorkflows = scopes.local?.values.workflows;
   const mergedWorkflows = localWorkflows === false ? {}
     : { ...(typeof globalWorkflows === "object" ? globalWorkflows : {}),
       ...(typeof localWorkflows === "object" ? localWorkflows : {}) };
-  const workflows = Object.fromEntries(Object.entries(mergedWorkflows)
+  const globalArena = scopes.global.values.arena;
+  const localArena = scopes.local?.values.arena;
+  const arenaAgents = localArena === false ? {} : {
+    ...(globalArena ? globalArena.agents : {}), ...(localArena ? localArena.agents : {}),
+  };
+  const enabled = <T>(table: Record<string, T | false>) =>
+    Object.fromEntries(Object.entries(table).filter((entry): entry is [string, T] => entry[1] !== false));
+  return {
+    ...(config.default_tracker === undefined ? {} : { default_tracker: config.default_tracker }),
+    ...(globalArena === undefined && localArena === undefined ? {} : { arena: { agents: enabled(arenaAgents) } }),
+    ...(config.base_branch === undefined ? {} : { base_branch: config.base_branch }),
+    ...(config.remote === undefined ? {} : { remote: config.remote }),
+    ...(config.worktree_dir === undefined ? {} : { worktree_dir: config.worktree_dir }),
+    ...(config.hooks ? { hooks: config.hooks } : {}),
+    ...(globalWorkflows === undefined && localWorkflows === undefined ? {} : { workflows: enabled(mergedWorkflows) }),
+    ...(config.editor ? { editor: config.editor } : {}),
+    ...(config.agent ? { agent: config.agent } : {}),
+    ...(config.jira ? { jira: config.jira } : {}),
+  };
+}
+
+export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): RepositoryConfig {
+  const config = effectiveConfigValues(scopes);
+  const workflows = Object.fromEntries(Object.entries(config.workflows || {})
     .flatMap(([name, value]) => value === false ? [] : [[name, {
       ...(value.description === undefined ? {} : { description: value.description }),
       postCreate: value.post_create,
       ...(value.editor === undefined ? {} : { editor: value.editor }),
       ...(value.agent === undefined ? {} : { agent: value.agent === false ? false as const : normalizedAgent(value.agent) }),
     }]]));
-  const globalArena = scopes.global.values.arena;
-  const localArena = scopes.local?.values.arena;
-  const arenaAgents = localArena === false ? {} : {
-    ...(globalArena ? globalArena.agents : {}), ...(localArena ? localArena.agents : {}),
-  };
   return {
     ...defaults,
     ...(config.default_tracker === undefined ? {} : { defaultTracker: config.default_tracker }),
-    ...(globalArena === undefined && localArena === undefined ? {} : {
-      arena: { agents: Object.fromEntries(Object.entries(arenaAgents).filter((entry): entry is [string, Exclude<typeof entry[1], false>] => entry[1] !== false)) },
-    }),
+    ...(config.arena ? {
+      arena: { agents: Object.fromEntries(Object.entries(config.arena.agents).filter((entry): entry is [string, Exclude<typeof entry[1], false>] => entry[1] !== false)) },
+    } : {}),
     baseBranch: config.base_branch ?? null,
     remote: config.remote ?? null,
     worktreeDir: config.worktree_dir === undefined ? null : resolve(primaryRoot, config.worktree_dir),
     editor: config.editor || null,
     agent: config.agent ? normalizedAgent(config.agent) : null,
-    ...(globalWorkflows === undefined && localWorkflows === undefined ? {} : { workflows }),
+    ...(config.workflows === undefined ? {} : { workflows }),
     ...(config.hooks ? { hooks: { postCreate: config.hooks.post_create,
       ...(config.hooks.pre_delete === undefined ? {} : { preDelete: config.hooks.pre_delete }) } } : {}),
     ...(config.jira ? { jira: {

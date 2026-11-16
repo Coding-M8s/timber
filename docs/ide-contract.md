@@ -1,9 +1,11 @@
 # Experimental IDE machine interface (v1)
 
 This additive interface is experimental. It supports repository inventory,
-ordinary New/Open outcomes, and Rebase outcomes for app consumers. It does not change the existing
+ordinary New/Open outcomes, Rebase outcomes, and reading, saving and checking
+settings for app consumers. It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
-No IDE consumer is included. Rebase records and native cleanup approval are described below. Linux x86_64 is the tested
+No IDE consumer is included. Rebase records, native cleanup approval and
+[settings for app consumers](#settings-for-app-consumers-experimental-v1) are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
 
@@ -75,7 +77,8 @@ content, so do not publish raw streams or result files as public logs.
 
 The following TypeScript notation defines the JSON values, not an importable SDK.
 All fields are required except the `worktrees` array, which exists only on `ls`,
-and the `rebase` object, which exists only on `rebase`.
+the `rebase` object, which exists only on `rebase`, and the `config` object,
+which exists only on a [settings apply](#saving-settings).
 There are no `undefined` values.
 
 ```ts
@@ -115,7 +118,7 @@ type RebaseRecord = {
 
 type RecordV1 = {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "config";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -124,6 +127,7 @@ type RecordV1 = {
   diagnostic: string | null;
   worktrees?: WorktreeRecord[]; // always present for ls, including failed ls
   rebase?: RebaseRecord;        // always present for rebase, including refusals
+  config?: ConfigApplyRecord;   // always present for a settings apply
 };
 ```
 
@@ -277,3 +281,174 @@ streaming and automatic conflict resolution are not part of this interface.
 After that confirmation, save the unchanged preview into a private temporary file and invoke `timber __ide-done apply --approval-file <path> --result-file <new-path> -- <same-absolute-path>`. Apply never asks a terminal question. It validates preview expiry, repository, reciprocal target identity, root inode, HEAD/branch, base, options, hooks and changed-file/index content before entering cleanup, and again at cleanup's ordinary discard decision. The native snapshot is checked unconditionally again immediately before Git removal, including after cleanup hooks. When discarding ignored files, approval covers all ignored paths and bytes, including ignored runtime files changed by cleanup hooks; those bytes are deliberately excluded from the changed-file fingerprint, matching ordinary Done semantics. The UI must explicitly describe this scope. Existing post-hook checks and primary, operation, ignored-file and ref protections remain. A changed snapshot is an error requiring an updated preview; it never silently broadens approval or retries. Approval is scoped to one target state, not a general noninteractive force flag.
 
 Result files use the existing v1 mutation envelope with `command: "done"`, the captured pre-deletion worktree, and `materialized: false`. Failures may occur after folder removal but before branch removal; consumers must reconcile `ls --json` after every outcome and must never infer current availability from the captured result. Hooks retain normal IO; no prompt parser or automatic terminal answer is involved. Existing interactive `done` behavior is unchanged.
+
+## Settings for app consumers (experimental v1)
+
+An app's settings screen can read, save and check Timber settings through three
+hidden commands, without a terminal and with `CI` set. They use the same
+validation, publication, Git exclusion handling and private credential stores as
+`timber setup`, so the app does not parse or write TOML itself. None of them
+launches a tool, runs a hook, creates a worktree, fetches, or changes a ref.
+
+```sh
+timber __app-config read --scope repository
+timber __app-config apply --scope repository --input-file /private/temp/draft.json --result-file /private/temp/saved.json
+timber __app-config check jira --input-file /private/temp/draft.json
+```
+
+`--scope` is `repository` (the `.timber.toml` in the primary checkout of the
+repository containing the captured cwd) or `global` (machine defaults, which
+need no repository). Unknown actions, scopes, integrations and option
+combinations fail before any work with a plain diagnostic on stderr and exit 1.
+Settings keep their TOML names and shapes, as in the [guide](guide.md); this
+interface adds no setting and does not change the file format.
+
+### Reading settings
+
+`read` prints one JSON object plus newline to stdout and exits 0. On failure
+(not a repository, unreadable or invalid file) stdout stays empty, the
+diagnostic goes to stderr, and the exit code is 1. Reading is offline and writes
+nothing.
+
+```ts
+type SettingsRead = {
+  schemaVersion: 1;
+  scope: "repository" | "global";
+  path: string;            // absolute file an apply to this scope writes
+  exists: boolean;
+  tracked: boolean;        // repository file is tracked by Git; see --edit-tracked
+  revision: string | null; // opaque token for the content read; null when absent
+  values: Settings;        // what this scope's file sets, with defaults filled in
+  effective: Settings;     // what applies after inheritance
+  credentials: {
+    jira: { configured: boolean; state: CredentialState; environmentOverride: boolean };
+    linear: { state: CredentialState; environmentOverride: boolean };
+  };
+};
+type CredentialState = "saved" | "none" | "unreadable";
+```
+
+- `values` can contain `false`, which switches an inherited table off for this
+  repository. `effective` never does: repository keys replace machine defaults,
+  workflow and arena tables merge by name, and everything switched off is
+  left out. For the global scope, `effective` is the machine defaults alone.
+  A relative `worktree_dir` is reported as written.
+- `credentials` says only whether something is saved. `jira.state` refers to the
+  pair saved for the effective Jira site and token mode; `configured` is false
+  when no Jira site applies. `unreadable` means the private store exists but
+  failed its ownership, permission or format checks. `environmentOverride` is
+  true when `JIRA_EMAIL`/`JIRA_API_TOKEN` or `LINEAR_API_KEY` is set for the
+  process, because those replace saved credentials at run time. No email, token
+  or key is ever part of this object. Timber stores no GitHub token.
+
+### Saving settings
+
+`apply` reads a draft from `--input-file` and writes its outcome to a new
+`--result-file`, with the same reservation, write and failure rules as the other
+result files. Human stdout and stderr stay human text; do not parse them.
+
+```ts
+type SettingsInput = {
+  schemaVersion: 1;
+  revision: string | null;   // from the read this draft is based on
+  values: Settings;          // the complete draft for this scope
+  credentials?: {            // omit a provider to leave its saved login alone
+    jira?: { email: string; token: string } | null;   // null removes the saved pair
+    linear?: { token: string } | null;                // null removes the saved key
+  };
+};
+
+type ConfigApplyRecord = {
+  result: "saved" | "invalid" | "conflict" | "refused" | "failed";
+  scope: "repository" | "global";
+  path: string | null;       // destination; null when the run stopped before finding it
+  revision: string | null;   // revision of the saved content; null unless "saved"
+  invalidFields: string[];   // for example "editor.command is invalid"
+  credentials: { jira: CredentialChange; linear: CredentialChange };
+};
+type CredentialChange = "saved" | "removed" | "unchanged";
+```
+
+The record is the v1 envelope with `command: "config"`, `worktree: null`,
+`materialized: false`, and `repository` set for the repository scope once
+discovery succeeds. Branch on `config.result`:
+
+| `result` | `outcome` | Exit | Meaning |
+| --- | --- | --- | --- |
+| `saved` | `succeeded` | 0 | The file holds exactly what `timber setup` would write for these values. |
+| `invalid` | `failed` | 1 | The input or a value was rejected. `invalidFields` names each field. |
+| `conflict` | `failed` | 1 | The file, its Git state or a credential store changed since the read. |
+| `refused` | `failed` | 1 | A question setup would ask was not answered by an option. |
+| `failed` | `failed` | 1 | Something else stopped the save, such as a held lock or a write error. |
+
+- `values` is the whole scope: a setting left out is removed from this file and
+  inherits again. The exceptions are `workflows` and `arena`, which this
+  interface does not edit. They are carried over from the saved file; a draft
+  may omit them or repeat them unchanged, and a draft that changes them is
+  `invalid`. Comments in a hand-written file are not kept, as with setup.
+- `invalidFields` and `diagnostic` name fields and never repeat a value. With
+  any result other than `saved`, the settings file, the Git exclusion file and
+  the credential stores are as they were, unless `diagnostic` reports an
+  incomplete rollback.
+- Pass the `revision` from `read`. Timber refuses with `conflict` when the file
+  no longer matches it, and checks again under its lock immediately before
+  publishing. After `conflict`, read again and let the user reapply. After
+  `saved`, `config.revision` is the next revision, so the app can keep editing.
+- A tracked `.timber.toml` is `refused` unless `--edit-tracked` is passed, which
+  edits the working file and leaves the index alone. A repository whose ignore
+  rules cannot hide `.timber.toml` is `refused`; offer the global scope instead.
+  There is no option that answers every question at once.
+- Publication is atomic per file. Credentials are published first and rolled
+  back if the settings file cannot be published.
+
+### Credentials
+
+Credentials travel only inside the input file, never in arguments. Create that
+file in a caller-owned private directory outside the repository, and delete it
+after the process exits; Timber reads it once and never modifies or removes it. On Linux
+and macOS a file carrying `credentials` must be owned by the invoking user with
+mode 0600, or the command fails before using it. Symlinks and files over 1 MiB
+are refused.
+
+Saved credentials follow the existing store rules: plaintext, private to the
+user, outside every Git worktree, shared across repositories, and keyed for
+Jira by site and token mode. Jira credentials need a Jira site in the draft or
+inherited from machine defaults. Credential values never appear in result
+files, stdout, stderr or diagnostics, and `read` never returns them, so an app
+cannot prefill a saved token.
+
+### Checking a connection
+
+`check <github|linear|jira> [--scope <scope>] [--input-file <path>]` makes the
+same single read-only current-user request as setup and prints one JSON object
+plus newline to stdout. It exits 0 when `ok` is true and 1 otherwise. It saves
+nothing, with or without a draft.
+
+```ts
+type ConnectionCheck = {
+  schemaVersion: 1;
+  integration: "github" | "linear" | "jira";
+  ok: boolean;
+  source: "draft" | "saved" | "environment" | "github-cli" | null;
+  account: string | null;    // GitHub login on success; otherwise null
+  diagnostic: string | null; // terminal-safe failure text, not a stable code
+};
+```
+
+- With `--input-file`, the draft's `credentials` are checked when it carries
+  them (`source: "draft"`), and for Jira the draft's site is used. `revision`
+  is not needed for a check.
+- Otherwise the check uses what Timber commands would use: the environment
+  override when set (`environment`), else the saved credentials (`saved`).
+  Sources are never mixed, so a blank or partial override fails as it does at
+  run time.
+- GitHub uses the GitHub CLI login or `GH_TOKEN`/`GITHUB_TOKEN`; a draft does
+  not affect it, and sign-in is not part of this interface.
+- For Jira, `--scope` chooses whose settings supply the site. Without it,
+  Timber uses the repository containing the cwd, or machine defaults outside one.
+- `source` is null when the check stopped before choosing a login, for example
+  an unreadable input file, an invalid draft, or no configured Jira site.
+- Success means the login was accepted. Project, team, repository and issue
+  access are not checked. A failure is a result, not a crash: rejected logins,
+  denied access, rate limits, timeouts (10 seconds) and network errors all
+  return `ok: false` with a diagnostic that contains no credential.

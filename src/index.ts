@@ -57,7 +57,8 @@ const ci = process.env.CI?.toLowerCase();
 const launchEditorTerminals = createEditorTerminalLauncher({ self: { executable: process.execPath,
   ...(Bun.main.startsWith("/$bunfs/") ? {} : { entry: Bun.main }) } });
 
-const machineListing = process.argv[2] === "ls" && process.argv.slice(3).includes("--json");
+const machineListing = (process.argv[2] === "ls" && process.argv.slice(3).includes("--json"))
+  || process.argv[2] === "__app-config";
 if (!completing && !machineListing) {
   await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
 }
