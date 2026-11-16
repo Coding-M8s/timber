@@ -118,6 +118,90 @@ Git outcome and recovery guidance; it never resets or aborts Git. Conflicts reta
 native Git continuation/abort behavior. A later native abort does not restore the
 previous saved association. Cleanup uses the same saved-base precedence, with invocation-local overrides that never save a new association.
 
+## Worktree recovery backups (#119)
+
+`timber backup create <branch-or-worktree>` captures a recoverable starting point
+for one existing registered worktree. `timber backup restore <id> <destination>`
+recovers it into a new directory and recovery branch. A backup is recovery, not an
+agent permission boundary and not a full repository disaster backup.
+
+Selection matches `rebase`, including mapping a paused rebase's branch to its
+worktree so the refusal below is reported: exact branch, absolute path, or delimiter-boundary
+ticket matching, filtered to registered worktrees, with the existing chooser or
+capped diagnostic; cancellation does not mutate. The primary worktree is eligible.
+Detached worktrees with a commit are eligible. Refuse missing, stale, locked,
+unverifiable and unborn targets, and in-progress rebase/am/merge/cherry-pick/revert/
+sequencer state; finish or abort those explicitly first.
+
+Storage lives in `<commonGitDir>/timber/backups/`, outside every worktree, so
+`timber done` or `git worktree remove` cannot delete it. Deleting the repository's
+common Git directory deletes its backups. Directories are 0700 and files 0600
+(private ACLs on Windows). A published backup `<id>/` holds `record.json`,
+`manifest.json` and numbered regular-file blobs. IDs are
+`<UTC YYYYMMDDTHHMMSSZ>-<8 lowercase hex>`. The private ref
+`refs/timber/backups/<id>` pins the original commit; default fetch/push refspecs do
+not transfer it and Timber never pushes it. Backups copy ignored files, including
+secrets such as `.env`. Timber never prints file names, contents or link targets.
+
+The snapshot walks the worktree root without following symlinks. It records
+directories, regular files with their bytes and permission bits (0777 only), and
+symlinks with their literal targets; empty directories are kept and hard links
+become independent files. Tracked, modified, untracked and ignored content is
+included. Exclude every `.git` entry at any depth (case-insensitively on macOS and
+Windows), the worktree's own and common Git directories by path, and the roots of
+other registered worktrees nested inside the target. Sparse-checkout worktrees are
+refused because a restore would show excluded paths as deletions. Sockets, FIFOs, devices, other
+unsupported types and names that are not valid UTF-8 refuse the whole backup;
+nothing is silently skipped. The Git index and in-progress operation state are not
+captured.
+
+Creation builds an exclusively created `.incomplete-<id>/` directory, checks free
+space against the measured snapshot size, copies each file through a
+no-follow, nonblocking descriptor (POSIX) while hashing it, reads no more than its
+observed size, and compares file metadata before and after
+each read. It then re-walks the source and compares every entry's type, mode, size,
+inode and change/modification times, revalidates worktree identity, branch, original
+commit and idle state, and re-reads every blob against the manifest. Only then does
+it write the record, create the ref with a create-only update and atomically rename
+the directory to `<id>`. Any failure, including insufficient storage, unsupported
+files and concurrent changes, removes the incomplete directory and the ref only if
+Timber created it and it still names the backed-up commit, and reports that no
+backup was created. SIGINT and SIGTERM remove the incomplete directory and any ref Timber
+created before exiting. A forced kill can leave an `.incomplete-*` directory and
+possibly its ref; neither is a usable backup. Sequential reads cannot lock out
+concurrent writers, and a writer that restores identical metadata can evade
+detection; do not edit the target during a backup. Creation never changes the
+source worktree, its index or its refs, and never runs hooks, editors or agents.
+
+Report the ID, worktree, branch, commit, entry count, size, storage directory, that
+ignored files were copied, and the restore command.
+
+Restore resolves `<destination>` from the invoking directory. It must not exist,
+its parent must be an existing directory, and it must not be inside the common Git
+directory. Before creating anything, read the record and manifest as private
+regular files, validate their schema, ID and digest, check that the ref names the
+recorded commit (location and ref prove membership; recorded paths are
+informational, so a moved repository stays restorable), validate every manifest path (relative,
+unique, no `..` or `.git` component, parents declared as directories) and verify
+every blob's size, digest and private mode. The recovery branch is
+`recovery/<id>`; an existing branch refuses restore.
+
+Restore then runs `git worktree add --no-checkout -b recovery/<id>` with hooks
+disabled, verifies the new worktree's identity, creates directories, writes files
+exclusively and creates symlinks last so no write follows a restored link, applies
+recorded modes, and runs `git read-tree <commit>` so the index matches the backed-up
+commit without touching files. The recovered changes therefore appear as unstaged
+or untracked; original staging is not restored. Restore never runs hooks, setup,
+editors, agents or repository scripts, and never changes the source worktree or the
+backup. If Git fails before creating the worktree but leaves the branch, report the
+`git branch -D` command. If it fails after creating the recovery worktree, it keeps the incomplete
+workspace and branch, returns nonzero, and reports exact
+`git worktree remove --force` and `git branch -D` commands for manual removal.
+
+Listing, deletion and retention are separate (#120, #121). Until then, backups are
+kept until their directory and ref are removed manually. Ordinary `rebase`
+behavior is unchanged.
+
 ## `new` branch input
 
 Quoted and unquoted sentence arguments are joined into the same raw input by the

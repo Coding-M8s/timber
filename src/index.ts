@@ -17,6 +17,8 @@ import { createJiraSetupSession } from "./setup/jira";
 import { launchAgent } from "./agent";
 import { runCli } from "./cli";
 import { createRebaseHandler } from "./commands/rebase";
+import { createBackupCreateHandler, createBackupRestoreHandler } from "./commands/backup";
+import { createBackup, restoreBackup } from "./backup/service";
 import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
 import { createDoneHandler } from "./commands/done";
 import { createListHandler } from "./commands/list";
@@ -103,6 +105,8 @@ process.exitCode = await runCli(process.argv.slice(2), {
       launchEditorTerminals,
     }),
     list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig, readBaseAssociation }),
+    backupCreate: createBackupCreateHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, createBackup }),
+    backupRestore: createBackupRestoreHandler({ discoverRepository, restoreBackup }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
     done: createDoneHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,

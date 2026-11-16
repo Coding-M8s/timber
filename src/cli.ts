@@ -140,6 +140,23 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
         : await runMachineCommand("rebase", context, machineContext => rebase(input, normalized, machineContext), options.resultFile));
     });
 
+  const backup = program.command("backup")
+    .description("Create private recovery backups of a worktree, including ignored files, and restore them");
+  backup.command("create <branch-or-worktree>")
+    .description("Snapshot a worktree's commit and files, including modified, untracked and ignored files")
+    .addHelpText("after", "\nStored privately in the repository's Git directory, so removing the worktree keeps the backup.\nIgnored files such as .env are copied. The Git index and in-progress operations are not captured.\nRefuses worktrees with an in-progress rebase, merge or similar operation. Never runs hooks, editors or agents.")
+    .action(async (input: string) => {
+      if (!handlers.backupCreate) throw new Error("Backup handler is unavailable in this embedding.");
+      onExitCode(await handlers.backupCreate(input, context));
+    });
+  backup.command("restore <id> <destination>")
+    .description("Recover a backup into a new directory on branch recovery/<id>")
+    .addHelpText("after", "\nThe destination must not exist. Restored changes appear as unstaged or untracked files.\nNever overwrites existing files, changes the source worktree or runs hooks, setup, editors or agents.")
+    .action(async (id: string, destination: string) => {
+      if (!handlers.backupRestore) throw new Error("Backup handler is unavailable in this embedding.");
+      onExitCode(await handlers.backupRestore(id, destination, context));
+    });
+
   const arena = program.command("arena")
     .description("Prepare isolated attempts with the same task and base; sequential agents");
   const arenaTokens: ArenaGroupToken[] = [];

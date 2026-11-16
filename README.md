@@ -64,6 +64,8 @@ Run these inside the Git repository you want to work on:
 | `timber open my-feature --editor` | Open your configured editor |
 | `timber open my-feature --agent` | Start your configured assistant |
 | `timber rebase my-feature` | Rebase onto its saved base; [bases and recovery](docs/worktree-bases.md) |
+| `timber backup create my-feature` | Privately snapshot its commit and files, including `.env`; [backups](docs/cli-contract.md#worktree-recovery-backups-119) |
+| `timber backup restore <id> ../recovered` | Recover a backup into a new worktree |
 | `timber ls` | List paths, bases, and file status |
 | `timber done my-feature` | Remove a finished worktree and its local branch |
 | `timber done my-feature --base parent-feature` | Override the cleanup merge target |
