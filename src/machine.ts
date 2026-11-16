@@ -2,6 +2,7 @@ import { open, lstat, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { safeDiagnostic } from "./display";
 import { readBaseAssociation, type BaseAssociationRead } from "./git/base-metadata";
+import type { RebaseReport } from "./git/rebase";
 import type { CommandContext } from "./services";
 import type { RepositoryContext, Worktree } from "./types";
 
@@ -13,6 +14,8 @@ export interface MachineReporter {
   /** Reads the captured worktree's saved base again, after the command changed it. */
   refreshBase(): Promise<void>;
   inventory(entries: readonly InventoryEntry[]): Promise<void>;
+  /** Attaches the live rebase report; it is read once the handler has finished. */
+  rebase(report: RebaseReport): void;
   cancelled(): void;
 }
 
@@ -41,7 +44,7 @@ interface WorktreeRecord extends Worktree {
 
 export interface MachineRecord {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done";
+  command: "ls" | "new" | "open" | "done" | "rebase";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -50,6 +53,8 @@ export interface MachineRecord {
   materialized: boolean;
   diagnostic: string | null;
   worktrees?: WorktreeRecord[];
+  /** Present only for rebase. */
+  rebase?: RebaseReport;
 }
 
 async function worktreeRecord({ worktree: tree, base }: InventoryEntry): Promise<WorktreeRecord> {
@@ -97,6 +102,7 @@ export async function runMachineCommand(
       record.worktree = { ...record.worktree, base: await savedBase(captured) };
     },
     inventory: async trees => { record.worktrees = await Promise.all(trees.map(worktreeRecord)); },
+    rebase: report => { record.rebase = report; },
     cancelled: () => { record.outcome = "cancelled"; },
   };
   let failure: unknown;
@@ -106,7 +112,11 @@ export async function runMachineCommand(
       record.exitCode = (await action({ ...context, machine })) ?? 0;
       if (record.exitCode !== 0) {
         record.outcome = "failed";
-        record.diagnostic = "Command returned a nonzero exit status; reconcile the worktree inventory before retrying.";
+        record.diagnostic = record.rebase?.result === "conflicts"
+          ? "Rebase paused with conflicts; resolve and stage them, then continue or abort with Git in the worktree."
+          : record.rebase !== undefined
+            ? "Git rebase failed or was interrupted; inspect the worktree with Git before retrying."
+            : "Command returned a nonzero exit status; reconcile the worktree inventory before retrying.";
       }
     } catch (error) {
       failed = true;

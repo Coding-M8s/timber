@@ -128,10 +128,15 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
   program.command("rebase <branch-or-worktree>")
     .description("Rebase an existing worktree onto its saved base; leave conflicts for manual resolution")
     .option("--base <ref>", "Override and remember the base (remote/branch, plain remote branch, or refs/heads/local-branch)")
+    .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
     .addHelpText("after", "\nRewrites commit IDs, including published commits. No automatic stash, abort, push or tool launch.\nResolve and stage conflicts, then use native git rebase --continue or --abort in the target worktree.\nRemote bases are fetched; local bases are used as-is and must be up to date.")
-    .action(async (input: string, options: { base?: string }) => {
-      if (!handlers.rebase) throw new Error("Rebase handler is unavailable in this embedding.");
-      onExitCode(await handlers.rebase(input, options.base === undefined ? {} : { base: options.base }, context));
+    .action(async (input: string, options: { base?: string; resultFile?: string }) => {
+      const rebase = handlers.rebase;
+      if (!rebase) throw new Error("Rebase handler is unavailable in this embedding.");
+      const normalized = options.base === undefined ? {} : { base: options.base };
+      onExitCode(options.resultFile === undefined
+        ? await rebase(input, normalized, context)
+        : await runMachineCommand("rebase", context, machineContext => rebase(input, normalized, machineContext), options.resultFile));
     });
 
   const arena = program.command("arena")

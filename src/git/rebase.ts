@@ -13,6 +13,36 @@ import { readBaseAssociation, writeBaseAssociation } from "./base-metadata";
 import { resolveOpenTarget } from "./open-target";
 
 const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+export type RebaseResult = "rebased" | "up-to-date" | "conflicts" | "refused" | "failed";
+
+/** Observed facts for the machine record; filled in as each one is verified. */
+export interface RebaseReport {
+  result: RebaseResult;
+  /** Canonical base ref that was selected. */
+  base: string | null;
+  /** Pinned commit the branch was (or would have been) rebased onto. */
+  baseCommit: string | null;
+  /** Verified branch tip before the rebase. */
+  originalTip: string | null;
+  /** Worktree-relative unmerged paths; empty unless result is "conflicts". */
+  conflicts: string[];
+  /** True only after the base association was actually written. */
+  baseSaved: boolean;
+}
+
+/** Until a rebase proves otherwise, a stop is a refusal that changed nothing. */
+export function createRebaseReport(): RebaseReport {
+  return { result: "refused", base: null, baseCommit: null, originalTip: null, conflicts: [], baseSaved: false };
+}
+
+// An operation that broke (network, Git, hook, metadata), unlike a safety refusal.
+const operationFailures = new WeakSet<Error>();
+function operationFailure<E extends Error>(error: E): E {
+  operationFailures.add(error);
+  return error;
+}
+
 const environment = {
   GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "false", SSH_ASKPASS: "false", GCM_INTERACTIVE: "Never",
   GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true", GIT_OPTIONAL_LOCKS: "0",
@@ -25,7 +55,7 @@ async function git(cwd: string, args: readonly string[], timeout?: number) {
       ...(timeout === undefined ? {} : { timeout }),
     });
   } catch {
-    throw new Error("Could not start or complete Git for rebase; check Git installation, repository access and network availability. No automatic recovery was attempted.");
+    throw operationFailure(new Error("Could not start or complete Git for rebase; check Git installation, repository access and network availability. No automatic recovery was attempted."));
   }
 }
 
@@ -87,7 +117,7 @@ async function remoteBase(repository: RepositoryContext, config: RepositoryConfi
   }
   let advertisement: string;
   try { advertisement = await output(cwd, ["ls-remote", "--symref", "--", remote.name, "HEAD", "refs/heads/*"], 10_000); }
-  catch { throw new Error("Could not discover the live remote base; check authentication/network access. Rebase was not started."); }
+  catch { throw operationFailure(new Error("Could not discover the live remote base; check authentication/network access. Rebase was not started.")); }
   const heads = new Map<string, string>();
   let defaultName: string | null = null;
   for (const line of advertisement.split("\n").filter(Boolean)) {
@@ -142,9 +172,23 @@ async function localBase(cwd: string, ref: string): Promise<string> {
 /** Select a remembered/explicit base, fetching only remote bases. */
 export async function rebaseWorktree(
   repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
-  explicitBase: string | undefined, io: CommandIO,
+  explicitBase: string | undefined, io: CommandIO, report: RebaseReport = createRebaseReport(),
+): Promise<number> {
+  try {
+    return await rebaseSelected(repository, selected, config, explicitBase, io, report);
+  } catch (error) {
+    // A paused rebase stays "conflicts" even when saving its base failed.
+    if (report.result === "refused" && error instanceof Error && operationFailures.has(error)) report.result = "failed";
+    throw error;
+  }
+}
+
+async function rebaseSelected(
+  repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
+  explicitBase: string | undefined, io: CommandIO, report: RebaseReport,
 ): Promise<number> {
   await preflight(repository, selected);
+  report.originalTip = selected.head;
   const gitDirectory = await output(selected.path, ["rev-parse", "--absolute-git-dir"]);
   const association = await readBaseAssociation(repository, selected);
   if (association.kind === "invalid" && (association.reason !== "stale" || explicitBase === undefined)) {
@@ -158,20 +202,23 @@ export async function rebaseWorktree(
     ref = localRef;
     commit = await localBase(selected.path, ref);
     label = ref;
+    report.base = ref;
     io.stderr(`warning: Using local branch '${safeDisplay(ref.slice("refs/heads/".length))}' as the base. Timber will not fetch or pull it. Make sure it is up to date before rebasing.\n`);
   } else {
     const base = await remoteBase(repository, config, input, selected.path);
     ref = base.ref;
     label = base.remote + "/" + base.name;
+    report.base = ref;
     await preflight(repository, selected, gitDirectory);
     const fetched = await git(selected.path, [
       "fetch", "--no-tags", "--no-prune", "--no-prune-tags", "--no-recurse-submodules", "--refmap=", "--", base.remote,
       `refs/heads/${base.name}`,
     ], 10_000);
-    if (fetched.exitCode !== 0) throw new Error("Remote base fetch failed; check branch existence/authentication/network access. Rebase was not started; no cached fallback was used.");
+    if (fetched.exitCode !== 0) throw operationFailure(new Error("Remote base fetch failed; check branch existence/authentication/network access. Rebase was not started; no cached fallback was used."));
     commit = await output(selected.path, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"]);
-    if (!oid.test(commit) || commit !== base.advertisedCommit) throw new Error("Fetched base moved or could not be validated; rebase was not started. Rerun to select the latest base.");
+    if (!oid.test(commit) || commit !== base.advertisedCommit) throw operationFailure(new Error("Fetched base moved or could not be validated; rebase was not started. Rerun to select the latest base."));
   }
+  report.baseCommit = commit;
   async function revalidateLocal() {
     if (localRef !== null && await localBase(selected.path, localRef) !== commit) {
       throw new Error("Local base changed; rebase was not started. Retry to select its latest tip.");
@@ -185,15 +232,16 @@ export async function rebaseWorktree(
         : await output(selected.path, ["symbolic-ref", "--quiet", "HEAD"]);
       if (branch !== `refs/heads/${selected.branch}`) throw new Error("Branch changed");
       await writeBaseAssociation(repository, selected, ref);
+      report.baseSaved = true;
     } catch {
-      throw new FormattedError(`Git rebase ${paused ? "paused with conflicts" : "completed (or was already up to date)"}, but the base association could not be saved. Workspace retained; inspect private Git metadata and after resolving any operation, retry with:\ntimber rebase --base ${shellQuoteForDisplay(ref)} -- ${shellQuoteForDisplay(selected.path)}\n${paused ? recovery(selected.path) : "No automatic reset or abort was attempted."}`);
+      throw operationFailure(new FormattedError(`Git rebase ${paused ? "paused with conflicts" : "completed (or was already up to date)"}, but the base association could not be saved. Workspace retained; inspect private Git metadata and after resolving any operation, retry with:\ntimber rebase --base ${shellQuoteForDisplay(ref)} -- ${shellQuoteForDisplay(selected.path)}\n${paused ? recovery(selected.path) : "No automatic reset or abort was attempted."}`));
     }
   }
   io.stdout(`Worktree: ${safeDisplay(selected.path)}\nBranch: ${safeDisplay(selected.branch!)}\n${localRef === null ? "Remote" : "Local"} base: ${safeDisplay(label)}\n${localRef === null ? "Fetched" : "Local"} base commit: ${commit}\nOriginal branch tip: ${selected.head}\n`);
   const tree = await preflight(repository, selected, gitDirectory);
   await revalidateLocal();
   const contained = await git(selected.path, ["merge-base", "--is-ancestor", commit, selected.head!]);
-  if (contained.exitCode === 0) { await revalidateLocal(); await saveBase(false); io.stdout("Already up to date.\n"); return 0; }
+  if (contained.exitCode === 0) { await revalidateLocal(); await saveBase(false); report.result = "up-to-date"; io.stdout("Already up to date.\n"); return 0; }
   if (contained.exitCode !== 1) throw new Error("Cannot verify base ancestry; rebase was not started. Fetch metadata may have changed.");
   await preserveIgnored(tree, commit);
   await preflight(repository, selected, gitDirectory);
@@ -220,9 +268,9 @@ export async function rebaseWorktree(
     try { result = await child; }
     finally { process.removeListener("SIGINT", interrupt); process.removeListener("SIGTERM", terminate); await cancellation; }
   } catch {
-    throw new FormattedError(`Git rebase could not start or finish. Original branch tip: ${selected.head}. Workspace retained; no automatic abort/reset.\n${recovery(selected.path)}`);
+    throw operationFailure(new FormattedError(`Git rebase could not start or finish. Original branch tip: ${selected.head}. Workspace retained; no automatic abort/reset.\n${recovery(selected.path)}`));
   }
-  if (result.exitCode === 0) { await saveBase(false); io.stdout("Rebase completed (or already up to date).\n"); return 0; }
+  if (result.exitCode === 0) { await saveBase(false); report.result = "rebased"; io.stdout("Rebase completed (or already up to date).\n"); return 0; }
   let conflicts: string[] = [];
   try {
     const unmerged = await git(selected.path, ["diff", "--name-only", "--diff-filter=U", "-z"]);
@@ -233,7 +281,13 @@ export async function rebaseWorktree(
   for (const path of conflicts) io.stderr(`  ${jsonDisplay(path)}\n`);
   let operation: string | null;
   try { operation = await gitOperation(selected.path); } catch { operation = "unknown"; }
-  if (conflicts.length && operation === "rebase" && !result.signal) await saveBase(true);
+  // Only a verified pause is "conflicts"; anything else nonzero is a failure.
+  report.result = "failed";
+  if (conflicts.length && operation === "rebase" && !result.signal) {
+    report.result = "conflicts";
+    report.conflicts = conflicts;
+    await saveBase(true);
+  }
   io.stderr(operation === null
     ? "No in-progress Git operation was found. Inspect the worktree with git status before retrying; no automatic abort/reset was attempted.\n"
     : recovery(selected.path) + "\n");
