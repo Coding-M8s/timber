@@ -8,18 +8,38 @@ import { execa } from "execa";
 import { z } from "zod";
 import { globalConfigPath } from "../config-paths";
 import { SetupCancelled } from "../setup/types";
+import { credentialLabelSchema, defaultCredentialLabel, repositoryKeySchema, selectCredential, validCredentialLabel } from "../credential-selection";
+import type { CredentialSelection } from "../credential-selection";
 
-const keySchema = z.string().min(1).refine(value => !/[\s\u0000-\u0020\u007f-\u009f]/u.test(value));
-const storeSchema = z.object({ version: z.literal(1), token: keySchema }).strict();
+const keySchema = z.string().min(1).refine(value => !/[\s\u0000- \u007f-\u009f]/u.test(value));
+const legacySchema = z.object({ version: z.literal(1), token: keySchema }).strict();
+const storeSchema = z.object({
+  version: z.literal(2),
+  entries: z.array(z.object({ label: credentialLabelSchema, token: keySchema }).strict()),
+  associations: z.array(z.object({ repository: repositoryKeySchema, label: credentialLabelSchema }).strict()),
+}).strict();
 
 export function validLinearKey(key: string): boolean { return keySchema.safeParse(key).success; }
+
+export type LinearCredentialChange =
+  | { kind: "entry"; action: "save" | "remove"; label: string }
+  | { kind: "association"; repository: string; label: string | null };
 
 export interface LinearCredentialStore {
   readonly path: string;
   readonly original: string | null;
-  get(): string | null;
-  set(key: string | null): void;
-  changes(): readonly { action: "save" | "remove" }[];
+  /** Saved entry labels in insertion order; labels are never secret. */
+  labels(): readonly string[];
+  /** Without a label, the key of a sole saved entry. */
+  get(label?: string): string | null;
+  /** Without a label, replaces the sole entry (or creates "default"). Removing an entry drops its associations. */
+  set(key: string | null, label?: string): void;
+  association(repository: string): string | null;
+  associate(repository: string, label: string | null): void;
+  /** Repositories explicitly associated with the entry. */
+  users(label: string): readonly string[];
+  select(repository: string | null): CredentialSelection;
+  changes(): readonly LinearCredentialChange[];
   serialize(): string;
 }
 
@@ -94,30 +114,102 @@ async function readSource(path: string, signal?: AbortSignal): Promise<string | 
   } finally { await handle?.close(); }
 }
 
+function parseStore(source: string): { entries: Map<string, string>; associations: Map<string, string> } {
+  const input: unknown = JSON.parse(source);
+  const legacy = legacySchema.safeParse(input);
+  if (legacy.success) return { entries: new Map([[defaultCredentialLabel, legacy.data.token]]), associations: new Map() };
+  const parsed = storeSchema.parse(input);
+  const entries = new Map<string, string>();
+  for (const entry of parsed.entries) {
+    if (entries.has(entry.label)) throw storeError();
+    entries.set(entry.label, entry.token);
+  }
+  const associations = new Map<string, string>();
+  for (const association of parsed.associations) {
+    if (associations.has(association.repository) || !entries.has(association.label)) throw storeError();
+    associations.set(association.repository, association.label);
+  }
+  return { entries, associations };
+}
+
 export async function readLinearCredentialStore(env: NodeJS.ProcessEnv = process.env, signal?: AbortSignal): Promise<LinearCredentialStore> {
   const path = join(dirname(globalConfigPath(env)), "credentials/linear.json");
   const original = await readSource(path, signal);
   signal?.throwIfAborted();
-  let initial: string | null = null;
+  let state: ReturnType<typeof parseStore> = { entries: new Map(), associations: new Map() };
   if (original !== null) {
-    try { initial = storeSchema.parse(JSON.parse(original)).token; }
+    try { state = parseStore(original); }
     catch { throw storeError(); }
   }
-  let token = initial;
+  const { entries, associations } = state;
+  const initialEntries = new Map(entries);
+  const initialAssociations = new Map(associations);
+  const sole = () => entries.size === 1 ? [...entries.keys()][0]! : null;
   return {
     path, original,
-    get() { return token; },
-    set(key) {
-      if (key !== null && !validLinearKey(key)) throw new Error("Enter a nonblank Linear personal API key without whitespace or control characters.");
-      token = key;
+    labels() { return [...entries.keys()]; },
+    get(label) {
+      const name = label ?? sole();
+      return name === null ? null : entries.get(name) ?? null;
     },
-    changes() { return token === initial ? [] : [{ action: token === null ? "remove" : "save" }]; },
-    serialize() { return JSON.stringify({ version: 1, token }, null, 2) + "\n"; },
+    set(key, label) {
+      const name = label ?? sole() ?? defaultCredentialLabel;
+      if (!validCredentialLabel(name)) throw new Error("Invalid Linear credential label.");
+      if (key === null) {
+        entries.delete(name);
+        for (const [repository, associated] of associations) if (associated === name) associations.delete(repository);
+        return;
+      }
+      if (!validLinearKey(key)) throw new Error("Enter a nonblank Linear personal API key without whitespace or control characters.");
+      entries.set(name, key);
+    },
+    association(repository) { return associations.get(repository) ?? null; },
+    associate(repository, label) {
+      if (label === null) { associations.delete(repository); return; }
+      if (!entries.has(label)) throw new Error("Cannot associate an unsaved Linear credential.");
+      associations.set(repository, label);
+    },
+    users(label) { return [...associations].filter(([, associated]) => associated === label).map(([repository]) => repository); },
+    select(repository) { return selectCredential([...entries.keys()], repository === null ? null : associations.get(repository) ?? null); },
+    changes() {
+      const changes: LinearCredentialChange[] = [];
+      for (const label of new Set([...initialEntries.keys(), ...entries.keys()])) {
+        if (initialEntries.get(label) === entries.get(label)) continue;
+        changes.push({ kind: "entry", action: entries.has(label) ? "save" : "remove", label });
+      }
+      for (const repository of new Set([...initialAssociations.keys(), ...associations.keys()])) {
+        const label = associations.get(repository) ?? null;
+        // Removing an entry already reports its dropped associations.
+        if ((initialAssociations.get(repository) ?? null) === label) continue;
+        if (label === null && !entries.has(initialAssociations.get(repository)!)) continue;
+        changes.push({ kind: "association", repository, label });
+      }
+      return changes;
+    },
+    serialize() {
+      // A lone "default" entry keeps the original single-key format readable by older Timber.
+      if (entries.size === 1 && entries.has(defaultCredentialLabel) && associations.size === 0) {
+        return JSON.stringify({ version: 1, token: entries.get(defaultCredentialLabel) }, null, 2) + "\n";
+      }
+      return JSON.stringify({
+        version: 2,
+        entries: [...entries].map(([label, token]) => ({ label, token })),
+        associations: [...associations].map(([repository, label]) => ({ repository, label })),
+      }, null, 2) + "\n";
+    },
   };
 }
 
-export async function loadSavedLinearKey(env: NodeJS.ProcessEnv = process.env, signal?: AbortSignal): Promise<string | null> {
-  return (await readLinearCredentialStore(env, signal)).get();
+export const unselectedLinearMessage = "Several saved Linear personal API keys exist and none is selected for this repository. Run timber setup in this repository to choose one, or supply LINEAR_API_KEY.";
+
+/** Null means no saved key; several keys without this repository's association fail instead of guessing. */
+export async function loadSavedLinearKey(env: NodeJS.ProcessEnv = process.env, signal?: AbortSignal,
+  repository: string | null = null): Promise<string | null> {
+  const store = await readLinearCredentialStore(env, signal);
+  const selection = store.select(repository);
+  if (selection.kind === "missing") return null;
+  if (selection.kind === "unselected") throw new Error(unselectedLinearMessage);
+  return store.get(selection.label);
 }
 
 async function temporary(path: string, source: string): Promise<string> {
@@ -141,7 +233,7 @@ export async function withLinearCredentialSave(store: LinearCredentialStore, pub
   let published = false;
   let deleted = false;
   const next = store.serialize();
-  const emptied = store.get() === null;
+  const emptied = store.labels().length === 0;
   const publishLink = files.link ?? link;
   try {
     if (process.platform === "win32") {

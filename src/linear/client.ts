@@ -9,7 +9,11 @@ export interface LinearRuntime {
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   timeoutMs: number;
 }
-const defaultRuntime: LinearRuntime = { token: signal => readLinearKey(undefined, undefined, signal), fetch: (url, init) => fetch(url, init), timeoutMs: 10_000 };
+/** Saved-key selection uses the repository's shared Git directory when one is given. */
+export function linearRuntime(commonGitDir?: string): LinearRuntime {
+  return { token: signal => readLinearKey(undefined, undefined, signal, commonGitDir), fetch: (url, init) => fetch(url, init), timeoutMs: 10_000 };
+}
+const defaultRuntime = linearRuntime();
 const malformed = () => new Error("Linear returned an invalid response; no workspace was created.");
 const object = z.record(z.string(), z.unknown());
 

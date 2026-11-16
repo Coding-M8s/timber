@@ -330,9 +330,11 @@ remains GitHub-only; `-c` permits known terminal Linear issues.
 
 Resolve the ordinary explicit/configured base before credentials or HTTP. A supplied
 process `LINEAR_API_KEY` overrides the saved personal key; blank or malformed
-supplied values fail without fallback. Otherwise read the single private personal
-key from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/linear.json` through
-the existing XDG/HOME path rules. Missing credentials point to `timber setup`.
+supplied values fail without fallback. Otherwise select a saved personal key from
+`${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/linear.json` through the
+existing XDG/HOME path rules, as described in "Multiple saved credentials (#103)".
+Missing credentials, or several keys with no selection for this repository, point
+to `timber setup` before any request.
 Do not load dotenv files explicitly; the Bun source-runner caveat below applies.
 
 POST a static GraphQL query with identifier variables to the fixed
@@ -363,12 +365,13 @@ Offline ticket matching and hook `TIMBER_TASK_ID` extraction remain unchanged.
 
 Both setup scopes expose Linear through the chooser/connections menu and edit the same
 personal credential. Explain [personal key creation](https://linear.app/docs/api-and-webhooks),
-Read permission and team restrictions. Offer keep, enter/replace and remove with
-hidden token input, including pasted input. Review shows only the action and private
-path. Keys are plaintext personal storage shared across repositories, never TOML.
+Read permission and team restrictions. Offer keep, enter/replace, add another and
+remove with hidden token input, including pasted input. Review shows only actions,
+labels, selections and the private path. Keys are plaintext personal storage shared
+across repositories, never TOML.
 Use owner-only 0600 files and a 0700 credential directory on Linux, with existing
 private-storage protections, atomic publication, locks and concurrent-change checks.
-No broad credential-store refactor or changes to Jira's storage format.
+No broad credential-store refactor; each provider keeps its own store.
 
 An optional read-only `viewer { id }` check uses the draft key, irrespective of the
 environment override. Bound it to 10 seconds including body parsing, reject
@@ -382,6 +385,37 @@ Jira and GitHub authentication unchanged.
 
 See [Linear GraphQL documentation](https://linear.app/developers/graphql) and the
 [official schema](https://raw.githubusercontent.com/linear/linear/master/packages/sdk/src/schema.graphql).
+
+## Multiple saved credentials (#103)
+
+Linear keys and Jira pairs may each be saved as several labeled entries in their
+existing private stores. Labels are non-secret, unique per provider (per site and
+token mode for Jira) and match `^[a-z0-9][a-z0-9_-]{0,31}$`; the first entry is
+`default` without prompting. Repository associations are stored beside the
+entries, keyed by the canonical path of the repository's shared Git directory, so
+a primary checkout and its linked worktrees always agree. Separate clones and moved
+Git directories are different repositories. Ordinary TOML holds no labels,
+associations or secrets.
+
+Resolution order: a valid environment override; this repository's associated
+entry; otherwise the sole saved entry (per Jira site and mode). Several entries
+without an association fail with setup guidance before HTTP or Git mutation, never
+trying entries in turn. Lookups outside a repository use only a sole entry.
+
+Repository setup may add, replace, select or remove entries and clear this
+repository's association. Adding a second entry warns that unassociated
+repositories must choose one and asks whether this repository uses the new entry;
+declining associates it with the previous sole entry. Clearing an association
+keeps the entry. Removing an entry selected by other repositories reports their
+count and requires confirmation, then drops those associations; a lone remaining
+entry becomes the default again. Machine-default setup edits entries without
+associating any repository.
+
+A sole `default` entry without associations keeps the version 1 format; other
+states write version 2 with `entries`/`records` and `associations` arrays. Stores
+with duplicate labels or associations, relative repository paths or associations
+to missing entries are refused. Save, cancellation, lock, rollback and
+concurrent-change rules are unchanged. See [credentials](credentials.md).
 
 ## Jira ticket lookup (0.2, TIM-10)
 
@@ -401,10 +435,11 @@ the trailing slash is normalized away. `cloud_id`, when present, must be a UUID.
 Credentials are resolved lazily only when a recognized ticket is resolved.
 If either `JIRA_EMAIL` or `JIRA_API_TOKEN` is supplied, both must form a complete,
 nonblank pair overriding saved credentials. Partial/blank overrides fail without
-mixing sources. Otherwise use only the saved personal pair matching the normalized
+mixing sources. Otherwise use only saved personal pairs matching the normalized
 site origin and optional cloud UUID (case-insensitive UUID); scoped and unscoped
-modes are distinct. Missing credentials point to `timber setup` or
-`timber setup --global`. Never put credentials in ordinary config, logs, tickets,
+modes are distinct. Select among them as described in "Multiple saved credentials
+(#103)". Missing credentials point to `timber setup` or `timber setup --global`;
+several pairs with no selection for this repository point to `timber setup` in it. Never put credentials in ordinary config, logs, tickets,
 or commits. Timber does not load `.env` files; explicit overrides come only
 from its process environment. Standalone release builds disable automatic `.env`
 and `bunfig.toml` loading. Bun's source runner automatically loads `.env` files
@@ -673,8 +708,8 @@ The current input shows asterisks as typing/paste feedback, capped to fit the
 terminal width; Backspace updates the mask without revealing characters.
 Extra buffered lines from unbracketed secret pastes are discarded and the input
 is rejected; paste one single-line token and wait for each prompt.
-Keep, replace, remove, or skip the selected site's pair; disabling Jira does not
-delete credentials shared by other repositories. Review shows the destination and
+Keep, replace, add, select, remove, or skip the selected site's pairs; disabling
+Jira does not delete credentials shared by other repositories. Review shows the destination and
 pending actions without credential values. Only explicit Save publishes changes.
 
 An explicit default-off connection check calls `GET /rest/api/3/myself` using the

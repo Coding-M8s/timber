@@ -13,7 +13,8 @@ import type { LinearTicket } from "./linear/client";
 import type { GithubTicket } from "./github/client";
 
 export interface CommandServices {
-  resolveLinearTicket(key: string, allowClosed?: boolean): Promise<LinearTicket>;
+  /** The repository selects saved credentials when several exist. */
+  resolveLinearTicket(key: string, allowClosed?: boolean, repository?: RepositoryContext): Promise<LinearTicket>;
   resolveGithubRepository(repository: RepositoryContext, config: RepositoryConfig, remote?: string): Promise<GithubRepository>;
   resolveGithubTicket(repository: GithubRepository, number: number, allowClosed: boolean): Promise<GithubTicket>;
   /** Discover from nested/linked cwd; reject non-repositories and bare repos. */
@@ -21,9 +22,9 @@ export interface CommandServices {
   /** Defaults + validated global/repository config; never search relative to caller cwd. */
   loadConfig(repository: RepositoryContext): Promise<RepositoryConfig>;
   /** Resolve one configured Jira Cloud issue; never fall back to a literal branch. */
-  resolveJiraTicket(config: JiraConfig, key: string, allowClosed?: boolean): Promise<JiraTicket>;
+  resolveJiraTicket(config: JiraConfig, key: string, allowClosed?: boolean, repository?: RepositoryContext): Promise<JiraTicket>;
   /** Return only validated active ticket alternatives for an exact missing/done key. */
-  findJiraSuggestions(config: JiraConfig, key: string): Promise<readonly JiraTicket[]>;
+  findJiraSuggestions(config: JiraConfig, key: string, repository?: RepositoryContext): Promise<readonly JiraTicket[]>;
   /** Installed Git is authoritative; include manual, detached, stale entries. */
   listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]>;
   /** Local and cached remote branches, without fetching. */
