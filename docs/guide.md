@@ -219,6 +219,8 @@ absolute), outside Git repositories. The file is plaintext, **not encrypted**:
 a user-owned 0700 directory and 0600 regular file protect access. Credentials are
 matched to the normalized site and optional cloud UUID; a different site or
 scoped/unscoped token mode needs its own pair. No credentials go in ordinary TOML.
+You can save several logins for one site and choose one per repository; see
+[multiple credentials](credentials.md).
 Paste one token on one line and wait for each prompt; buffered extra lines from
 an unbracketed paste are discarded so they cannot appear at a later visible prompt.
 
@@ -885,11 +887,13 @@ and deleted/trashed issues always refuse. `--remote` applies only to GitHub issu
 OAuth, account chooser, issue updates or automatic closing is supported. `open`,
 `ls` and `done` stay offline for Linear.
 
-Both setup scopes share one plaintext personal key outside Git at
+Both setup scopes share plaintext personal keys outside Git at
 `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/linear.json` using the existing
 absolute-XDG/HOME fallback rules. Linux storage is owner-only (0600 file, 0700
 credential directory). Keep it private; never paste its contents into reports or
-store the key in `.timber.toml`. Removing it in setup affects Linear only.
+store the key in `.timber.toml`. Removing it in setup affects Linear only. To use
+different Linear workspaces in different repositories, save several keys and select
+one per repository; see [multiple credentials](credentials.md).
 
 An explicitly supplied process `LINEAR_API_KEY` overrides the saved key. A blank or
 invalid override fails instead of falling back. Unset it to use the saved login.
@@ -940,8 +944,8 @@ tokens use the tenant origin. Find the cloud UUID at
 `https://<your-site>.atlassian.net/_edge/tenant_info`, as described in
 [Atlassian's cloud-ID guidance](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/).
 
-You can keep, replace, remove, or skip personal credentials for the selected site
-and token mode. Disabling Jira in one repository retains shared credentials;
+You can keep, replace, add, select, remove, or skip personal credentials for the
+selected site and token mode ([multiple credentials](credentials.md)). Disabling Jira in one repository retains shared credentials;
 explicit removal deletes that identity's pair for all repositories using it.
 Setup shows the private plaintext credential destination and pending actions
 before Save, with no token in review. An optional read-only connection check uses

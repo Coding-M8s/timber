@@ -9,13 +9,19 @@ import type { JiraSetupSession } from "../setup/jira";
 import type { GithubSetupSession } from "../setup/github";
 
 export interface SetupServices {
-  linear?: () => LinearSetupSession;
+  /** Sessions receive the repository whose credential selection setup may change, or null. */
+  linear?: (commonGitDir: string | null) => LinearSetupSession;
   github?: () => GithubSetupSession;
   inspectTarget(global: boolean, cwd: string): Promise<SetupTarget>;
   prompt(): SetupPrompt;
   checkExecutable(command: string): Promise<boolean>;
   save(target: SetupTarget, source: string, trackedApproved: boolean, signal?: AbortSignal): Promise<void>;
-  jira?: () => JiraSetupSession;
+  jira?: (commonGitDir: string | null) => JiraSetupSession;
+}
+
+/** Only repository setup changes a repository's credential selection. */
+function credentialRepository(target: SetupTarget): string | null {
+  return target.scope === "repository" ? target.repository?.commonGitDir ?? null : null;
 }
 
 export function createSetupHandler(services: SetupServices): CommandHandlers["setup"] {
@@ -28,8 +34,8 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
       stdout: (message: string) => prompt.notice!(message),
       stderr: (message: string) => prompt.notice!(message, "error"),
     } } : context;
-    let jira = services.jira?.();
-    let linear = services.linear?.();
+    let jira = services.jira?.(credentialRepository(target));
+    let linear = services.linear?.(credentialRepository(target));
     const github = services.github?.();
     let closed = false;
     const done = (message: string) => {
@@ -45,7 +51,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
             { value: "edit", label: "Explicitly edit tracked config (index remains unchanged)" },
           ], "cancel");
           if (choice === null || choice === "cancel") throw new SetupCancelled();
-          if (choice === "global") { global = true; target = await services.inspectTarget(true, context.cwd); jira = services.jira?.(); linear = services.linear?.(); continue; }
+          if (choice === "global") { global = true; target = await services.inspectTarget(true, context.cwd); jira = services.jira?.(credentialRepository(target)); linear = services.linear?.(credentialRepository(target)); continue; }
           if (choice !== "edit") throw new Error("Invalid tracked-config choice; no settings saved.");
           trackedApproved = true;
         }
@@ -67,8 +73,8 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
           if (choice !== "global") throw new Error("Invalid setup scope choice; no settings saved.");
           global = true;
           target = await services.inspectTarget(global, context.cwd);
-          jira = services.jira?.();
-          linear = services.linear?.();
+          jira = services.jira?.(credentialRepository(target));
+          linear = services.linear?.(credentialRepository(target));
           continue;
         }
         done(`Saved ${target.scope === "global" ? "machine defaults" : "repository settings"} at ${safeDisplay(target.path)}\n`);

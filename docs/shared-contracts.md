@@ -14,6 +14,8 @@ in source; update them and their consumers together when a shared interface chan
 | [config.ts](../src/config.ts) | Strict global/repository configuration and precedence |
 | [setup](../src/setup) | Interactive drafts and private, atomic configuration saves |
 | [jira](../src/jira) | Ticket lookup and private credential storage |
+| [linear](../src/linear) | Issue lookup and private credential storage |
+| [credential-selection.ts](../src/credential-selection.ts) | Credential labels, repository identity, and per-repository selection |
 | [hooks.ts](../src/hooks.ts) | Trusted shell hooks and context environment |
 | [editor.ts](../src/editor.ts), [agent.ts](../src/agent.ts) | Separate editor and foreground agent launching |
 | [editor-terminals](../src/editor-terminals) | Orca terminal handoff and private runner protocol |

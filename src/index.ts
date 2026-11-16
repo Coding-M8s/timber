@@ -33,9 +33,9 @@ import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
 import { readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
 import { readWorkflowAssociation, writeWorkflowAssociation } from "./git/workflow-metadata";
-import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
+import { findJiraSuggestions, jiraRuntime, resolveJiraTicket } from "./jira/client";
 import { resolveGithubRepository } from "./github/repository";
-import { resolveLinearTicket } from "./linear/client";
+import { linearRuntime, resolveLinearTicket } from "./linear/client";
 import { resolveGithubTicket } from "./github/client";
 import { createLinearSetupSession } from "./setup/linear";
 import { createGithubSetupSession } from "./setup/github";
@@ -81,15 +81,16 @@ process.exitCode = await runCli(process.argv.slice(2), {
       validateArenaAttempt, checkExecutable, runSetup, launchEditor, launchAgent,
     }),
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
-      jira: createJiraSetupSession,
+      jira: commonGitDir => createJiraSetupSession(process.env, undefined, commonGitDir),
       github: createGithubSetupSession,
-      linear: createLinearSetupSession,
+      linear: commonGitDir => createLinearSetupSession(process.env, undefined, commonGitDir),
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, findJiraSuggestions,
-      resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase,
+      findJiraSuggestions: (config, key, repository) => findJiraSuggestions(config, key, jiraRuntime(repository?.commonGitDir)),
+      resolveJiraTicket: (config, key, allowClosed, repository) => resolveJiraTicket(config, key, jiraRuntime(repository?.commonGitDir), allowClosed),
       resolveGithubRepository, resolveGithubTicket,
-      resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
+      resolveLinearTicket: (key, allowClosed, repository) => resolveLinearTicket(key, linearRuntime(repository?.commonGitDir), allowClosed),
       createWorktree, writeBaseAssociation, writeWorkflowAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
     }),
     open: createOpenHandler({

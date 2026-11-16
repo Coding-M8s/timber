@@ -5,6 +5,9 @@ import { checkJiraConnection, JiraLookupFailure } from "../jira/client";
 import { readCredentialStore, validCredentials, withCredentialSave } from "../jira/credentials";
 import type { CredentialStore, JiraCredentials } from "../jira/credentials";
 import { SetupCancelled } from "./types";
+import { repositoryCredentialKey } from "../credential-selection";
+import { chooseEntryAction, chooseNewLabel, confirmRemoval, severalEntriesNotice } from "./credential-entries";
+import type { EntryMenu } from "./credential-entries";
 import type { SetupPrompt } from "./types";
 
 export interface JiraSetupSession {
@@ -25,8 +28,11 @@ function isAbortError(error: unknown): boolean {
 }
 
 /** This draft lives beside the config draft; neither asking nor checking publishes it. */
-export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, check: ConnectionCheck = defaultCheck): JiraSetupSession {
+/** `commonGitDir` is the repository whose selection setup may change; null in machine-default setup. */
+export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, check: ConnectionCheck = defaultCheck,
+  commonGitDir: string | null = null): JiraSetupSession {
   let store: CredentialStore | undefined;
+  let current: string | null = null;
   return {
     async edit(config, prompt, io) {
       store ??= await readCredentialStore(env);
@@ -37,19 +43,36 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
       if (env.JIRA_EMAIL !== undefined || env.JIRA_API_TOKEN !== undefined) {
         io.stdout("Jira environment overrides are present. Runtime requires both nonblank variables; unset both to use saved credentials. This connection check uses the draft pair.\n");
       }
-      let pair = store.get(config);
-      const choices = [
-        { value: "keep", label: pair ? "Keep saved credentials (token hidden)" : "None" },
-        { value: "replace", label: pair ? "Replace email and API token" : "Enter email and API token" },
-        ...(pair ? [{ value: "remove", label: "Remove this site's saved credentials (shared across repositories)" }] : []),
-      ];
-      const choice = await prompt.select("Personal login for this Jira site and token mode", choices, "keep");
-      if (choice === null) throw new SetupCancelled();
-      if (!choices.some(value => value.value === choice)) throw new Error("Invalid Jira credentials choice; no settings saved.");
-      if (choice === "remove") { store.set(config, null); return; }
-      if (choice === "replace") {
+      const repository = commonGitDir === null ? null : await repositoryCredentialKey(commonGitDir);
+      current = repository;
+      const labels = store.labels(config);
+      const menu: EntryMenu = {
+        title: "Personal login for this Jira site and token mode", noun: "login", labels,
+        describe: label => `"${label}" (${safeDisplay(store!.get(config, label)?.email ?? "")})`, repository,
+        association: repository === null ? null : store.association(config, repository),
+        users: label => store!.users(config, label),
+        single: { keep: "Keep saved credentials (token hidden)", enter: "Enter email and API token",
+          replace: "Replace email and API token", remove: "Remove this site's saved credentials (shared across repositories)" },
+      };
+      const action = await chooseEntryAction(prompt, menu);
+      let pair: JiraCredentials | null = null;
+      if (action.kind === "forget") { store.associate(config, repository!, null); return; }
+      if (action.kind === "remove") {
+        if (!await confirmRemoval(prompt, menu, action.label)) return;
+        store.set(config, null, action.label);
+        if (store.labels(config).length === 1) io.stdout(`The remaining saved login "${store.labels(config)[0]}" is now used by every repository on this site and token mode.\n`);
+        return;
+      }
+      if (action.kind === "use") { store.associate(config, repository!, action.label); pair = store.get(config, action.label); }
+      if (action.kind === "keep") {
+        const selection = store.select(config, repository);
+        if (selection.kind === "selected") pair = store.get(config, selection.label);
+      }
+      if (action.kind === "add" || action.kind === "replace") {
+        const label = action.kind === "add" ? await chooseNewLabel(prompt, io, labels) : action.label;
+        const previous = action.kind === "replace" ? store.get(config, label) : null;
         while (true) {
-          const email = await prompt.text("Atlassian account email", pair?.email ?? "");
+          const email = await prompt.text("Atlassian account email", previous?.email ?? "");
           if (email === null) throw new SetupCancelled();
           if (!prompt.secret) throw new Error("Hidden token input is unavailable; use an interactive terminal with timber setup.");
           io.stdout("Create an API token: https://id.atlassian.com/manage-profile/security/api-tokens\n");
@@ -59,7 +82,16 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
             io.stderr("Enter a valid Atlassian email and a nonblank token without whitespace or control characters. Credentials were not saved.\n");
             continue;
           }
-          pair = { email, token }; store.set(config, pair); break;
+          pair = { email, token }; store.set(config, pair, label); break;
+        }
+        if (action.kind === "add" && labels.length) {
+          io.stdout(severalEntriesNotice("Jira", "login"));
+          if (repository !== null) {
+            const use = await prompt.confirm(`Use "${label}" for this repository?`, true);
+            if (use === null) throw new SetupCancelled();
+            if (use) store.associate(config, repository, label);
+            else if (menu.association === null && labels.length === 1) store.associate(config, repository, labels[0]!);
+          }
         }
       }
       if (!pair) return;
@@ -81,7 +113,11 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
       if (!store) return;
       const changes = store.changes();
       if (!changes.length) return;
-      for (const change of changes) io.stdout(`Personal credentials: ${change.action === "save" ? "save/replace" : "remove"} ${safeDisplay(change.config.siteUrl)} (${change.config.cloudId ? `scoped: ${change.config.cloudId}` : "unscoped"}); shared across repositories.\n`);
+      for (const change of changes) {
+        const site = `${safeDisplay(change.config.siteUrl)} (${change.config.cloudId ? `scoped: ${change.config.cloudId}` : "unscoped"})`;
+        if (change.kind === "entry") io.stdout(`Personal credentials: ${change.action === "save" ? "save/replace" : "remove"} "${change.label}" for ${site}; shared across repositories.\n`);
+        else io.stdout(`Jira repository selection: ${change.label === null ? "clear" : `use "${change.label}"`} for ${site} in ${change.repository === current ? "this repository" : safeDisplay(change.repository)}.\n`);
+      }
       io.stdout(`Personal credential destination: ${safeDisplay(store.path)} (plaintext; owner-only).\n`);
     },
     async save(publishConfig, signal) {

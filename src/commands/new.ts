@@ -56,18 +56,18 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         const issueRepository = await services.resolveGithubRepository(repository, config, options.remote);
         ticket = await services.resolveGithubTicket(issueRepository, input.number, options.allowClosed === true);
       } else if (input.kind === "linear") {
-        ticket = await services.resolveLinearTicket(input.key, options.allowClosed === true);
+        ticket = await services.resolveLinearTicket(input.key, options.allowClosed === true, repository);
       } else if (input.kind === "jira") {
         if (!jiraConfig) throw new Error("Jira site settings are missing or disabled. Configure Jira with timber setup before looking up tickets.");
         try {
-          ticket = await services.resolveJiraTicket(jiraConfig, input.key, options.allowClosed === true);
+          ticket = await services.resolveJiraTicket(jiraConfig, input.key, options.allowClosed === true, repository);
         } catch (error) {
           if (input.origin !== "legacy" || options.allowClosed === true) throw error;
           if (!(error instanceof JiraLookupFailure) || error.reason === undefined) throw error;
 
           let suggestions: readonly JiraTicket[];
           try {
-            suggestions = await services.findJiraSuggestions(jiraConfig, branch);
+            suggestions = await services.findJiraSuggestions(jiraConfig, branch, repository);
           } catch {
             throw new Error(`${error.message} Jira suggestions could not be loaded; no workspace was created.`);
           }
@@ -90,7 +90,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
           if (chosen === undefined) throw new Error("Jira chooser returned an unknown suggestion; no workspace was created.");
 
           // The search result can be stale; the selected exact issue is authoritative.
-          ticket = await services.resolveJiraTicket(jiraConfig, chosen.key);
+          ticket = await services.resolveJiraTicket(jiraConfig, chosen.key, false, repository);
         }
       }
     } catch (error) {

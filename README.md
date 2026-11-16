@@ -88,6 +88,7 @@ See [cleanup details](docs/guide.md#finish-a-worktree).
 Use `timber <command> --help` for flags.
 
 - [User guide](docs/guide.md): configuration, Jira, trusted shell hooks, and workflows
+- [Multiple credentials](docs/credentials.md): several Linear keys or Jira logins, selected per repository
 - [Arena](docs/guide.md#arena-multiple-isolated-attempts): create and resume isolated agent attempts
 - [Shell completion](docs/completion.md): Bash, Zsh, and Fish
 - [Orca editor terminals](docs/editor-terminals.md)
