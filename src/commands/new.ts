@@ -170,13 +170,13 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         target = { tracker: "github", repository: issueRepository, number: input.number };
         ticket = await services.resolveGithubTicket(issueRepository, input.number, options.allowClosed === true);
       } else if (input.kind === "linear") {
-        const linear = await services.resolveLinearTicket(input.key, options.allowClosed === true);
+        const linear = await services.resolveLinearTicket(input.key, options.allowClosed === true, repository);
         ticket = linear;
-        target = { tracker: "linear", key: linear.key, ...(linear.id === undefined ? {} : { id: linear.id }) };
+        target = { tracker: "linear", key: linear.key, ...(linear.id === undefined ? {} : { id: linear.id }), commonGitDir: repository.commonGitDir };
       } else if (input.kind === "jira") {
         if (!jiraConfig) throw new Error("Jira site settings are missing or disabled. Configure Jira with timber setup before looking up tickets.");
-        ticket = await services.resolveJiraTicket(jiraConfig, input.key, options.allowClosed === true);
-        target = { tracker: "jira", config: jiraConfig, key: ticket.key };
+        ticket = await services.resolveJiraTicket(jiraConfig, input.key, options.allowClosed === true, repository);
+        target = { tracker: "jira", config: jiraConfig, key: ticket.key, commonGitDir: repository.commonGitDir };
       }
     } catch (error) {
       const missing = (input.kind === "github" && error instanceof GithubLookupFailure)

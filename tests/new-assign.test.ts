@@ -60,10 +60,10 @@ test("an unassigned issue is assigned to the signed-in account after the worktre
     assignment: { tracker: "github", key: "7", result: "assigned", me: "me", previous: [], diagnostic: null } });
 });
 
-test("Jira and Linear issues are assigned through their own trackers", async () => {
+test("Jira and Linear issues are assigned through their own trackers with the repository's saved login", async () => {
   for (const [input, target] of [
-    ["jira:ENG-7", { tracker: "jira", config: jira, key: "ENG-7" }],
-    ["linear:LIN-7", { tracker: "linear", key: "LIN-7", id: "uuid-7" }],
+    ["jira:ENG-7", { tracker: "jira", config: jira, key: "ENG-7", commonGitDir: tmpdir() }],
+    ["linear:LIN-7", { tracker: "linear", key: "LIN-7", id: "uuid-7", commonGitDir: tmpdir() }],
   ] as const) {
     const { run, handler, context } = setup([]);
     await handler(input, { assign: true }, context);

@@ -7,6 +7,7 @@ import { readIssueLink } from "../git/issue-link";
 import { discoverRepository } from "../git/repository";
 import { listWorktreeInventory } from "../git/worktrees";
 import type { CommandContext } from "../services";
+import { repositoryOf } from "../credential-selection";
 
 /**
  * Experimental read-only issue lists for app consumers. Prints one JSON object
@@ -20,7 +21,7 @@ export async function runAppIssues(query: string, text: string | undefined, opti
     listWorktreeInventory: repository => listWorktreeInventory(repository),
     readIssueLink: (repository, tree) => readIssueLink(repository, tree),
     githubRepository: (repository, config) => resolveGithubRepository(repository, config),
-    trackers: defaultTrackerRuntime(env),
+    trackers: defaultTrackerRuntime(env, repositoryOf(context.cwd)),
     timeoutMs: defaultIssueTimeoutMs,
     now: () => new Date(),
   });

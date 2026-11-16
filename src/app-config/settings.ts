@@ -17,6 +17,8 @@ import type { SetupTarget } from "../setup/types";
 import type { JiraConfig } from "../types";
 import { AppConfigInvalid } from "./input";
 import type { AppConfigInput, AppConfigScope } from "./input";
+import { repositoryCredentialKey } from "../credential-selection";
+import type { CredentialSelection } from "../credential-selection";
 
 type CredentialState = "saved" | "none" | "unreadable";
 type CredentialChange = "saved" | "removed" | "unchanged";
@@ -89,9 +91,9 @@ export async function readAppConfig(scope: AppConfigScope, cwd: string, env: Nod
     revision: revisionOf(target.file.source), values: target.file.values, effective,
     credentials: {
       jira: { configured: jira !== null,
-        state: jira === null ? "none" : await state(async () => (await readCredentialStore(env)).get(jira) !== null),
+        state: jira === null ? "none" : await state(async () => (await readCredentialStore(env)).labels(jira).length > 0),
         environmentOverride: env.JIRA_EMAIL !== undefined || env.JIRA_API_TOKEN !== undefined },
-      linear: { state: await state(async () => (await readLinearCredentialStore(env)).get() !== null),
+      linear: { state: await state(async () => (await readLinearCredentialStore(env)).labels().length > 0),
         environmentOverride: env.LINEAR_API_KEY !== undefined },
       bitbucket: { state: await state(async () => (await readBitbucketCredentialStore(env)).get() !== null),
         environmentOverride: env.BITBUCKET_EMAIL !== undefined || env.BITBUCKET_API_TOKEN !== undefined },
@@ -117,9 +119,19 @@ export function scopesWithDraft(target: Pick<SetupTarget, "scope" | "scopes" | "
   return target.scope === "global" ? { global: scope, local: null } : { ...target.scopes, local: scope };
 }
 
-function credentialChange(store: { changes(): readonly { action: "save" | "remove" }[] } | undefined): CredentialChange {
-  const action = store?.changes()[0]?.action;
-  return action === undefined ? "unchanged" : action === "save" ? "saved" : "removed";
+function credentialChange(store: { changes(): readonly ({ action: "save" | "remove" } | { kind: "association" })[] } | undefined): CredentialChange {
+  const action = store?.changes().find(change => "action" in change);
+  return action === undefined ? "unchanged" : action.action === "save" ? "saved" : "removed";
+}
+
+/**
+ * The saved entry a draft replaces or removes: the one this repository selects, else
+ * the only one. Several entries without a selection are ambiguous, so nothing is guessed.
+ */
+function draftLabel(selection: CredentialSelection, field: string): string | undefined {
+  if (selection.kind === "selected") return selection.label;
+  if (selection.kind === "missing") return undefined;
+  throw new AppConfigInvalid([`${field} is ambiguous: several saved entries exist and none is selected; choose one with timber setup`]);
 }
 
 /**
@@ -139,18 +151,21 @@ export async function applyAppConfig(
     const file = draftConfig(input.values, target.file.values);
     const jira = jiraIdentity(effectiveConfigValues(scopesWithDraft(target, file)));
     const credentials = input.credentials ?? {};
+    const repository = target.scope === "repository" && target.repository ? await repositoryCredentialKey(target.repository.commonGitDir) : null;
     let jiraStore: CredentialStore | undefined;
     let linearStore: LinearCredentialStore | undefined;
     let bitbucketStore: BitbucketCredentialStore | undefined;
     if (credentials.jira !== undefined) {
       if (jira === null) throw new AppConfigInvalid(["credentials.jira needs a configured Jira site"]);
       jiraStore = await readCredentialStore(env);
-      try { jiraStore.set(jira, credentials.jira); }
+      const label = draftLabel(jiraStore.select(jira, repository), "credentials.jira");
+      try { jiraStore.set(jira, credentials.jira, label); }
       catch { throw new AppConfigInvalid(["credentials.jira is invalid"]); }
     }
     if (credentials.linear !== undefined) {
       linearStore = await readLinearCredentialStore(env);
-      try { linearStore.set(credentials.linear?.token ?? null); }
+      const label = draftLabel(linearStore.select(repository), "credentials.linear");
+      try { linearStore.set(credentials.linear?.token ?? null, label); }
       catch { throw new AppConfigInvalid(["credentials.linear is invalid"]); }
     }
     if (credentials.bitbucket !== undefined) {

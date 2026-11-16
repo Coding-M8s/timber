@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { JiraConfig, JiraTicket, TrackerUser } from "../types";
 import { isJiraTicketKey } from "./branch";
 import { loadSavedCredentials, validCredentials } from "./credentials";
+import { repositoryCredentialKey } from "../credential-selection";
 import type { JiraCredentials } from "./credentials";
 
 const defaultTimeoutMs = 10_000;
@@ -328,11 +329,15 @@ function timeoutMessage(timeoutMs: number): string {
   return `Jira lookup timed out after ${duration}; retry when service is reachable.`;
 }
 
-function defaultRuntime(): JiraRuntime {
+/** Saved-pair selection uses the repository's shared Git directory when one is given. */
+export function jiraRuntime(commonGitDir?: string): JiraRuntime {
   return {
     env: process.env,
     fetch: (url, init) => fetch(url, init),
     timeoutMs: defaultTimeoutMs,
-    loadCredentials: loadSavedCredentials,
+    loadCredentials: async config => loadSavedCredentials(config, process.env,
+      commonGitDir === undefined ? null : await repositoryCredentialKey(commonGitDir)),
   };
 }
+
+function defaultRuntime(): JiraRuntime { return jiraRuntime(); }

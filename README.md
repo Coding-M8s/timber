@@ -108,6 +108,7 @@ is lost. See [winner selection](docs/guide.md#choose-an-arena-winner).
 Use `timber <command> --help` for flags. To remove Timber, see [Remove Timber](docs/guide.md#remove-timber).
 
 - [User guide](docs/guide.md): configuration, Jira, trusted shell hooks, and workflows
+- [Multiple credentials](docs/credentials.md): several Linear keys or Jira logins, selected per repository
 - [Arena](docs/guide.md#arena-multiple-isolated-attempts): create, resume, compare, and pick isolated attempts
 - [Shell completion](docs/completion.md): Bash, Zsh, and Fish
 - [Editor terminals (Orca and VS Code)](docs/editor-terminals.md)

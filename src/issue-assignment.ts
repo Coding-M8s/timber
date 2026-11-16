@@ -1,15 +1,16 @@
 import { assignGithubIssue, checkGithubConnection } from "./github/client";
 import type { GithubRepository } from "./github/repository";
-import { assignJiraIssue, checkJiraConnection } from "./jira/client";
-import { assignLinearIssue, checkLinearConnection } from "./linear/client";
+import { assignJiraIssue, checkJiraConnection, jiraRuntime } from "./jira/client";
+import { assignLinearIssue, checkLinearConnection, linearRuntime } from "./linear/client";
 import type { LinkedTracker } from "./git/issue-link";
 import type { JiraConfig, TrackerUser } from "./types";
 
 /** The issue `new --assign` writes to, in the repository or site its lookup used. */
 export type AssignTarget =
   | { tracker: "github"; repository: GithubRepository; number: number }
-  | { tracker: "jira"; config: JiraConfig; key: string }
-  | { tracker: "linear"; key: string; /** Linear's issue ID; the key is used when it is unknown. */ id?: string };
+  | { tracker: "jira"; config: JiraConfig; key: string; /** Selects the repository's saved login. */ commonGitDir?: string }
+  | { tracker: "linear"; key: string; /** Linear's issue ID; the key is used when it is unknown. */ id?: string;
+    /** Selects the repository's saved key. */ commonGitDir?: string };
 
 /** The `assignment` object of a `new --assign` result. */
 export interface AssignmentReport {
@@ -56,12 +57,12 @@ export async function readTrackerUser(target: AssignTarget): Promise<TrackerUser
     const login = await checkGithubConnection();
     return { id: login, name: login };
   }
-  if (target.tracker === "jira") return checkJiraConnection(target.config);
-  return checkLinearConnection();
+  if (target.tracker === "jira") return checkJiraConnection(target.config, jiraRuntime(target.commonGitDir));
+  return checkLinearConnection(linearRuntime(target.commonGitDir));
 }
 
 export async function assignIssue(target: AssignTarget, me: TrackerUser, replace: boolean): Promise<void> {
   if (target.tracker === "github") return assignGithubIssue(target.repository, target.number, me.id, replace);
-  if (target.tracker === "jira") return assignJiraIssue(target.config, target.key, me.id);
-  return assignLinearIssue(target.id ?? target.key, me.id);
+  if (target.tracker === "jira") return assignJiraIssue(target.config, target.key, me.id, jiraRuntime(target.commonGitDir));
+  return assignLinearIssue(target.id ?? target.key, me.id, linearRuntime(target.commonGitDir));
 }

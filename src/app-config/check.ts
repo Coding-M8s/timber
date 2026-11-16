@@ -8,6 +8,7 @@ import { discoverRepository } from "../git/repository";
 import { checkJiraConnection } from "../jira/client";
 import { loadSavedCredentials, validCredentials } from "../jira/credentials";
 import { readLinearKey } from "../linear/auth";
+import { repositoryCredentialKey } from "../credential-selection";
 import { checkLinearConnection } from "../linear/client";
 import { validLinearKey } from "../linear/credentials";
 import { draftConfig, scopesWithDraft } from "./settings";
@@ -35,6 +36,12 @@ export interface CheckRuntime {
 }
 
 const defaultRuntime = (): CheckRuntime => ({ env: process.env, fetch: (url, init) => fetch(url, init), timeoutMs: 10_000 });
+
+/** Saved credentials follow the repository at `cwd`'s selection, except for machine defaults. */
+async function credentialRepository(cwd: string, scope: AppConfigScope | undefined): Promise<string | undefined> {
+  if (scope === "global") return undefined;
+  return (await discoverRepository(cwd).catch(() => null))?.commonGitDir;
+}
 
 async function jiraSite(cwd: string, scope: AppConfigScope | undefined, input: AppConfigInput | undefined, env: NodeJS.ProcessEnv) {
   const repository = scope === "global" ? null : await discoverRepository(cwd).catch(() => null);
@@ -70,7 +77,8 @@ export async function checkAppIntegration(
       if (draft === null) throw new Error("This draft removes the saved Linear key, so there is no login to check.");
       if (draft !== undefined && !validLinearKey(draft.token)) throw new Error("Invalid settings draft: credentials.linear is invalid.");
       result.source = draft !== undefined ? "draft" : env.LINEAR_API_KEY !== undefined ? "environment" : "saved";
-      await checkLinearConnection({ token: async signal => draft?.token ?? readLinearKey(env, undefined, signal), fetch, timeoutMs });
+      const commonGitDir = draft === undefined ? await credentialRepository(cwd, scope) : undefined;
+      await checkLinearConnection({ token: async signal => draft?.token ?? readLinearKey(env, undefined, signal, commonGitDir), fetch, timeoutMs });
     } else if (integration === "bitbucket") {
       const draft = input?.credentials?.bitbucket;
       if (draft === null) throw new Error("This draft removes the saved Bitbucket login, so there is no login to check.");
@@ -87,7 +95,10 @@ export async function checkAppIntegration(
         : env.JIRA_EMAIL !== undefined || env.JIRA_API_TOKEN !== undefined ? "environment" : "saved";
       await checkJiraConnection(config, draft !== undefined
         ? { env: { JIRA_EMAIL: draft.email, JIRA_API_TOKEN: draft.token }, fetch, timeoutMs }
-        : { env, fetch, timeoutMs, loadCredentials: identity => loadSavedCredentials(identity, env) });
+        : { env, fetch, timeoutMs, loadCredentials: async identity => {
+          const commonGitDir = await credentialRepository(cwd, scope);
+          return loadSavedCredentials(identity, env, commonGitDir === undefined ? null : await repositoryCredentialKey(commonGitDir));
+        } });
     }
     result.ok = true;
   } catch (error) {

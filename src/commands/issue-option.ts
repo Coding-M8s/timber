@@ -45,10 +45,10 @@ export async function resolveIssueOption(
     const github = await services.resolveGithubRepository(repository, config);
     ticket = await services.resolveGithubTicket(github, requested.number!, true);
   } else if (requested.tracker === "linear") {
-    ticket = await services.resolveLinearTicket(requested.key, true);
+    ticket = await services.resolveLinearTicket(requested.key, true, repository);
   } else {
     if (!config.jira) throw new Error("Jira site settings are missing or disabled. Configure Jira with timber setup before linking Jira issues.");
-    ticket = await services.resolveJiraTicket(config.jira, requested.key, true);
+    ticket = await services.resolveJiraTicket(config.jira, requested.key, true, repository);
   }
   return { tracker: requested.tracker, key: requested.tracker === "github" ? requested.key : ticket.key, url: ticket.url };
 }

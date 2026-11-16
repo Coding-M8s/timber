@@ -10,6 +10,8 @@ import { gitLocation } from "../platform/git-location";
 import { configFileSchema } from "../config";
 import type { JiraConfig } from "../types";
 import { SetupCancelled, SetupChangedError } from "../setup/types";
+import { credentialLabelSchema, defaultCredentialLabel, repositoryKeySchema, selectCredential, validCredentialLabel } from "../credential-selection";
+import type { CredentialSelection } from "../credential-selection";
 
 export interface JiraCredentials { email: string; token: string }
 const pairSchema = z.object({
@@ -17,8 +19,15 @@ const pairSchema = z.object({
   token: z.string().min(1).refine(value => value.trim().length > 0 && !/[\u0000-\u0020\u007f-\u009f]/u.test(value)),
 });
 const recordSchema = pairSchema.extend({ siteUrl: z.string(), cloudId: z.string().optional() }).strict();
-const storeSchema = z.object({ version: z.literal(1), records: z.array(recordSchema) }).strict();
-type CredentialRecord = z.infer<typeof recordSchema>;
+const legacySchema = z.object({ version: z.literal(1), records: z.array(recordSchema) }).strict();
+const storeSchema = z.object({
+  version: z.literal(2),
+  records: z.array(recordSchema.extend({ label: credentialLabelSchema }).strict()),
+  associations: z.array(z.object({ repository: repositoryKeySchema, siteUrl: z.string(), cloudId: z.string().optional(),
+    label: credentialLabelSchema }).strict()),
+}).strict();
+type CredentialRecord = JiraConfig & JiraCredentials & { label: string };
+interface Association { config: JiraConfig; repository: string; label: string }
 
 export function validCredentials(pair: JiraCredentials): boolean { return pairSchema.safeParse(pair).success; }
 
@@ -35,12 +44,24 @@ export function credentialIdentity(config: JiraConfig): string {
   return `${value.siteUrl}|${value.cloudId ?? "unscoped"}`;
 }
 
+export type CredentialChange =
+  | { kind: "entry"; config: JiraConfig; action: "save" | "remove"; label: string }
+  | { kind: "association"; config: JiraConfig; repository: string; label: string | null };
+
+/** Entries and associations are scoped to one normalized site and token mode. */
 export interface CredentialStore {
   readonly path: string;
   readonly original: string | null;
-  get(config: JiraConfig): JiraCredentials | null;
-  set(config: JiraConfig, pair: JiraCredentials | null): void;
-  changes(): readonly { config: JiraConfig; action: "save" | "remove" }[];
+  labels(config: JiraConfig): readonly string[];
+  /** Without a label, the pair of a sole saved entry for this site and token mode. */
+  get(config: JiraConfig, label?: string): JiraCredentials | null;
+  /** Without a label, replaces the sole entry (or creates "default"). Removing an entry drops its associations. */
+  set(config: JiraConfig, pair: JiraCredentials | null, label?: string): void;
+  association(config: JiraConfig, repository: string): string | null;
+  associate(config: JiraConfig, repository: string, label: string | null): void;
+  users(config: JiraConfig, label: string): readonly string[];
+  select(config: JiraConfig, repository: string | null): CredentialSelection;
+  changes(): readonly CredentialChange[];
   serialize(): string;
 }
 
@@ -93,47 +114,132 @@ async function readSource(path: string): Promise<string | null> {
   } finally { await handle?.close(); }
 }
 
+const entryKey = (identity: string, label: string) => `${identity}\n${label}`;
+const associationKey = (identity: string, repository: string) => `${identity}\n${repository}`;
+
+function parseStore(source: string): { records: Map<string, CredentialRecord>; associations: Map<string, Association> } {
+  const input: unknown = JSON.parse(source);
+  const legacy = legacySchema.safeParse(input);
+  const parsed = legacy.success
+    ? { records: legacy.data.records.map(record => ({ ...record, label: defaultCredentialLabel })), associations: [] }
+    : storeSchema.parse(input);
+  const records = new Map<string, CredentialRecord>();
+  for (const record of parsed.records) {
+    const config = normalized(record);
+    const key = entryKey(credentialIdentity(config), record.label);
+    if (records.has(key)) throw storeError();
+    records.set(key, { ...config, email: record.email, token: record.token, label: record.label });
+  }
+  const associations = new Map<string, Association>();
+  for (const association of parsed.associations) {
+    const config = normalized(association);
+    const identity = credentialIdentity(config);
+    const key = associationKey(identity, association.repository);
+    if (associations.has(key) || !records.has(entryKey(identity, association.label))) throw storeError();
+    associations.set(key, { config, repository: association.repository, label: association.label });
+  }
+  return { records, associations };
+}
+
+const configOf = (record: CredentialRecord): JiraConfig => ({ siteUrl: record.siteUrl, ...(record.cloudId === undefined ? {} : { cloudId: record.cloudId }) });
+
 export async function readCredentialStore(env: NodeJS.ProcessEnv = process.env): Promise<CredentialStore> {
   const path = join(dirname(globalConfigPath(env)), "credentials/jira.json");
   const original = await readSource(path);
-  const records = new Map<string, CredentialRecord>();
+  let state: ReturnType<typeof parseStore> = { records: new Map(), associations: new Map() };
   if (original !== null) {
-    try {
-      const parsed = storeSchema.parse(JSON.parse(original));
-      for (const record of parsed.records) {
-        const config = normalized(record);
-        const key = credentialIdentity(config);
-        if (records.has(key)) throw storeError();
-        records.set(key, { ...config, email: record.email, token: record.token });
-      }
-    } catch { throw storeError(); }
+    try { state = parseStore(original); }
+    catch { throw storeError(); }
   }
-  const initial = new Map(records);
+  const { records, associations } = state;
+  const initialRecords = new Map(records);
+  const initialAssociations = new Map(associations);
+  const labels = (config: JiraConfig) => {
+    const identity = credentialIdentity(config);
+    return [...records.values()].filter(record => credentialIdentity(record) === identity).map(record => record.label);
+  };
+  const sole = (config: JiraConfig) => { const names = labels(config); return names.length === 1 ? names[0]! : null; };
   return {
-    path, original,
-    get(config) { const record = records.get(credentialIdentity(config)); return record ? { email: record.email, token: record.token } : null; },
-    set(config, pair) {
+    path, original, labels,
+    get(config, label) {
+      const name = label ?? sole(config);
+      const record = name === null ? undefined : records.get(entryKey(credentialIdentity(config), name));
+      return record ? { email: record.email, token: record.token } : null;
+    },
+    set(config, pair, label) {
       const identity = credentialIdentity(config);
-      if (pair === null) records.delete(identity);
-      else {
-        if (!validCredentials(pair)) throw new Error("Enter a valid Atlassian email and a nonblank API token without whitespace or control characters.");
-        records.set(identity, { ...normalized(config), ...pair });
+      const name = label ?? sole(config) ?? defaultCredentialLabel;
+      if (!validCredentialLabel(name)) throw new Error("Invalid Jira credential label.");
+      if (pair === null) {
+        records.delete(entryKey(identity, name));
+        for (const [key, association] of associations) {
+          if (credentialIdentity(association.config) === identity && association.label === name) associations.delete(key);
+        }
+        return;
       }
+      if (!validCredentials(pair)) throw new Error("Enter a valid Atlassian email and a nonblank API token without whitespace or control characters.");
+      records.set(entryKey(identity, name), { ...normalized(config), ...pair, label: name });
+    },
+    association(config, repository) { return associations.get(associationKey(credentialIdentity(config), repository))?.label ?? null; },
+    associate(config, repository, label) {
+      const identity = credentialIdentity(config);
+      if (label === null) { associations.delete(associationKey(identity, repository)); return; }
+      if (!records.has(entryKey(identity, label))) throw new Error("Cannot associate an unsaved Jira credential.");
+      associations.set(associationKey(identity, repository), { config: normalized(config), repository, label });
+    },
+    users(config, label) {
+      const identity = credentialIdentity(config);
+      return [...associations.values()].filter(association => credentialIdentity(association.config) === identity
+        && association.label === label).map(association => association.repository);
+    },
+    select(config, repository) {
+      return selectCredential(labels(config), repository === null ? null
+        : associations.get(associationKey(credentialIdentity(config), repository))?.label ?? null);
     },
     changes() {
-      return [...new Set([...initial.keys(), ...records.keys()])].flatMap(key => {
-        const before = initial.get(key); const after = records.get(key);
-        return JSON.stringify(before) === JSON.stringify(after) ? [] : [{
-          config: normalized((after ?? before)!), action: after ? "save" as const : "remove" as const,
-        }];
-      });
+      const changes: CredentialChange[] = [];
+      for (const key of new Set([...initialRecords.keys(), ...records.keys()])) {
+        const before = initialRecords.get(key); const after = records.get(key);
+        if (JSON.stringify(before) === JSON.stringify(after)) continue;
+        const record = (after ?? before)!;
+        changes.push({ kind: "entry", config: configOf(record), action: after ? "save" : "remove", label: record.label });
+      }
+      for (const key of new Set([...initialAssociations.keys(), ...associations.keys()])) {
+        const before = initialAssociations.get(key); const after = associations.get(key);
+        if (before?.label === after?.label) continue;
+        const association = (after ?? before)!;
+        // Removing an entry already reports its dropped associations.
+        if (!after && !records.has(entryKey(credentialIdentity(association.config), association.label))) continue;
+        changes.push({ kind: "association", config: association.config, repository: association.repository, label: after?.label ?? null });
+      }
+      return changes;
     },
-    serialize() { return JSON.stringify({ version: 1, records: [...records.values()] }, null, 2) + "\n"; },
+    serialize() {
+      // Default-only entries without associations keep the original format readable by older Timber.
+      if (associations.size === 0 && [...records.values()].every(record => record.label === defaultCredentialLabel)) {
+        return JSON.stringify({ version: 1, records: [...records.values()].map(({ label: _label, ...record }) => record) }, null, 2) + "\n";
+      }
+      return JSON.stringify({
+        version: 2,
+        records: [...records.values()].map(({ label, ...record }) => ({ label, ...record })),
+        associations: [...associations.values()].map(({ config, repository, label }) => ({ repository, ...config, label })),
+      }, null, 2) + "\n";
+    },
   };
 }
 
-export async function loadSavedCredentials(config: JiraConfig, env: NodeJS.ProcessEnv = process.env): Promise<JiraCredentials | null> {
-  return (await readCredentialStore(env)).get(config);
+export function unselectedJiraMessage(): string {
+  return "Several saved Jira credentials exist for this site and token mode, and none is selected for this repository. Run timber setup in this repository to choose one, or set both JIRA_EMAIL and JIRA_API_TOKEN.";
+}
+
+/** Null means no saved pair; several pairs without this repository's association fail instead of guessing. */
+export async function loadSavedCredentials(config: JiraConfig, env: NodeJS.ProcessEnv = process.env,
+  repository: string | null = null): Promise<JiraCredentials | null> {
+  const store = await readCredentialStore(env);
+  const selection = store.select(config, repository);
+  if (selection.kind === "missing") return null;
+  if (selection.kind === "unselected") throw new Error(unselectedJiraMessage());
+  return store.get(config, selection.label);
 }
 
 async function temporary(path: string, source: string): Promise<string> {

@@ -40,7 +40,7 @@ for (const [provider, raw, expected] of [["github", "97", "GH-97-fix-login"], ["
   });
   test(`explicit ${provider} overrides None and forwards -c`, async () => {
     let allowClosed = false;
-    const lookup = async (...args: unknown[]) => { allowClosed = args.at(-1) === true; return ticket; };
+    const lookup = async (...args: unknown[]) => { allowClosed = args[provider === "github" ? 2 : provider === "linear" ? 1 : 2] === true; return ticket; };
     const h = harness("none", { [provider === "github" ? "resolveGithubTicket" : provider === "linear" ? "resolveLinearTicket" : "resolveJiraTicket"]: lookup });
     await h.run(`${provider}:${raw}`, { allowClosed: true }); expect(allowClosed).toBe(true); expect(h.branch()).toBe("ENG-123-fix-login");
   });
