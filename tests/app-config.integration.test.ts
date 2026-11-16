@@ -63,7 +63,8 @@ const draft = { default_tracker: "jira", base_branch: "trunk",
 
 test("read reports scope values, inherited effective values and the destination without a terminal", async () => {
   await withFixture(async fixture => {
-    await mkdir(join(fixture.globalConfig, ".."), { recursive: true });
+    // Setup creates these private; mirror that so the result does not depend on umask.
+    await mkdir(join(fixture.globalConfig, ".."), { recursive: true, mode: 0o700 });
     await writeFile(fixture.globalConfig, 'remote = "upstream"\nbase_branch = "main"\n[agent]\ncommand = "claude"\n');
     const source = 'base_branch = "trunk"\nagent = false\n';
     await writeFile(fixture.config, source);
@@ -212,7 +213,8 @@ test("apply refuses when the file changed after it was read, including creation 
 
 test("workflow tables, arena presets and inherited machine defaults survive an apply", async () => {
   await withFixture(async fixture => {
-    await mkdir(join(fixture.globalConfig, ".."), { recursive: true });
+    // Setup creates these private; mirror that so the result does not depend on umask.
+    await mkdir(join(fixture.globalConfig, ".."), { recursive: true, mode: 0o700 });
     const machine = 'remote = "upstream"\n\n[workflows.shared]\npost_create = ["bun install"]\n';
     await writeFile(fixture.globalConfig, machine);
     await writeFile(fixture.config, [
