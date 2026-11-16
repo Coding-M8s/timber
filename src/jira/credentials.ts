@@ -9,7 +9,7 @@ import { z } from "zod";
 import { globalConfigPath } from "../config-paths";
 import { configFileSchema } from "../config";
 import type { JiraConfig } from "../types";
-import { SetupCancelled } from "../setup/types";
+import { SetupCancelled, SetupChangedError } from "../setup/types";
 
 export interface JiraCredentials { email: string; token: string }
 const pairSchema = z.object({
@@ -193,7 +193,7 @@ export async function withCredentialSave(store: CredentialStore, publishConfig: 
     try { lock = await open(lockPath, "wx", 0o600); }
     catch { throw new Error("Jira credential store is locked. Finish the other setup; after a crash, inspect private storage and remove the stale .jira.lock before rerunning setup."); }
     cancel();
-    if (await readSource(store.path) !== store.original) throw new Error("Jira credential store changed during setup. Existing credentials were preserved; rerun setup.");
+    if (await readSource(store.path) !== store.original) throw new SetupChangedError("Jira credential store changed during setup. Existing credentials were preserved; rerun setup.");
     if (emptied) {
       if (store.original === null) throw storeError();
       await unlink(store.path);
@@ -201,7 +201,7 @@ export async function withCredentialSave(store: CredentialStore, publishConfig: 
     } else {
       const staged = await temporary(store.path, next); temps.add(staged);
       cancel();
-      if (await readSource(store.path) !== store.original) throw new Error("Jira credential store changed during setup. Existing credentials were preserved; rerun setup.");
+      if (await readSource(store.path) !== store.original) throw new SetupChangedError("Jira credential store changed during setup. Existing credentials were preserved; rerun setup.");
       if (store.original === null) {
         // Publish complete bytes without replacing a name claimed by another writer.
         await publishLink(staged, store.path);

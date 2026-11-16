@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
 import { globalConfigPath } from "../config-paths";
-import { SetupCancelled } from "../setup/types";
+import { SetupCancelled, SetupChangedError } from "../setup/types";
 
 const keySchema = z.string().min(1).refine(value => !/[\s\u0000-\u0020\u007f-\u009f]/u.test(value));
 const storeSchema = z.object({ version: z.literal(1), token: keySchema }).strict();
@@ -155,7 +155,7 @@ export async function withLinearCredentialSave(store: LinearCredentialStore, pub
     try { lock = await open(lockPath, "wx", 0o600); }
     catch { throw new Error("Linear credential store is locked. Finish the other setup; after a crash, inspect private storage and remove the stale .linear.lock before rerunning setup."); }
     cancel();
-    if (await readSource(store.path) !== store.original) throw new Error("Linear credential store changed during setup. Existing credentials were preserved; rerun setup.");
+    if (await readSource(store.path) !== store.original) throw new SetupChangedError("Linear credential store changed during setup. Existing credentials were preserved; rerun setup.");
     if (emptied) {
       if (store.original === null) throw storeError();
       await unlink(store.path);
@@ -163,7 +163,7 @@ export async function withLinearCredentialSave(store: LinearCredentialStore, pub
     } else {
       const staged = await temporary(store.path, next); temps.add(staged);
       cancel();
-      if (await readSource(store.path) !== store.original) throw new Error("Linear credential store changed during setup. Existing credentials were preserved; rerun setup.");
+      if (await readSource(store.path) !== store.original) throw new SetupChangedError("Linear credential store changed during setup. Existing credentials were preserved; rerun setup.");
       if (store.original === null) {
         // Publish complete bytes without replacing a name claimed by another writer.
         await publishLink(staged, store.path);

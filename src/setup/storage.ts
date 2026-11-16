@@ -7,7 +7,7 @@ import { execa } from "execa";
 import { loadConfigScopes, parseConfigSource } from "../config";
 import { discoverRepository } from "../git/repository";
 import type { RepositoryContext } from "../types";
-import { SetupCancelled, SetupVisibilityError } from "./types";
+import { SetupCancelled, SetupChangedError, SetupVisibilityError } from "./types";
 import type { FileSnapshot, SetupTarget } from "./types";
 
 const pattern = "/.timber.toml";
@@ -73,7 +73,7 @@ function sameBytes(left: Buffer | null, right: Buffer | null): boolean {
 async function assertUnchanged(snapshot: FileSnapshot): Promise<void> {
   const current = await snapshotFile(snapshot.path);
   if (!sameBytes(current.source, snapshot.source) || current.mode !== snapshot.mode) {
-    throw new Error(`Setup destination changed while answering questions: ${snapshot.path}. Rerun setup; existing work was preserved.`);
+    throw new SetupChangedError(`Setup destination changed while answering questions: ${snapshot.path}. Rerun setup; existing work was preserved.`);
   }
 }
 
@@ -130,12 +130,12 @@ export async function saveSetupConfig(target: SetupTarget, source: string, track
     checkCancellation();
     const original = await snapshotFile(target.path);
     if (!sameBytes(original.source, target.file.source === null ? null : Buffer.from(target.file.source))) {
-      throw new Error(`Config changed while answering questions: ${target.path}. Rerun setup; existing work was preserved.`);
+      throw new SetupChangedError(`Config changed while answering questions: ${target.path}. Rerun setup; existing work was preserved.`);
     }
     if (target.repository) {
       const common = await git(target.repository, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
       if (!samePath(common, target.repository.commonGitDir) || await trackedConfig(target.repository) !== target.tracked) {
-        throw new Error("Repository or tracked configuration changed during setup. Rerun setup; no settings saved.");
+        throw new SetupChangedError("Repository or tracked configuration changed during setup. Rerun setup; no settings saved.");
       }
     }
     if (target.exclude) await assertUnchanged(target.exclude);
@@ -162,7 +162,7 @@ export async function saveSetupConfig(target: SetupTarget, source: string, track
     checkCancellation();
     await assertUnchanged(original);
     if (target.repository && await trackedConfig(target.repository) !== target.tracked) {
-      throw new Error("Tracked configuration changed during setup. Rerun setup; no settings saved.");
+      throw new SetupChangedError("Tracked configuration changed during setup. Rerun setup; no settings saved.");
     }
     checkCancellation();
     if (original.source === null) await publishLink(configTemporary, target.path);
