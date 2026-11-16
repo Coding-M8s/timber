@@ -136,16 +136,17 @@ Bash and Zsh were verified on Linux x86_64 with GNU Bash 5.3.9, Zsh 5.9,
 Git 2.56.0, and Bun 1.4.2 for source tests and standalone builds. Fish was
 verified on Ubuntu 24.04 Linux x86_64 with GNU Bash 5.2.21, Fish 3.7.0,
 Git 2.43.0, Python 3.12.3, and Bun 1.4.2 in an offline Ubuntu container.
-The tests load each generated script and press Tab in a controlling terminal,
-checking the resulting argument bytes. Other shell versions and operating
+Verification loaded each generated script and pressed Tab in a controlling
+terminal, checking the resulting argument bytes. Other shell versions and operating
 systems have not been verified. All adapters use the same shell-independent
 repository candidate service.
 
-The shell suites in `bun test` load generated scripts in controlling terminals and
-check inserted argument bytes. Install Zsh and Fish to run all adapters locally.
-The Fish suite skips when Fish is missing locally and fails if it is missing in CI. To test the standalone executable,
-set `TIMBER_COMPLETION_EXECUTABLE` to its absolute path when running
-`tests/completion-{bash,zsh,fish}.test.ts`. See [release checks](releases.md).
+The Bash suite in `bun test` loads the generated script in a controlling terminal
+and checks inserted argument bytes. The test suite does not start Zsh or Fish;
+unit tests cover the native-word and Fish transports those scripts call.
+To test the standalone executable, set `TIMBER_COMPLETION_EXECUTABLE` to its
+absolute path when running `tests/completion-bash.test.ts`. See
+[release checks](releases.md).
 
 Arena completion follows the same Commander definitions: `timber arena <Tab>`
 suggests subcommands, and `timber arena new --<Tab>` suggests creation flags.

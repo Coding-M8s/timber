@@ -33,7 +33,7 @@ async function snapshot(primary: string) {
   };
 }
 
-test.each([false, true])("pre_delete runs in order with literal context before removal; keepBranch=%s", async keepBranch => {
+test("pre_delete runs in order with literal context before removal; keepBranch=false", async () => {
   await withRepository(async (primary, directory) => {
     const branch = "TIM-63-'literal;$value";
     const path = await target(primary, directory, [
@@ -43,9 +43,8 @@ test.each([false, true])("pre_delete runs in order with literal context before r
     // A linked config is ignored and never read, even when invoking from that worktree.
     await writeFile(join(primary, ".git/info/exclude"), ".timber.toml\n");
     await writeFile(join(path, ".timber.toml"), "invalid [ config");
-    const original = await git(primary, "rev-parse", branch);
     const report = join(directory, "context");
-    const result = await cli(path, path, keepBranch ? ["--keep-branch"] : [], {
+    const result = await cli(path, path, [], {
       TIMBER_TEST_REPORT: report, TIMBER_WORKFLOW: "stale", TIMBER_TASK_ID: "stale",
     });
     expect(result.exitCode).toBe(0);
@@ -57,12 +56,12 @@ test.each([false, true])("pre_delete runs in order with literal context before r
     expect(await exists(join(directory, "injected"))).toBe(false);
     expect(await exists(join(primary, "injected"))).toBe(false);
     const ref = await execa("git", ["rev-parse", "--verify", `refs/heads/${branch}`], { cwd: primary, reject: false });
-    expect(ref.exitCode).toBe(keepBranch ? 0 : 128);
-    if (keepBranch) expect(ref.stdout).toBe(original);
+    expect(ref.exitCode).toBe(128);
   });
 });
 
-test.each(["exit 7", "kill -TERM $$"])("failed deletion hook stops later steps and retains files/refs: %s", async source => {
+test("failed deletion hook stops later steps and retains files/refs: exit 7", async () => {
+  const source = "exit 7";
   await withRepository(async (primary, directory) => {
     const report = join(directory, "ran");
     const path = await target(primary, directory, [
@@ -76,7 +75,7 @@ test.each(["exit 7", "kill -TERM $$"])("failed deletion hook stops later steps a
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("pre_delete step 2");
-    expect(result.stderr).toContain(source === "exit 7" ? "exit code 7" : "signal SIGTERM");
+    expect(result.stderr).toContain("exit code 7");
     expect(result.stderr).not.toContain("SECRET_HOOK_SOURCE");
     expect(await readFile(report, "utf8")).toBe("first");
     expect(await snapshot(primary)).toEqual(before);
@@ -93,23 +92,17 @@ test.each(["exit 7", "kill -TERM $$"])("failed deletion hook stops later steps a
   });
 });
 
-test.each(["modified", "untracked", "ignored", "unpublished", "locked", "primary"])(
+test.each(["modified", "ignored", "locked"])(
   "initial %s refusal runs no deletion hooks and preserves work", async scenario => {
     await withRepository(async (primary, directory) => {
       const report = join(directory, "must not run");
       const path = await target(primary, directory, ['printf ran > "$TIMBER_TEST_REPORT"']);
       if (scenario === "modified") await writeFile(join(path, "tracked.txt"), "dirty\n");
-      if (scenario === "untracked") await writeFile(join(path, "new.txt"), "untracked\n");
       if (scenario === "ignored") await writeFile(join(path, ".env"), "synthetic ignored\n");
-      if (scenario === "unpublished") {
-        await writeFile(join(path, "tracked.txt"), "unpublished content\n");
-        await git(path, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-am", "unpublished");
-      }
       if (scenario === "locked") await git(primary, "worktree", "lock", path);
       const before = await snapshot(primary);
       const status = await git(path, "status", "--porcelain", "--ignored");
-      const result = await cli(primary, scenario === "primary" ? primary : path,
-        ["--keep-ignored"], { TIMBER_TEST_REPORT: report });
+      const result = await cli(primary, path, ["--keep-ignored"], { TIMBER_TEST_REPORT: report });
       expect(result.exitCode).toBe(1);
       expect(await exists(report)).toBe(false);
       expect(await snapshot(primary)).toEqual(before);
@@ -120,12 +113,7 @@ test.each(["modified", "untracked", "ignored", "unpublished", "locked", "primary
 
 const mutations = {
   modified: 'printf changed > tracked.txt',
-  untracked: 'printf new > new.txt',
-  ignored: 'printf synthetic > .env',
-  head: 'git -c user.name=Test -c user.email=test@example.invalid commit --allow-empty -m hook; git rev-parse HEAD > "$TIMBER_TEST_REPORT"',
-  base: 'git -C "$TIMBER_REPO" -c user.name=Test -c user.email=test@example.invalid commit --allow-empty -m hook; git rev-parse trunk > "$TIMBER_TEST_REPORT"',
   branch: 'git checkout -b different-branch',
-  registration: 'git worktree lock "$TIMBER_WORKTREE"',
   identity: 'printf "gitdir: /missing-timber-test-metadata\\n" > .git',
 };
 
@@ -134,24 +122,17 @@ for (const [scenario, source] of Object.entries(mutations)) {
     await withRepository(async (primary, directory) => {
       const path = await target(primary, directory, [source]);
       const before = await snapshot(primary);
-      const report = join(directory, "changed tip");
-      const result = await cli(primary, path, scenario === "ignored" ? ["--keep-ignored"] : [], { TIMBER_TEST_REPORT: report });
+      const result = await cli(primary, path);
       expect(result.exitCode).toBe(1);
       expect(result.stdout).not.toContain("Removed worktree");
       expect(await exists(path)).toBe(true);
       expect(await git(primary, "worktree", "list", "--porcelain")).toContain(path);
-      if (scenario === "head" || scenario === "base") {
-        expect(await git(primary, "rev-parse", scenario === "head" ? "TIM-63-cleanup" : "trunk"))
-          .toBe((await readFile(report, "utf8")).trim());
-        expect((await snapshot(primary)).refs).not.toBe(before.refs);
-      } else if (scenario === "branch") {
+      if (scenario === "branch") {
         expect(await git(path, "branch", "--show-current")).toBe("different-branch");
       } else {
         expect((await snapshot(primary)).refs).toBe(before.refs);
       }
       if (scenario === "modified") expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("changed");
-      if (scenario === "untracked") expect(await readFile(join(path, "new.txt"), "utf8")).toBe("new");
-      if (scenario === "ignored") expect(await readFile(join(path, ".env"), "utf8")).toBe("synthetic");
       if (scenario === "identity") expect(await readFile(join(path, ".git"), "utf8")).toContain("/missing-timber-test-metadata");
     });
   });

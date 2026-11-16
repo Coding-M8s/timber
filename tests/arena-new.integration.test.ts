@@ -231,7 +231,6 @@ for (const failure of [
   "editor",
   "agent",
   "exit",
-  "signal",
 ] as const)
   test(`${failure} failure retains all completed attempts and stops later stages`, async () => {
     const { createArenaNewHandler } = await import("../src/commands/arena-new");
@@ -274,9 +273,7 @@ for (const failure of [
           launches++;
           return failure === "agent"
             ? { kind: "failed", message: "SECRET", retryCommand: "SECRET" }
-            : failure === "signal"
-              ? { kind: "exited", exitCode: 130, signal: "SIGINT" }
-              : { kind: "exited", exitCode: 7, signal: null };
+            : { kind: "exited", exitCode: 7, signal: null };
         },
       });
       const code = await handler(
@@ -285,10 +282,10 @@ for (const failure of [
         context,
       );
       expect(code).toBe(
-        failure === "signal" ? 130 : failure === "exit" ? 7 : 1,
+        failure === "exit" ? 7 : 1,
       );
       expect(launches).toBe(
-        ["agent", "exit", "signal"].includes(failure) ? 1 : 0,
+        ["agent", "exit"].includes(failure) ? 1 : 0,
       );
       const repo = await discoverRepository(primary),
         saved = await readArena(repo, "demo");

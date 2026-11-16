@@ -9,7 +9,8 @@
   "engines": { "bun": ">=1.4.2" },
   "scripts": {
     "dev": "bun src/index.ts",
-    "test": "bun test",
+    "test": "bun test --parallel --timeout=30000",
+    "test:serial": "bun test --timeout=30000",
     "typecheck": "tsc --noEmit",
     "check:attribution": "bun --no-env-file scripts/check-commit-attribution.ts",
     "build": "bun build src/index.ts --target=bun --outdir dist",

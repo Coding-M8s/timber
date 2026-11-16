@@ -128,17 +128,18 @@ isolated checks, and the maintainer release process.
 
 ## Development
 
-Use Bun 1.4.2 (pinned in `.bun-version`) and Git. Python 3 is needed for PTY tests;
-Zsh and Fish are needed for their completion suites. Docker is needed only for
-isolated standalone checks.
+Use Bun 1.4.2 (pinned in `.bun-version`) and Git. Python 3 is needed for PTY tests.
+Docker is needed only for isolated standalone checks.
 
 ```bash
 bun install --frozen-lockfile
 bun run dev --help
 bun run typecheck
-bun test
+bun run test
 bun run build
 ```
+
+See [running tests](testing.md) for workers, serial debugging, and test guidelines.
 
 `build` creates `dist/index.js`, a Bun bundle. For standalone builds and release
 checks, see [releases.md](releases.md).

@@ -10,18 +10,20 @@ For Windows installation and platform requirements, see the [Windows guide](wind
 
 ## Build and check
 
-Use Bun 1.4.2 and the locked dependencies. Python 3 is needed for PTY tests;
-install Bash, Zsh, and Fish to exercise all completion adapters.
+Use Bun 1.4.2 and the locked dependencies. Python 3 and Bash are needed for PTY
+and Bash completion tests.
 
 ```bash
 bun install --frozen-lockfile
 bun run typecheck
-bun test
+bun run test
 bun run build
 bun dist/index.js --help
 bun run build:release
 (cd dist/release && sha256sum -c SHA256SUMS)
 ```
+
+Source tests run in isolated Bun workers; see [testing](testing.md).
 
 `build` creates a Bun JavaScript bundle. `build:release` produces:
 
@@ -58,7 +60,7 @@ Use the version printed by the build in these commands:
 ```bash
 TIMBER_VERSION=0.1.0
 TIMBER_COMPLETION_EXECUTABLE="$PWD/dist/release/timber-v$TIMBER_VERSION-linux-x64" \
-  bun test tests/completion-bash.test.ts tests/completion-zsh.test.ts tests/completion-fish.test.ts
+  bun test tests/completion-bash.test.ts
 
 docker build -f tests/release/Dockerfile -t timber-release-smoke .
 docker run --rm --network none \

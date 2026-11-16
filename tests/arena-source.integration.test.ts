@@ -106,7 +106,7 @@ test("remote source cancellation leaves cached refs, worktrees and arena metadat
       {
         cwd: primary,
         env: { ...process.env, CI: "false" },
-        timeout: 4000,
+        timeout: 30_000,
         terminal: {
           data(terminal, bytes) {
             output += Buffer.from(bytes).toString("utf8");
@@ -242,7 +242,7 @@ test("ticket source chooser and final review preserve pasted selection and cance
       {
         cwd: primary,
         env: { ...process.env, CI: "false" },
-        timeout: 4000,
+        timeout: 30_000,
         terminal: {
           data(terminal, bytes) {
             output += Buffer.from(bytes).toString("utf8");

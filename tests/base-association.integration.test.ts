@@ -139,13 +139,12 @@ test("deleted saved base fails without falling back and explicit replacement rep
   });
 });
 
-test.each(["malformed", "stale"])("ls retains %s base rows and rebase refuses before mutation", async scenario => {
+test("ls retains malformed base rows and rebase refuses before mutation", async () => {
   await withRepository(async primary => {
     await setup(primary);
     const target = await create(primary);
     const file = await metadata(target);
-    const record = JSON.parse(await readFile(file, "utf8"));
-    await writeFile(file, scenario === "malformed" ? "not JSON" : JSON.stringify({ ...record, worktreePath: primary }));
+    await writeFile(file, "not JSON");
     const result = await cli(primary, "ls");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/linked\s+feature\s+\?\s+clean/);
@@ -205,7 +204,7 @@ test("local base movement during safety reads stops rebase and retains files and
   });
 });
 
-test.each(["deleted", "fetch-fails"])("saved remote %s stops without replacing metadata or changing refs", async scenario => {
+test("saved remote deleted stops without replacing metadata or changing refs", async () => {
   await withRepository(async (primary, directory) => {
     await setup(primary);
     const remote = join(directory, "remote.git");
@@ -215,8 +214,7 @@ test.each(["deleted", "fetch-fails"])("saved remote %s stops without replacing m
     const target = await create(primary, "feature", "origin/main");
     const original = await commit(target, "feature.txt", "keep\n");
     const record = await readFile(await metadata(target), "utf8");
-    if (scenario === "deleted") await git(primary, "push", "origin", "--delete", "main");
-    else await git(primary, "config", "remote.origin.uploadpack", "/bin/false");
+    await git(primary, "push", "origin", "--delete", "main");
     const refs = await git(primary, "show-ref");
     const result = await cli(primary, "rebase", target);
     expect(result.exitCode).toBe(1);

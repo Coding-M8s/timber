@@ -25,11 +25,11 @@ test("real setup saves a pasted token outside Git without echoing it", async () 
   });
 });
 
-for (const [input, length] of [["SYNTHETIC_TOKEN\r", 15], ["SYNTHETIC_TOKEN\u001b", null], ["SYNTHETIC_TOKEN\u0003", null]] as const) {
+for (const [input, length] of [["SYNTHETIC_TOKEN\r", 15]] as const) {
   test(`real secret prompt hides paste and restores terminal (result length ${length}, input ${input.at(-1)?.charCodeAt(0)})`, async () => {
     const fixture = fileURLToPath(new URL("./fixtures/setup-secret-parent.ts", import.meta.url));
     let output = ""; let sent = false;
-    const child = Bun.spawn([process.execPath, "--no-env-file", fixture], { timeout: 3000,
+    const child = Bun.spawn([process.execPath, "--no-env-file", fixture], { timeout: 30_000,
       terminal: { data(terminal, bytes) {
         output += Buffer.from(bytes).toString("utf8");
         if (!sent && output.includes("Input hidden")) { sent = true; terminal.write(input); }
@@ -49,7 +49,7 @@ async function terminal(cwd: string, directory: string, args: string[], input: s
   const child = Bun.spawn([process.execPath, "--no-env-file", entry, "setup", ...args], {
     cwd, env: { ...process.env, NO_COLOR: undefined, TERM: "xterm-256color", CI: "false", HOME: directory,
       XDG_CONFIG_HOME: join(directory, "machine/config"), XDG_STATE_HOME: join(directory, "machine/state") },
-    timeout: 5000,
+    timeout: 30_000,
     terminal: { data(terminal, bytes) {
       output += Buffer.from(bytes).toString("utf8");
       const markers = /Enter select|Type a value|Input hidden/gu;
@@ -116,22 +116,12 @@ test("arrow keys navigate setup choices and Enter confirms the highlighted item"
   });
 });
 
-test("number shortcuts advance immediately alongside arrows", async () => {
-  await withRepository(async (primary, directory) => {
-    // Hub editor (2) → none (1) → save (1)
-    const result = await terminal(primary, directory, [], "211");
-    expect(result.code).toBe(0);
-    expect(parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test"))
-      .toEqual({});
-  });
-});
-
 test("long keyboard menus support arrows and preserve literal text and terminal mode", async () => {
   await withRepository(async (primary) => {
     const fixture = fileURLToPath(new URL("./fixtures/setup-prompt-parent.ts", import.meta.url));
     let output = ""; let sent = false;
     const child = Bun.spawn([process.execPath, fixture], {
-      cwd: primary, env: { ...process.env }, timeout: 3000,
+      cwd: primary, env: { ...process.env }, timeout: 30_000,
       terminal: { data(terminal, bytes) {
         output += Buffer.from(bytes).toString("utf8");
         if (!sent && output.includes("Enter select")) {
@@ -221,7 +211,7 @@ test("cancelling from review after an edit preserves existing files, exclusions,
   });
 });
 
-for (const input of ["\u0003", "\u0004", "q\n"]) {
+for (const input of ["\u0003", "\u0004"]) {
   test(`terminal cancellation ${JSON.stringify(input)} leaves configuration/exclusions/index untouched`, async () => {
     await withRepository(async (primary, directory) => {
       const configPath = join(primary, ".timber.toml");

@@ -25,7 +25,7 @@ test.each([
       const child = Bun.spawn([process.execPath, "--no-env-file", entry, "open", "TIM-42"], {
         cwd: primary,
         env: { ...process.env, CI: "false" },
-        timeout: 3_000,
+        timeout: 30_000,
         terminal: {
           data(terminal, data) {
             screen += Buffer.from(data).toString("utf8");

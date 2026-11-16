@@ -75,7 +75,7 @@ test("claimed runner death is detected while its editor shell remains alive", as
       await request.waitStarted(3000);
       await expect(request.waitSetup()).rejects.toThrow(/runner exited without completion/);
       expect(exited).toBe(false);
-    } finally { await terminal; await request.cleanup(); }
+    } finally { terminal.kill("SIGKILL"); await terminal; await request.cleanup(); }
   });
 });
 

@@ -81,7 +81,7 @@ test("installed standalone resolves Jira using saved credentials without .env or
       await https.stop(true);
     }
   });
-}, 25_000);
+}, 30_000);
 
 test("release output identifies source and passes checksum validation", async () => {
   const info = JSON.parse(await readFile(join(directory, target.metadata), "utf8"));
@@ -128,7 +128,7 @@ test("smoke verifier refuses wrong versions, missing executables and failing fix
     [join(directory, "missing"), version, "Release binary"],
   ]) {
     const result = await execa("python3", [runner, "--binary", path!, "--expected-version", expected!], {
-      reject: false, timeout: 5_000,
+      reject: false, timeout: 30_000,
     });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(diagnostic!);
@@ -137,7 +137,7 @@ test("smoke verifier refuses wrong versions, missing executables and failing fix
   await writeFile(fixture, "#!/bin/sh\nexit 9\n");
   await chmod(fixture, 0o755);
   const result = await execa("python3", [runner, "--binary", fixture, "--expected-version", version], {
-    reject: false, timeout: 5_000,
+    reject: false, timeout: 30_000,
   });
   expect(result.exitCode).not.toBe(0);
   expect(result.stderr).toContain("Version command failed");

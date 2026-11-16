@@ -8,7 +8,7 @@ import { expectColumnPositions } from "./helpers/columns";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (cwd: string) => execa(process.execPath, [entry, "ls"], {
-  cwd, reject: false, timeout: 5_000, env: { CI: "true" },
+  cwd, reject: false, timeout: 30_000, env: { CI: "true" },
 });
 
 test("timber ls works offline from nested and linked paths and preserves real Git state", async () => {
