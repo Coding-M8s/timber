@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { access, appendFile, chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, chmod, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
@@ -70,7 +70,8 @@ test("a completed rebase records the base, pinned commit and original tip, then 
     expect(data).toMatchObject({ schemaVersion: 1, command: "rebase", outcome: "succeeded", exitCode: 0,
       materialized: false, diagnostic: null,
       repository: { primaryWorktreeRoot: primary },
-      worktree: { path: target, branch: "TIM-134-feature", head: original, base: { kind: "assigned", ref: "refs/remotes/origin/main" } },
+      worktree: { path: target, canonicalPath: await realpath(target), status: { kind: "known" }, branch: "TIM-134-feature",
+        head: original, base: { kind: "assigned", ref: "refs/remotes/origin/main" } },
       rebase: { result: "rebased", base: "refs/remotes/origin/main", baseCommit: incoming, originalTip: original,
         conflicts: [], baseSaved: true } });
     expect(data).not.toHaveProperty("worktrees");

@@ -70,7 +70,7 @@ export async function resolveOpenTarget(
   options: ResolveOpenTargetOptions = {},
 ): Promise<Resolution<OpenTarget>> {
   if (!input) return { kind: "not-found" };
-  const worktrees = await listWorktrees(repository);
+  const worktrees = await listWorktrees(repository, options);
 
   if (isAbsolute(input)) {
     const path = resolve(input);

@@ -125,6 +125,34 @@ test("backup excludes nested .git entries and nested registered worktrees", asyn
   });
 });
 
+for (const location of ["selected", "unselected"] as const) {
+  test(`backup selection never runs clean filters in the ${location} worktree`, async () => {
+    await withRepository(async (primary, directory) => {
+      const target = join(directory, "feature worktree");
+      await git(primary, "worktree", "add", "-b", "TIM-119-filter", target);
+      const filtered = location === "selected" ? target : primary;
+      const marker = join(directory, "filter ran");
+      await writeFile(join(filtered, ".gitattributes"), "tracked.txt filter=backup-probe\n");
+      await git(primary, "config", "filter.backup-probe.clean", `printf invoked >> '${marker}'; cat`);
+      // Equal size forces status to hash the file instead of using its size alone.
+      await writeFile(join(filtered, "tracked.txt"), "changed!\n");
+      const indexPath = await git(filtered, "rev-parse", "--path-format=absolute", "--git-path", "index");
+      const index = await readFile(indexPath);
+      const branches = await git(primary, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/");
+
+      for (const selector of ["TIM-119-filter", target, "TIM-119"]) {
+        const created = await cli(primary, "backup", "create", selector);
+        expect(created.exitCode).toBe(0);
+        expect(created.stderr).toBe("");
+        await expect(lstat(marker)).rejects.toThrow();
+        expect(await readFile(join(filtered, "tracked.txt"), "utf8")).toBe("changed!\n");
+        expect(await readFile(indexPath)).toEqual(index);
+        expect(await git(primary, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/")).toBe(branches);
+      }
+    });
+  });
+}
+
 test("unsupported files and storage failures never publish a backup or change source state", async () => {
   await withRepository(async (primary, directory) => {
     const { target } = await populated(primary, directory);
@@ -164,10 +192,15 @@ test("backup refuses in-progress operations and unborn worktrees", async () => {
     await git(primary, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "-am", "conflict base");
     const paused = await execa("git", ["rebase", "trunk"], { cwd: target, reject: false, env: { GIT_EDITOR: "true" } });
     expect(paused.exitCode).not.toBe(0);
+    const marker = join(directory, "filter ran during paused lookup");
+    await writeFile(join(primary, ".gitattributes"), "tracked.txt filter=backup-probe\n");
+    await git(primary, "config", "filter.backup-probe.clean", `printf invoked >> '${marker}'; cat`);
+    await writeFile(join(primary, "tracked.txt"), "Conflicting base change\n");
     // Selecting by branch maps the paused (detached) worktree so the real refusal is reported.
     const operation = await cli(primary, "backup", "create", "TIM-119-feature");
     expect(operation.exitCode).toBe(1);
     expect(operation.stderr).toContain("operation is in progress");
+    await expect(lstat(marker)).rejects.toThrow();
     expect(await backupIds(primary)).toEqual([]);
     await git(target, "rebase", "--abort");
 
