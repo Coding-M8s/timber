@@ -105,7 +105,11 @@ process.exitCode = await runCli(process.argv.slice(2), {
       launchEditorTerminals,
     }),
     list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig, readBaseAssociation }),
-    backupCreate: createBackupCreateHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, createBackup }),
+    backupCreate: createBackupCreateHandler({
+      discoverRepository, loadConfig: loadRepositoryConfig, createBackup,
+      // Backup selection must not run status: it can execute repository clean filters.
+      resolveOpenTarget: (repository, input, config) => resolveRebaseTarget(repository, input, config, { inspectStatus: false }),
+    }),
     backupRestore: createBackupRestoreHandler({ discoverRepository, restoreBackup }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
     done: createDoneHandler({

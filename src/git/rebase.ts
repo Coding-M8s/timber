@@ -6,7 +6,7 @@ import { constants } from "node:os";
 import { execa } from "execa";
 import { bashAnsiCQuote, shellQuoteForDisplay, jsonDisplay, safeDisplay, FormattedError } from "../display";
 import type { CommandIO } from "../services";
-import type { OpenTarget, RepositoryConfig, RepositoryContext, Resolution, Worktree } from "../types";
+import type { OpenTarget, RepositoryConfig, RepositoryContext, ResolveOpenTargetOptions, Resolution, Worktree } from "../types";
 import { assertWorktreeIdentity, listWorktrees } from "./worktrees";
 import { gitOperation } from "./operations";
 import { readBaseAssociation, writeBaseAssociation } from "./base-metadata";
@@ -297,14 +297,18 @@ async function rebaseSelected(
 /** Git detaches HEAD during rebase; use its saved branch only for recovery lookup. */
 export async function resolveRebaseTarget(
   repository: RepositoryContext, input: string, config: RepositoryConfig,
+  options: Pick<ResolveOpenTargetOptions, "inspectStatus"> = {},
 ): Promise<Resolution<OpenTarget>> {
-  const resolution = await resolveOpenTarget(repository, input, config, { assertOpenable: false });
+  // Selection is shared with backup, which opts out of status because status can
+  // execute repository clean filters. Rebase keeps status for its machine record.
+  const inspectStatus = options.inspectStatus !== false;
+  const resolution = await resolveOpenTarget(repository, input, config, { assertOpenable: false, inspectStatus });
   if (resolution.kind === "not-found" || (resolution.kind === "found" && resolution.value.kind === "worktree")) return resolution;
   const targets = resolution.kind === "found" ? [resolution.value] : resolution.candidates;
   const branchRefs = new Set(targets.flatMap(target => target.kind === "branch" && target.branch.kind === "local" ? [target.branch.ref] : []));
   if (!branchRefs.size) return resolution;
   const recovered = new Map<string, Worktree[]>();
-  for (const tree of await listWorktrees(repository)) {
+  for (const tree of await listWorktrees(repository, { inspectStatus })) {
     if (tree.branch !== null || !tree.pathExists || tree.prunable !== null) continue;
     await assertWorktreeIdentity(repository, tree);
     const directory = await output(tree.path, ["rev-parse", "--absolute-git-dir"]);

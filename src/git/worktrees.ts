@@ -134,7 +134,7 @@ export async function assertOpenableWorktree(
   await assertWorktreeIdentity(repository, worktree);
 }
 
-async function inspectWorktree(tree: Worktree, repository: RepositoryContext): Promise<Worktree> {
+async function inspectWorktree(tree: Worktree, repository: RepositoryContext, inspectStatus: boolean): Promise<Worktree> {
   try {
     const info = await stat(tree.path);
     tree.pathExists = true;
@@ -162,6 +162,8 @@ async function inspectWorktree(tree: Worktree, repository: RepositoryContext): P
     };
     return tree;
   }
+
+  if (!inspectStatus) return tree;
 
   try {
     const result = await runGit(tree.path, [
@@ -216,9 +218,11 @@ export async function listWorktreeInventory(
 }
 
 /** Git's inventory is authoritative; per-worktree failures remain visible as unknown rows. */
-export async function listWorktrees(repository: RepositoryContext): Promise<readonly Worktree[]> {
+export async function listWorktrees(
+  repository: RepositoryContext, options: { inspectStatus?: boolean } = {},
+): Promise<readonly Worktree[]> {
   const trees = (await listWorktreeInventory(repository)).map<Worktree>(tree => ({
     ...tree, pathExists: false, status: { kind: "unknown", reason: "Not inspected" },
   }));
-  return Promise.all(trees.map(tree => inspectWorktree(tree, repository)));
+  return Promise.all(trees.map(tree => inspectWorktree(tree, repository, options.inspectStatus !== false)));
 }
