@@ -1035,7 +1035,7 @@ destinations are refused; continuing an existing attempt belongs to resume.
 | --- | --- | --- |
 | `arena new` | Create isolated attempts, prepare them, and launch agents sequentially in the invoking terminal | Implemented in [TIM-20](https://github.com/Coding-M8s/timber/issues/40) |
 | `arena resume` | Select and revisit an existing attempt, preserving its current work; explicitly retry setup when needed | Implemented in [TIM-21](https://github.com/Coding-M8s/timber/issues/41) |
-| `arena pick` | Show grouped attempt state and changes, let the user choose a winner, and clean up only eligible losers | Planned in [TIM-22](https://github.com/Coding-M8s/timber/issues/42) |
+| `arena pick` | Compare attempts, let the user choose a winner, then archive and remove the others | Incomplete beta under active testing, [TIM-22](https://github.com/Coding-M8s/timber/issues/42) |
 
 Creation displays attempt paths, live foreground agent output, and completion or
 failure status. Grouped comparison belongs to `pick`: committed and uncommitted
@@ -1267,7 +1267,7 @@ Inspect `timber ls`, then use `arena resume` below for recorded attempt recovery
 Ordinary `timber open --no-agent --no-editor -- '<absolute-worktree-path>'` remains
 available for workspace inspection, including when arena metadata needs repair.
 Ordinary `open --agent` uses ordinary configuration, not the recorded arena agent.
-`arena pick` remains a separate follow-up. Private records are local visibility
+Use `arena pick` below to compare attempts and retain a winner. Private records are local visibility
 controls, not encryption. Linux x86_64 remains the verified target.
 See [arena contract](cli-contract.md#arena-creation-post-10-tim-20).
 
@@ -1330,3 +1330,51 @@ including 130/143 for signal exits. Exit zero proves no quality or integration o
 restoration is tool-specific, not universally supported.** Timber does not append native
 conversation-resume flags or infer session IDs. An explicitly configured wrapper may
 provide its own restoration behavior. See the [resume contract](cli-contract.md#arena-resume-tim-21).
+
+### Choose an arena winner
+
+**Beta feature: incomplete and under active testing.** Interface and behavior may
+change before stable release. Help and each invocation show the beta status.
+
+```bash
+# Compare attempts with diff commands; changes nothing:
+timber arena pick search-fix --inspect
+
+# Choose a winner, review what will be removed, confirm (Cancel is default):
+timber arena pick search-fix
+
+# Exact winner, also usable without a terminal:
+timber arena pick search-fix --winner codex-1
+```
+
+Each attempt shows its agent, state, commits since the arena base, uncommitted
+changes, and untracked files, for example:
+
+```text
+  codex-1  codex (gpt-5, high effort), exit 0: 2 commits (4 files +120 -8)
+  claude-1  claude, exit 0: 1 commit (2 files +40 -3), uncommitted 1 file +2 -1, 1 untracked
+```
+
+The winner's branch and workspace are left exactly as they are; nothing is merged
+or pushed. Continue in its printed path.
+
+Every other attempt is archived, then removed. Its commits and uncommitted,
+non-ignored files are saved under `refs/timber/arena/<name>/<label>`, so a wrong
+call is recoverable:
+
+```bash
+git worktree add -b claude-1-again ../claude-1-again refs/timber/arena/search-fix/claude-1
+```
+
+Ignored files such as `.env`, `node_modules`, and build output are deleted with the
+worktree. Use `--keep-ignored` to keep attempts that contain them instead, and
+`--keep-branch` to keep local loser branches. Remote branches are never touched.
+
+Running or interrupted attempts, replaced or unrelated worktrees, and attempts
+whose files change while pick runs are kept with a reason. The command then exits
+nonzero and prints the exact rerun command; a rerun skips attempts already removed.
+You can rerun with a different `--winner` while that attempt still has a
+worktree; the previous winner is archived like any other loser.
+
+Removal frees disk space. RAM is freed when agent processes exit; Timber never
+kills them. See the [pick contract](cli-contract.md#arena-pick-tim-22).

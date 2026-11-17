@@ -15,6 +15,7 @@ import type {
   ArenaManifest,
   ArenaManifestV2,
   ArenaPlan,
+  ArenaPickRecord,
 } from "./types";
 import {
   arenaNamePattern,
@@ -399,6 +400,73 @@ export async function openArenaForResume(
       await unlink(lock);
     throw error;
   }
+}
+
+const pickSchema = z.strictObject({
+  version: z.literal(1), arenaId: z.uuid(), winnerId: z.uuid(),
+  archives: z.array(z.strictObject({
+    attemptId: z.uuid(), ref: z.string().regex(/^refs\/timber\/arena\//u), commit: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u),
+  })),
+});
+
+function validatePick(value: unknown, manifest: ArenaManifest): ArenaPickRecord {
+  const result = pickSchema.safeParse(value);
+  if (!result.success) throw new Error("Malformed arena pick record; inspect private metadata.");
+  const pick = result.data;
+  const member = (id: string) => manifest.attempts.some(a => a.id === id);
+  if (pick.arenaId !== manifest.id || !member(pick.winnerId) || pick.archives.some(a => !member(a.attemptId)))
+    throw new Error("Stale or inconsistent arena pick record; inspect private metadata.");
+  return pick;
+}
+
+/** Sidecar leaves historical V1/V2 manifests and lifecycle outcomes unchanged. */
+export async function readArenaPick(repository: RepositoryContext, name: string, manifest: ArenaManifest): Promise<ArenaPickRecord | null> {
+  const dir = await directory(repository, name);
+  await privateDirectory(dir, false);
+  const path = join(dir, "pick.json");
+  try { await lstat(path); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  try { return validatePick(JSON.parse((await readPrivate(path)).toString("utf8")), manifest); }
+  catch { throw new Error("Unsafe, malformed, or stale arena pick record; inspect private metadata."); }
+}
+
+export interface ArenaPickSession {
+  pick: ArenaPickRecord | null;
+  savePick(): Promise<void>;
+  verify(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export async function openArenaForPick(
+  repository: RepositoryContext, name: string, expected: ArenaManifest, expectedPick: ArenaPickRecord | null,
+): Promise<ArenaPickSession> {
+  const lock = await openArenaForResume(repository, name, expected);
+  let savedPick = structuredClone(expectedPick);
+  const dir = await directory(repository, name);
+  const verify = async () => {
+    await lock.verifyTask();
+    const current = await readArenaRecord(repository, name, false);
+    if (!isDeepStrictEqual(current.manifest, expected) ||
+        !isDeepStrictEqual(await readArenaPick(repository, name, expected), savedPick))
+      throw new Error("Arena records changed since review; inspect before retrying pick.");
+  };
+  try { await verify(); }
+  catch (error) { await lock.close(); throw error; }
+  const session: ArenaPickSession = {
+    pick: structuredClone(expectedPick), verify, close: () => lock.close(),
+    async savePick() {
+      await verify();
+      const pick = validatePick(session.pick, expected);
+      const temporary = join(dir, `.pick-${randomUUID()}.tmp`);
+      try {
+        await writePrivate(temporary, Buffer.from(JSON.stringify(pick) + "\n"));
+        await verify();
+        await rename(temporary, join(dir, "pick.json"));
+        savedPick = structuredClone(pick);
+      } finally { await unlink(temporary).catch(() => {}); }
+    },
+  };
+  return session;
 }
 
 export interface ArenaSession {

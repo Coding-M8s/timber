@@ -12,7 +12,7 @@ import { readCleanupEvidence, readCleanupPublication, readCleanupTarget } from "
 import { discoverRepository } from "./repository";
 import { listWorktrees } from "./worktrees";
 import type {
-  CleanupInspection, CleanupOptions, CleanupResult, ConfirmCleanupDiscard, RepositoryConfig, RepositoryContext, ValidatedBase, Worktree,
+  CleanupInspection, CleanupOptions, CleanupPolicy, CleanupResult, ConfirmCleanupDiscard, RepositoryConfig, RepositoryContext, ValidatedBase, Worktree,
 } from "../types";
 
 type GitResult = { exitCode: number; stdout: string };
@@ -130,6 +130,7 @@ type BranchPreservation =
 async function deletePreservedBranch(
   repository: RepositoryContext, branchRef: string, expectedOid: string,
   preservation: BranchPreservation, config: RepositoryConfig, options: CleanupOptions, expectedBase: ValidatedBase | null,
+  beforeDelete?: () => Promise<void>,
 ): Promise<void> {
   const branchName = branchRef.slice("refs/heads/".length);
   const symbolic = await runGit(repository, ["symbolic-ref", "--quiet", branchRef]);
@@ -179,6 +180,7 @@ async function deletePreservedBranch(
     throw new Error(`Local branch ${branchName} is checked out in another worktree.`);
   }
 
+  await beforeDelete?.();
   const deleted = await runGit(repository, ["update-ref", "--no-deref", "-d", branchRef, expectedOid]);
   if (deleted.exitCode !== 0) throw new Error(`Could not conditionally delete local branch ${branchName}.`);
 
@@ -211,6 +213,7 @@ export async function cleanupWorktree(
   io: CommandIO = { stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } },
   confirmDiscard?: ConfirmCleanupDiscard,
   validateApproval?: () => Promise<void>,
+  policy: CleanupPolicy = {},
 ): Promise<CleanupResult> {
   let primaryRepository: RepositoryContext;
   try {
@@ -236,7 +239,8 @@ export async function cleanupWorktree(
   }
   const blocked = hardRefusal(evidence.inspection, options);
   if (blocked) throw new Error(blocked);
-  const upstreamDeleted = evidence.inspection.publication.kind === "upstream-deleted";
+  // Callers that preserve work themselves (arena archiving) must see every discard.
+  const upstreamDeleted = !policy.confirmEveryDiscard && evidence.inspection.publication.kind === "upstream-deleted";
   let discard = upstreamDeleted;
   // Capture before the prompt so an answer cannot authorize newly edited content.
   let fingerprint: string | null = null;
@@ -307,6 +311,7 @@ export async function cleanupWorktree(
 
   const path = finalInspection.worktree.path;
   const branchName = evidence.branchRef?.slice("refs/heads/".length) ?? null;
+  await policy.beforeRemove?.();
   let removed: GitResult;
   try {
     removed = await runGit(primaryRepository, ["worktree", "remove", ...(discard ? ["--force"] : []), "--", path]);
@@ -334,7 +339,7 @@ export async function cleanupWorktree(
       // Git removal deletes the saved association. Keep its selected input for
       // the final base check instead of falling back to repository configuration.
       const deletionOptions = finalEvidence.baseInput === undefined ? options : { ...options, base: finalEvidence.baseInput };
-      await deletePreservedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, preservation, config, deletionOptions, finalEvidence.validatedBase);
+      await deletePreservedBranch(primaryRepository, evidence.branchRef, evidence.headCommit, preservation, config, deletionOptions, finalEvidence.validatedBase, policy.beforeDeleteBranch);
       return { removedWorktreePath: path, deletedLocalBranch: branchName, retainedLocalBranch: null };
     } catch (error) {
       const currentOid = await branchObjectId(primaryRepository, evidence.branchRef);

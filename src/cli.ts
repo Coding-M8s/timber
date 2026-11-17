@@ -3,7 +3,7 @@ import { runNativeCleanup } from "./machine-done";
 import { runMachineCommand } from "./machine";
 import { parseArenaGroups } from "./arena/participants";
 import type { ArenaGroupToken } from "./arena/types";
-import type { ArenaNewOptions, ArenaResumeOptions } from "./arena/types";
+import type { ArenaNewOptions, ArenaResumeOptions, ArenaPickOptions } from "./arena/types";
 import { Command, CommanderError } from "commander";
 import { version } from "../package.json";
 import { FormattedError, safeDiagnostic } from "./display";
@@ -178,7 +178,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .on("option:preset", (value: string) => arenaTokens.push({option: "preset", value}))
     .option("--base <ref>", "Resolve one starting commit for every attempt")
     .option("--no-agent", "Prepare workspaces without launching agents; required for agent presets without a terminal")
-    .addHelpText("after", "\nAll worktrees and setup finish before sequential editor/foreground-agent launches. Failures retain completed state. No automatic cleanup or background sessions. Use arena resume to revisit retained attempts; pick follows separately.")
+    .addHelpText("after", "\nAll worktrees and setup finish before sequential editor/foreground-agent launches. Failures retain completed state. No automatic cleanup or background sessions. Use arena resume to revisit retained attempts, or arena pick to compare and explicitly keep a winner.")
     .action(async (name: string, options: { promptFile?: string; prompt?: string; defaultEffort?: string; name?: string; base?: string; agent?: boolean; editor?: boolean }) => {
       const normalized: ArenaNewOptions = {
         ...(options.defaultEffort === undefined ? {} : { defaultEffort: options.defaultEffort }),
@@ -209,6 +209,18 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       };
       if (handlers.arenaResume === undefined) throw new Error("Arena resume handler is unavailable in this embedding.");
       onExitCode(await handlers.arenaResume(name, normalized, context));
+    });
+
+  arena.command("pick <name>")
+    .description("BETA (incomplete): compare attempts, keep a winner, archive and remove the others")
+    .option("--inspect", "Compare attempts and print diff commands without changing anything")
+    .option("--winner <label>", "Attempt to keep; required without an interactive terminal")
+    .option("--keep-branch", "Keep local branches of removed attempts")
+    .option("--keep-ignored", "Keep attempts that contain ignored files such as .env instead of deleting those files")
+    .addHelpText("after", "\nBeta: incomplete and under active testing; behavior may change.\n\nThe winner's branch and workspace are untouched; nothing is merged or pushed. Before removing another attempt, its commits and uncommitted (non-ignored) files are saved under refs/timber/arena/<name>/<label>, so they can be restored with git worktree add. Ignored files are deleted unless --keep-ignored. Running attempts are kept. Attempts that cannot be archived or verified are kept with a reason; the command then exits nonzero and can be rerun. Removal frees disk; RAM is freed when agent processes exit, and Timber never kills them.")
+    .action(async (name: string, options: ArenaPickOptions) => {
+      if (handlers.arenaPick === undefined) throw new Error("Arena pick handler is unavailable in this embedding.");
+      onExitCode(await handlers.arenaPick(name, options, context));
     });
 
   program.command("setup")

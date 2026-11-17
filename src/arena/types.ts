@@ -146,3 +146,24 @@ export interface ArenaResumeOptions {
   agent?: false;
   editor?: boolean;
 }
+
+export interface ArenaPickOptions {
+  winner?: string;
+  keepBranch?: boolean;
+  keepIgnored?: boolean;
+  /** Read-only summaries and inspection commands. */
+  inspect?: boolean;
+}
+
+export interface ArenaPickArchive {
+  attemptId: string;
+  ref: string;
+  commit: string;
+}
+
+export interface ArenaPickRecord {
+  version: 1;
+  arenaId: string;
+  winnerId: string;
+  archives: ArenaPickArchive[];
+}
