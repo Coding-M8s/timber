@@ -66,6 +66,7 @@ export const configFileSchema = z.strictObject({
   })]).optional(),
   base_branch: z.string().trim().min(1).optional(),
   remote: z.string().trim().min(1).optional(),
+  max_generated_branch_name_length: z.number().int().positive().optional(),
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
   hooks: z.union([z.literal(false), z.strictObject({
     post_create: hookStepsSchema.default([]),
@@ -165,6 +166,9 @@ export function effectiveConfigValues(scopes: ConfigScopes): ConfigFile {
   return {
     ...(config.default_tracker === undefined ? {} : { default_tracker: config.default_tracker }),
     ...(globalArena === undefined && localArena === undefined ? {} : { arena: { agents: enabled(arenaAgents) } }),
+    ...(config.max_generated_branch_name_length === undefined ? {} : {
+      max_generated_branch_name_length: config.max_generated_branch_name_length,
+    }),
     ...(config.base_branch === undefined ? {} : { base_branch: config.base_branch }),
     ...(config.remote === undefined ? {} : { remote: config.remote }),
     ...(config.worktree_dir === undefined ? {} : { worktree_dir: config.worktree_dir }),
@@ -191,6 +195,9 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
     ...(config.arena ? {
       arena: { agents: Object.fromEntries(Object.entries(config.arena.agents).filter((entry): entry is [string, Exclude<typeof entry[1], false>] => entry[1] !== false)) },
     } : {}),
+    ...(config.max_generated_branch_name_length === undefined ? {} : {
+      maxGeneratedBranchNameLength: config.max_generated_branch_name_length,
+    }),
     baseBranch: config.base_branch ?? null,
     remote: config.remote ?? null,
     worktreeDir: config.worktree_dir === undefined ? null : resolve(primaryRoot, config.worktree_dir),

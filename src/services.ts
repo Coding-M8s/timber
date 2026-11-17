@@ -7,7 +7,7 @@ import type {
 } from "./types";
 import type { BaseAssociationRead } from "./git/base-metadata";
 import type { RebaseReport } from "./git/rebase";
-import type { TerminalChooser } from "./selection";
+import type { TerminalChooser, TerminalTextPrompt } from "./selection";
 import type { GithubRepository } from "./github/repository";
 import type { LinearTicket } from "./linear/client";
 import type { GithubTicket } from "./github/client";
@@ -97,6 +97,8 @@ export interface CommandContext {
   io: CommandIO;
   /** Present only when stdin and stdout are interactive terminals and CI is disabled. */
   choose?: TerminalChooser;
+  /** Present under the same conditions as `choose`; reads one line of free text. */
+  ask?: TerminalTextPrompt;
 }
 
 export interface NewOptions {

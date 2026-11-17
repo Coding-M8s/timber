@@ -12,6 +12,9 @@ export interface ChoiceOption {
 
 export type TerminalChooser = (message: string, choices: readonly ChoiceOption[]) => Promise<string | null>;
 
+/** Ask for one line of free text. Resolves null on cancel or end of input. */
+export type TerminalTextPrompt = (message: string) => Promise<string | null>;
+
 const controls = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu;
 
 function escapeControl(character: string): string {
@@ -92,6 +95,29 @@ export function createTerminalChooser(input: Readable, output: Writable): Termin
         }
         output.write("Invalid choice.\n");
       }
+    } finally {
+      process.removeListener("SIGINT", cancelOnInterrupt);
+      readline.removeListener("SIGINT", cancelOnInterrupt);
+      readline.close();
+    }
+  };
+}
+
+export function createTerminalTextPrompt(input: Readable, output: Writable): TerminalTextPrompt {
+  return async message => {
+    const readline = createInterface({ input, crlfDelay: Infinity });
+    let interrupted = false;
+    const cancelOnInterrupt = () => {
+      interrupted = true;
+      readline.close();
+    };
+    readline.on("SIGINT", cancelOnInterrupt);
+    process.on("SIGINT", cancelOnInterrupt);
+    try {
+      output.write(message.split("\n").map(safeText).join("\n"));
+      const next = await readline[Symbol.asyncIterator]().next();
+      if (next.done || interrupted || next.value.includes("\u0003")) return null;
+      return next.value.trim();
     } finally {
       process.removeListener("SIGINT", cancelOnInterrupt);
       readline.removeListener("SIGINT", cancelOnInterrupt);

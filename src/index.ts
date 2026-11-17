@@ -43,7 +43,7 @@ import { resolveLinearTicket } from "./linear/client";
 import { resolveGithubTicket } from "./github/client";
 import { createLinearSetupSession } from "./setup/linear";
 import { createGithubSetupSession } from "./setup/github";
-import { createTerminalChooser, shouldEnableInteractiveSelection } from "./selection";
+import { createTerminalChooser, createTerminalTextPrompt, shouldEnableInteractiveSelection } from "./selection";
 
 if (process.argv[2] === "__editor-task") {
   process.exit(await runEditorTask(process.argv.length === 4 ? process.argv[3]! : ""));
@@ -57,6 +57,7 @@ const choose = !completing && shouldEnableInteractiveSelection({
   stdoutIsTTY: process.stdout.isTTY === true,
   ...(process.env.CI === undefined ? {} : { ci: process.env.CI }),
 }) ? createTerminalChooser(process.stdin, process.stdout) : undefined;
+const ask = choose ? createTerminalTextPrompt(process.stdin, process.stdout) : undefined;
 
 const ci = process.env.CI?.toLowerCase();
 const launchEditorTerminals = createEditorTerminalLauncher({ self: { executable: process.execPath,
@@ -132,5 +133,6 @@ process.exitCode = await runCli(process.argv.slice(2), {
       stderr: text => { process.stderr.write(text); },
     },
     ...(choose ? { choose } : {}),
+    ...(ask ? { ask } : {}),
   },
 });
