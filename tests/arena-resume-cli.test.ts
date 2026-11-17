@@ -27,7 +27,7 @@ test("resume CLI normalizes explicit options, propagates numeric exit and reject
 });
 
 test("resume help/completion advertise exact selection and explicit setup without reading configuration", async () => {
-  expect(await candidates("timber arena ")).toEqual(["help", "new", "resume"]);
+  expect(await candidates("timber arena ")).toEqual(["help", "new", "pick", "resume"]);
   expect(await candidates("timber arena resume demo --att")).toEqual(["--attempt"]);
   expect(await candidates("timber arena resume demo --no-")).toEqual(["--no-agent", "--no-editor"]);
   const result = await execa(process.execPath, [entry, "arena", "resume", "--help"]);

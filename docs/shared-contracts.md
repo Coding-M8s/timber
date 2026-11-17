@@ -63,7 +63,8 @@ versioned record, a manifest digest and a private `refs/timber/backups/<id>` ref
 only a renamed, verified directory is a usable backup. See
 [backups](cli-contract.md#worktree-recovery-backups-119). See [saved bases](cli-contract.md#saved-worktree-bases-79),
 [Arena creation](cli-contract.md#arena-creation-post-10-tim-20), and
-[resume](cli-contract.md#arena-resume-tim-21).
+[resume](cli-contract.md#arena-resume-tim-21), and
+[winner selection](cli-contract.md#arena-pick-tim-22).
 
 ## Tests
 

@@ -1,11 +1,14 @@
 #!/usr/bin/env bun
 import { resolveArenaSource, finalizeArenaSource } from "./arena/source";
 import { createArenaResumeHandler } from "./commands/arena-resume";
+import { createArenaPickHandler } from "./commands/arena-pick";
+import { summarizeArenaAttempt, inspectArenaRemoval } from "./arena/summary";
+import { archiveArenaAttempt } from "./arena/archive";
 import { createArenaNewHandler } from "./commands/arena-new";
 import { collectArenaInput } from "./arena/input";
 import { confirmArenaPlan, chooseArenaSource } from "./arena/prompt";
 import { planArenaDraft } from "./arena/plan";
-import { reserveArena, readArena, openArenaForResume, validateArenaAttempt } from "./arena/storage";
+import { reserveArena, readArena, openArenaForResume, validateArenaAttempt, readArenaPick, openArenaForPick } from "./arena/storage";
 import { showInstallationHint } from "./guidance";
 import { runEditorTask } from "./editor-terminals/runner";
 import { createEditorTerminalLauncher } from "./editor-terminals/launch";
@@ -81,6 +84,10 @@ process.exitCode = await runCli(process.argv.slice(2), {
     arenaResume: createArenaResumeHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, readArena, openArenaForResume,
       validateArenaAttempt, checkExecutable, runSetup, launchEditor, launchAgent,
+    }),
+    arenaPick: createArenaPickHandler({
+      discoverRepository, loadConfig: loadRepositoryConfig, readArena, readArenaPick, openArenaForPick,
+      validateArenaAttempt, summarizeArenaAttempt, inspectArenaRemoval, archiveArenaAttempt, cleanupWorktree,
     }),
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
       jira: createJiraSetupSession,

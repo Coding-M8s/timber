@@ -69,6 +69,8 @@ Run these inside the Git repository you want to work on:
 | `timber ls` | List paths, bases, and file status |
 | `timber done my-feature` | Remove a finished worktree and its local branch |
 | `timber done my-feature --base parent-feature` | Override the cleanup merge target |
+| `timber arena pick search-fix --inspect` | Compare arena attempts without changes |
+| `timber arena pick search-fix` | Keep a winner; archive and remove the rest |
 
 New folders normally live at `../<repository-name>-worktrees/<branch-slug>`.
 Timber prints the absolute path; `cd` there yourself. Existing worktrees skip
@@ -85,12 +87,17 @@ Use `--keep-ignored` to refuse cleanup when ignored files exist, and `--keep-bra
 to retain the local branch. Remote branches stay untouched.
 See [cleanup details](docs/guide.md#finish-a-worktree).
 
+**`arena pick` is an incomplete beta feature under active testing; its interface
+and behavior may change.** It keeps the winner untouched and archives each other
+attempt under `refs/timber/arena/` before removing it, so nothing but ignored files
+is lost. See [winner selection](docs/guide.md#choose-an-arena-winner).
+
 ## More help
 
 Use `timber <command> --help` for flags.
 
 - [User guide](docs/guide.md): configuration, Jira, trusted shell hooks, and workflows
-- [Arena](docs/guide.md#arena-multiple-isolated-attempts): create and resume isolated agent attempts
+- [Arena](docs/guide.md#arena-multiple-isolated-attempts): create, resume, compare, and pick isolated attempts
 - [Shell completion](docs/completion.md): Bash, Zsh, and Fish
 - [Orca editor terminals](docs/editor-terminals.md)
 - [Building and releasing](docs/releases.md)

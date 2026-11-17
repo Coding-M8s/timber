@@ -869,7 +869,7 @@ this Fish limitation, and the actually verified Linux shell environments.
 `timber arena new <name-or-ticket>` prepares at least two fresh attempts from one pinned
 commit and identical immutable task instructions, then launches agents sequentially
 in the invoking terminal. This enhancement does not block stable release;
-resume is specified below; pick remains a separate ticket.
+resume and pick are specified below.
 
 ### Lifecycle boundaries
 
@@ -896,7 +896,7 @@ selection itself is not publication or integration evidence.
 Creation exposes live foreground output, paths and stage/exit outcomes. These
 contracts do not add collected final-answer reports, automatic quality judging,
 parallel/background session management, automatic merging/publishing, or implicit
-process killing. Resume is specified below; pick remains a future command until TIM-22 lands.
+process killing. Resume and pick are specified below.
 
 ### Tool, model, effort, and runs
 
@@ -1187,3 +1187,91 @@ Resume guarantees workspace continuation for valid retained identities, not univ
 agent conversation restoration. No native resume flags/session IDs are inferred.
 Only explicit tool/wrapper support may restore a conversation. Exit zero never proves
 quality, integration, or a winning attempt.
+
+## Arena pick (TIM-22)
+
+Status: incomplete beta under active testing, not a finished stable feature.
+Display this status in command help and invocation output. Interface and behavior
+may change before stable release; the preservation rules below are enforced now.
+
+`timber arena pick <name> [--inspect | --winner <label>] [--keep-branch] [--keep-ignored]`
+compares recorded attempts, records an explicit human winner, and removes the
+other attempts after archiving their work.
+
+### Comparison
+
+One line per attempt: label, recorded tool/preset, recorded model and requested
+effort when known (never inferred), lifecycle/exit state, and its work: commits
+since the pinned base with a diff stat, uncommitted tracked changes (staged and
+unstaged together) against HEAD, and the untracked file count. Committed and
+uncommitted work are shown separately, so a clean net diff never reads as an
+empty attempt. Paths follow on the next line. `--inspect` changes nothing, adds a
+safely quoted `git diff <base>` command per attempt and a reopen command, and
+cannot be combined with `--winner`. Comparison failures (missing or replaced
+identity, unknown status) are shown with their reason. Git runs with argument
+arrays, `--no-ext-diff --no-textconv`, and no task or argv output.
+
+### Selection
+
+Without `--winner` an interactive chooser is required; it offers only attempts
+whose worktree still exists, keyed by UUID. A second confirmation lists the
+winner, the attempts to remove, and the ignored-file and branch policy, with
+Cancel as the default. Cancellation changes no files, refs, or records and takes
+no lock. `--winner <exact-label>` authorizes selection and cleanup without
+prompts; an unknown label is rejected with the valid labels. The winner must be
+inactive and pass reciprocal Git/UUID identity validation. Its branch and
+workspace are never modified, including local edits. Nothing is merged or pushed.
+
+The winner may be changed by a later pick while it still has a worktree. The
+previous winner is then an ordinary loser and is archived before removal.
+
+### Archive before removal
+
+Choosing a winner is not evidence that other attempts are published, so pick
+preserves them itself. Before removing a loser, Timber writes a ref
+`refs/timber/arena/<name>/<label>` (suffix `-2`, `-3`, ... when taken; existing
+refs are never overwritten) pointing at:
+
+- the loser's HEAD when it has no uncommitted or untracked files, or
+- a snapshot commit whose parent is HEAD and whose tree holds all tracked and
+  untracked, non-ignored files, built with a private temporary index under a
+  fixed `Timber` identity. The attempt's own index, files, and refs are untouched.
+
+Ignored files are not archived. They are deleted with the worktree by default;
+`--keep-ignored` keeps any attempt that contains them. Local changes inside
+submodules cannot be archived and keep the attempt. The archive is recorded in
+`pick.json` before removal. Restore with
+`git worktree add -b <branch> <path> refs/timber/arena/<name>/<label>`.
+Archive refs are never deleted by Timber.
+
+Removal uses ordinary `cleanupWorktree` with the archive step as its discard
+authorization: the discard fingerprint is captured before archiving and checked
+again immediately before `git worktree remove --force`, so files changed after
+archiving (including by hooks) keep the attempt. Deleted-upstream auto-discard is
+routed through the same archive step. Hooks, identity, operation and base
+protections are unchanged, and ordinary `done` behavior is unchanged. Local loser
+branches are deleted with the expected-OID guard; `--keep-branch` keeps them.
+Remote branches are never deleted.
+
+### Protection and boundaries
+
+Acquire the existing exclusive arena lock, reread the exact manifest, task, and
+pick snapshot, and verify them before every write. Revalidate the winner and each
+loser's membership, path, branch, reciprocal identity, and inactive lifecycle
+before archiving, before removal (after hooks), and before branch deletion.
+Primary, winner, running or interrupted attempts, and unrelated or replaced
+worktrees are kept with a reason. Never steal locks or recreate arenas.
+
+### Outcomes and repeat
+
+Each loser prints `Removed`, `Partly removed` (worktree gone, branch kept), or
+`Kept` with a reason. Any kept or partial result exits nonzero and prints the
+exact rerun command. A repeat reads live Git state: attempts whose worktree is
+gone are shown as removed and skipped, and recreated branches or paths are never
+adopted or deleted. Original V1/V2 manifests and lifecycle records are never
+rewritten; private versioned `pick.json` holds only the winner UUID and archives.
+
+Never kill processes, manage background agents, merge, publish, stash, or reset.
+Removal frees disk; RAM is released when agent processes exit, and lifecycle
+metadata cannot detect every external process. Concurrent writers to targets
+remain outside the guarantee.

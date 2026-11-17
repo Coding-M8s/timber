@@ -172,6 +172,14 @@ export interface CleanupOptions {
   discardIgnored: boolean;
 }
 
+/** Internal caller policy, never a CLI discard bypass. */
+export interface CleanupPolicy {
+  /** Route upstream-deleted discards through confirmDiscard too, so the caller can preserve work first. */
+  confirmEveryDiscard?: boolean;
+  beforeRemove?: () => Promise<void>;
+  beforeDeleteBranch?: () => Promise<void>;
+}
+
 export interface CleanupResult {
   removedWorktreePath: string;
   /** Set when the local branch was deleted. Mutually exclusive with retainedLocalBranch. */

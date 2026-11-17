@@ -80,3 +80,14 @@ export interface ArenaResumeServices extends Pick<CommandServices,
   validateArenaAttempt(repository: RepositoryContext, manifest: ArenaManifest, attempt: ArenaAttemptRecord): Promise<Worktree>;
   checkExecutable(command: string): Promise<boolean>;
 }
+
+export interface ArenaPickServices extends Pick<CommandServices,
+  "discoverRepository" | "loadConfig" | "cleanupWorktree"> {
+  readArena: ArenaResumeServices["readArena"];
+  readArenaPick: typeof import("./storage").readArenaPick;
+  openArenaForPick: typeof import("./storage").openArenaForPick;
+  validateArenaAttempt: ArenaResumeServices["validateArenaAttempt"];
+  summarizeArenaAttempt: typeof import("./summary").summarizeArenaAttempt;
+  inspectArenaRemoval: typeof import("./summary").inspectArenaRemoval;
+  archiveArenaAttempt: typeof import("./archive").archiveArenaAttempt;
+}

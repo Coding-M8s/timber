@@ -75,7 +75,7 @@ test("Fish argv transport matches shared candidate requests", async () => {
     code: 0, candidates: ["--tool=cursor"], stderr: "",
   });
   expect(await transport(["__complete", "--fish", "--", "", "arena"])).toEqual({
-    code: 0, candidates: ["help", "new", "resume"], stderr: "",
+    code: 0, candidates: ["help", "new", "pick", "resume"], stderr: "",
   });
   expect(await transport(["__complete", "--fish", "--", "--", "open", "--"])).toEqual({
     code: 0, candidates: [], stderr: "",

@@ -1,7 +1,7 @@
 import type { MachineReporter } from "./machine";
-import type { ArenaNewOptions, ArenaResumeOptions } from "./arena/types";
+import type { ArenaNewOptions, ArenaResumeOptions, ArenaPickOptions } from "./arena/types";
 import type {
-  AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupResult, ConfirmCleanupDiscard, CreateWorktreeRequest,
+  AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupPolicy, CleanupResult, ConfirmCleanupDiscard, CreateWorktreeRequest,
   EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
@@ -61,7 +61,7 @@ export interface CommandServices {
    * Keep options and hard identity/operation failures remain enforced.
    */
   cleanupWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig, options: CleanupOptions,
-    io?: CommandIO, confirmDiscard?: ConfirmCleanupDiscard): Promise<CleanupResult>;
+    io?: CommandIO, confirmDiscard?: ConfirmCleanupDiscard, validateApproval?: () => Promise<void>, policy?: CleanupPolicy): Promise<CleanupResult>;
   /** Executable + args, no shell; null config or disabled means skipped. */
   launchEditor(worktree: Worktree, config: RepositoryConfig, disabled: boolean): Promise<EditorResult>;
   /** Sequential trusted POSIX hooks; rejection retains workspace and blocks launch. */
@@ -128,6 +128,7 @@ export interface CommandHandlers {
   arenaNew?(name: string, options: ArenaNewOptions, context: CommandContext): Promise<number>;
   /** Existing attempts only; no materialization or ordinary agent substitution. */
   arenaResume?(name: string, options: ArenaResumeOptions, context: CommandContext): Promise<number>;
+  arenaPick?(name: string, options: ArenaPickOptions, context: CommandContext): Promise<number>;
   setup(options: { global: boolean }, context: CommandContext): Promise<void>;
   new: (branch: string, options: NewOptions, context: CommandContext) => Promise<void | number>;
   open(input: string, options: OpenOptions, context: CommandContext): Promise<void | number>;
