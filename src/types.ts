@@ -113,6 +113,8 @@ export type IssueTracker = "github" | "linear" | "jira" | "none";
 
 export interface RepositoryConfig {
   defaultTracker?: IssueTracker;
+  /** Total character cap for issue and sentence generated names; absent retains legacy limits. */
+  maxGeneratedBranchNameLength?: number;
   /** Optional named executable presets for arena attempts. */
   arena?: ArenaConfig;
   baseBranch: string | null;

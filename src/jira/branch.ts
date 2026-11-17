@@ -1,14 +1,25 @@
+import { finishWordAt, shortenAtWord } from "../branch-shorten";
+
 const jiraTicketKeyPrefix = /^[A-Z][A-Z0-9]*-[0-9]+/;
-const maxBranchNameLength = 120;
+const defaultMaxBranchNameLength = 120;
 
 export function isJiraTicketKey(input: string): boolean {
   return jiraTicketKeyPrefix.exec(input)?.[0] === input;
 }
 
-export function jiraBranchName(key: string, title: string): string {
+export interface GeneratedTicketBranch {
+  name: string;
+  /** The uncapped generated name, present only when a configured limit shortened it. */
+  original?: string;
+  /** The name with the word cut by the limit completed; longer than the limit. */
+  finished?: string;
+}
+
+export function generateTicketBranch(key: string, title: string, maxBranchNameLength?: number): GeneratedTicketBranch {
+  const limit = maxBranchNameLength ?? defaultMaxBranchNameLength;
   if (!isJiraTicketKey(key)) throw new Error("Invalid Jira ticket key.");
   if (title.trim().length === 0) throw new Error("Jira summary must not be blank.");
-  if (key.length + 2 > maxBranchNameLength) {
+  if (key.length + 2 > limit) {
     throw new Error("Jira ticket key is too long to include a branch suffix.");
   }
 
@@ -17,8 +28,19 @@ export function jiraBranchName(key: string, title: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/gu, "-")
     .replace(/^-+|-+$/gu, "") || "issue";
-  const suffixLength = maxBranchNameLength - key.length - 1;
-  const suffix = slug.slice(0, suffixLength).replace(/-+$/u, "");
+  const suffixLength = limit - key.length - 1;
+  if (slug.length <= suffixLength) return { name: `${key}-${slug}` };
+  const suffix = maxBranchNameLength === undefined
+    ? slug.slice(0, suffixLength).replace(/-+$/u, "")
+    : shortenAtWord(Array.from(slug), suffixLength, new Set(["-"]));
+  const result: GeneratedTicketBranch = { name: `${key}-${suffix}`, original: `${key}-${slug}` };
+  if (maxBranchNameLength !== undefined) {
+    const finished = finishWordAt(Array.from(slug), suffixLength, new Set(["-"]));
+    if (finished !== undefined && `${key}-${finished}` !== result.name) result.finished = `${key}-${finished}`;
+  }
+  return result;
+}
 
-  return `${key}-${suffix}`;
+export function jiraBranchName(key: string, title: string, maxBranchNameLength?: number): string {
+  return generateTicketBranch(key, title, maxBranchNameLength).name;
 }

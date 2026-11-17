@@ -211,13 +211,16 @@ spaces with one hyphen. Inputs without U+0020 remain byte-for-byte unchanged, so
 exact Jira ticket detection continues to use the raw whole input. Reject blank
 names and control characters before worktree creation; safely render the original
 input in control-character diagnostics. Preserve other characters for installed
-Git to validate. Do not slugify punctuation, truncate names, or append suffixes.
+Git to validate. Do not slugify punctuation or append suffixes. Sentence-derived
+names are truncated only when `max_generated_branch_name_length` is configured;
+inputs without U+0020 spaces remain exact regardless of this setting.
 
 ## Repository configuration
 
 Read `.timber.toml` from the primary worktree root and Linux machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml`. Empty or relative XDG paths use the HOME fallback. Do not search nested or linked-worktree configuration. Validate both existing files independently; unknown keys, unreadable files, and invalid values are errors even when overridden in the other scope. Missing files use defaults.
 
-Core configuration keys are `base_branch`, `remote`, `worktree_dir`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below.
+Core configuration keys are `base_branch`, `remote`, `worktree_dir`,
+`max_generated_branch_name_length`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below.
 
 Precedence is explicit CLI options > repository TOML > global TOML > built-in defaults. Absent keys inherit. Present optional tables replace the whole lower-scope table: executable/argument combinations stay together, and argument arrays and hook lists never concatenate. Relative `worktree_dir` in either scope resolves against the current repository's primary root. Root-level `editor = false`, `agent = false`, `hooks = false`, or `jira = false` explicitly disables that inherited integration; `true` is invalid. Editor and agent tables with a command and `enabled = false` still support explicit `--editor` and `--agent`, respectively; root-level `false` removes the inherited command. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional integrations described below.
 
@@ -236,6 +239,43 @@ enabled = false
 command = "claude"
 args = []
 ```
+
+`max_generated_branch_name_length` is an optional positive safe integer in either
+configuration scope. Repository values override global values; both files must be
+valid independently. It caps the complete generated branch name in Unicode code
+points, including an issue's full canonical ID and its separator. For example:
+
+```toml
+max_generated_branch_name_length = 80
+```
+
+GitHub, Linear and Jira names retain the full ID plus at least one descriptive
+ASCII suffix character. Refuse a limit too small for these before creation.
+Their existing title normalization is unchanged. Sentence input retains existing
+space/lowercase normalization. When a configured limit is exceeded, cut back to the
+last complete word (separators `-`, `_`, `.`, `/` for sentences; `-` for issue
+slugs) and remove trailing separators. If not even one whole word fits, fall back
+to a hard cut at the limit without splitting Unicode code points. Issue names
+always keep the full ID, its separator and at least one suffix character. Refuse
+an empty result.
+
+When a name was shortened and the command is interactive, `new` shows the
+generated name, the shortened proposal and the limit before any Git mutation, and
+lets the user accept the proposal, finish the word the limit cut, or enter a
+replacement. The finish choice appears only when the limit fell inside a word; it
+extends the cut to the end of that word (next separator or end of name), removes
+trailing separators, and may exceed the limit (for example limit 10 turns
+`fix-this-issue-with-number-5` into `fix-this`, with `fix-this-issue` offered). It is
+still validated as a Git branch name. A typed replacement must be
+non-blank, within the limit, a valid Git branch name, and for issues start with
+`<ID>-`; invalid input is asked again. Cancelling or end of input aborts with no
+Git changes. Non-interactive runs use the shortened proposal without prompting.
+Names within the limit are never prompted. Installed Git validates the final name, and existing branch/path
+collision checks still refuse without mutation or automatic collision suffixes.
+Explicit names without spaces, existing branches opened by `open`, and Arena's
+structured names are unaffected. When unset, issue names retain their 120-character
+cap and sentence names remain uncapped. A configured value above 120 can increase
+the issue-name cap; filesystem and Git limits still apply.
 
 An alternative for Visual Studio Code is:
 
@@ -377,8 +417,9 @@ transport errors or response bodies. Failures stop before creation/hooks/launch.
 
 Closed issues refuse creation and suggest `-c`. Explicit `-c` permits closed
 issues but never reopens them, permits PRs, or bypasses Git protections. Generate
-`GH-<number>-<title-slug>` with the existing Jira algorithm and 120-character total
-cap. No collision suffixes. Output the branch/path and GitHub URL after creation.
+`GH-<number>-<title-slug>` with the existing Jira algorithm and configured total cap
+(120 characters when unset). No collision suffixes. Output the branch/path and
+GitHub URL after creation.
 Titles become potentially public branch text. Different issue repositories share
 the local GH-number namespace, and title changes can produce new branches:
 `open GH-123` uses existing offline matching, including its ambiguity chooser.
@@ -439,8 +480,8 @@ creation, metadata, hooks or launches, except the missing-only default fallback
 described above. Never disclose keys, response bodies, raw GraphQL messages or raw transport exceptions.
 
 Generate `<canonical-key>-<title-slug>` with the existing Jira slug algorithm and
-120-character total cap. Git remains authoritative for collisions, without appended
-suffixes. Print branch/path and the Linear browse URL after creation. Reuse saved
+configured total cap (120 characters when unset). Git remains authoritative for
+collisions, without appended suffixes. Print branch/path and the Linear browse URL after creation. Reuse saved
 base metadata, workflow selection, setup, hooks and editor/agent sequencing. Titles become
 potentially public branch text; title changes can generate different branch names.
 Offline ticket matching and hook `TIMBER_TASK_ID` extraction remain unchanged.
@@ -522,9 +563,9 @@ For a recognized ticket, `new` validates its base before lookup. If the exact is
 is available and active, it generates `<canonical-key>-<summary-slug>` before the
 existing Git creation checks. Normalize the summary with NFKD, remove combining
 marks, lowercase, replace each run outside ASCII letters and digits with `-`, trim
-hyphens, and cap the entire generated name at 120 ASCII characters while preserving
-the key. Use `issue` if the summary leaves no slug characters. Git remains
-authoritative for branch validity, existing refs, and path collisions; do not append
+hyphens, and cap the entire generated name at the configured length (120 ASCII
+characters when unset) while preserving the key. Use `issue` if the summary leaves
+no slug characters. Git remains authoritative for branch validity, existing refs, and path collisions; do not append
 numeric suffixes or bypass collisions. Report the generated branch and browse URL
 only after creation succeeds. The title contributes to a public-looking Git branch,
 so use a literal branch when a title is sensitive. If a title changes, `new` may name

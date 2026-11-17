@@ -245,7 +245,8 @@ Only a complete uppercase key such as `ENG-834` is looked up, and only when
 `[jira]` is configured. `timber new ENG-834` looks up the issue and creates a
 branch from its canonical key and summary. For example, `Fix café / login!`
 becomes `ENG-834-fix-cafe-login`. Timber normalizes the summary into an ASCII
-slug and caps the whole branch name at 120 characters. A non-Latin or
+slug and caps the whole branch name at `max_generated_branch_name_length`
+(120 characters when unset). A non-Latin or
 punctuation-only summary uses `issue` as its suffix.
 
 Timber checks the Jira status category before creating a branch. It accepts only
@@ -462,6 +463,31 @@ startup files. See [activation, installation, and verified environment](completi
 ## Repository configuration
 
 Timber reads `.timber.toml` from the primary worktree root and machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml` on Linux. Missing settings use documented defaults, and relative `worktree_dir` values resolve from that root. Agent launching is opt-in; see the agent section below. Commands use executable names and argument arrays; keep secrets in environment variables or a secret store. See the [CLI contract](cli-contract.md) for accepted fields, defaults, path resolution, precedence, and validation errors.
+
+Set `max_generated_branch_name_length` in global config or repository `.timber.toml`
+to limit names generated from issue titles and sentences. Repository settings win:
+
+```toml
+max_generated_branch_name_length = 80
+```
+
+For example, with `max_generated_branch_name_length = 12`,
+`timber new "Fix login retry behavior"` creates `fix-login`, and an issue with canonical ID `ENG-123`
+and title "Fix café login" creates `ENG-123-fix`. The limit includes the complete
+ID and separator. Timber refuses settings that cannot retain the full ID plus a
+descriptive suffix, and refuses collisions instead of choosing another name.
+
+Use a positive integer. Names count Unicode code points. Shortening cuts back to
+the last complete word and removes trailing separators; only a single first word
+longer than the limit is cut mid-word. In an interactive terminal, Timber shows the
+generated and shortened names and lets you accept the shortened one, finish the
+word the limit cut (offered only when the limit cut a word; the result is over the
+limit), or type your own (within the limit, and starting with the issue ID for issue names). Without a
+terminal it uses the shortened name. Git still validates the result.
+Explicit branch names without spaces and existing branches keep their exact names;
+Arena names are unaffected. With no setting, issue names keep their existing
+120-character cap and sentences remain uncapped. See the
+[CLI contract](cli-contract.md#repository-configuration) for full rules.
 
 Editor opening stays off by default, even with a configured `[editor]` command. Set `enabled = true` in that table to open it automatically, or use `--editor` on `new` or `open` for one command. `--no-editor` suppresses launch. Both flags together are an error. An explicit `--editor` requires a configured command; a repository-level `editor = false` removes an inherited command. Timber starts the editor after required Git and setup work. Set `command` to an executable available on Timber's `PATH`, or provide its absolute path. Each `args` entry is passed literally as a separate argument, and Timber appends the absolute worktree path at the end.
 
@@ -874,8 +900,8 @@ timber new linear:ENG-123 --base main -w feature
 timber open ENG-123
 ```
 
-The current title becomes a branch such as `ENG-123-fix-login`, capped at 120
-characters using the Jira naming rules. Titles can become public through pushed
+The current title becomes a branch such as `ENG-123-fix-login`, capped at
+`max_generated_branch_name_length` (120 characters when unset) using the Jira naming rules. Titles can become public through pushed
 branches, paths and logs. Title changes may produce another branch name; collisions
 fail without adding suffixes. Creation prints the branch, path and Linear issue link
 and follows ordinary setup, workflow, editor and agent settings.

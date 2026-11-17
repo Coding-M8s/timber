@@ -1,8 +1,10 @@
 import { reportAgentResult } from "../agent";
 import { FormattedError, failureWithRetry, retryNamingWorkflow, safeDisplay, shellQuoteForDisplay, workflowRetryFlag } from "../display";
-import type { CommandHandlers, CommandServices } from "../services";
+import type { CommandContext, CommandHandlers, CommandServices } from "../services";
 import { JiraLookupFailure } from "../jira/client";
-import { isJiraTicketKey, jiraBranchName } from "../jira/branch";
+import { finishWordAt, shortenAtWord } from "../branch-shorten";
+import { validateNewBranchName } from "../git/branches";
+import { generateTicketBranch, isJiraTicketKey } from "../jira/branch";
 import type { JiraTicket } from "../types";
 import { LinearLookupFailure } from "../linear/client";
 import { GithubLookupFailure } from "../github/client";
@@ -16,7 +18,17 @@ type NewServices = Pick<CommandServices,
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
-function normalizeBranchInput(branch: string): string {
+const sentenceSeparators: ReadonlySet<string> = new Set(["-", "_", ".", "/"]);
+
+interface GeneratedName {
+  name: string;
+  /** Present only when a configured limit shortened the generated name. */
+  original?: string;
+  /** The name with the word cut by the limit completed; longer than the limit. */
+  finished?: string;
+}
+
+function normalizeBranchInput(branch: string, maximum?: number): GeneratedName {
   if (terminalControl.test(branch)) {
     throw new Error(`Invalid branch name: ${safeDisplay(branch)}`);
   }
@@ -24,14 +36,87 @@ function normalizeBranchInput(branch: string): string {
   const normalized = branch.includes(" ")
     ? branch.replace(/^ +| +$/gu, "").toLowerCase().replace(/ +/gu, "-")
     : branch;
+  if (branch.includes(" ") && maximum !== undefined) {
+    const characters = Array.from(normalized);
+    if (characters.length > maximum) {
+      const name = shortenAtWord(characters, maximum, sentenceSeparators);
+      const finished = finishWordAt(characters, maximum, sentenceSeparators);
+      return { name, original: normalized, ...(finished !== undefined && finished !== name ? { finished } : {}) };
+    }
+  }
   if (normalized.length === 0) throw new Error("Invalid branch name: branch name must not be blank.");
-  return normalized;
+  return { name: normalized };
+}
+
+/**
+ * When a limit shortened a generated name, let an interactive user accept the
+ * proposal or type a replacement. Returns null when the user cancels.
+ */
+async function confirmShortenedName(
+  generated: GeneratedName,
+  maximum: number,
+  requiredPrefix: string | undefined,
+  repository: Parameters<typeof validateNewBranchName>[0],
+  context: CommandContext,
+): Promise<string | null> {
+  if (generated.original === undefined || context.choose === undefined || context.ask === undefined) {
+    return generated.name;
+  }
+  const accept = "accept";
+  const finish = "finish";
+  const custom = "custom";
+  const finished = generated.finished;
+  const choice = await context.choose(
+    `Generated branch name exceeds max_generated_branch_name_length (${maximum}).\n`
+    + `Generated: ${safeDisplay(generated.original)}\nShortened: ${safeDisplay(generated.name)}`,
+    [
+      { value: accept, label: `Use ${safeDisplay(generated.name)}`, default: true },
+      ...(finished === undefined ? [] : [{
+        value: finish,
+        label: `Finish the cut word: ${safeDisplay(finished)} (${Array.from(finished).length} characters, over the limit)`,
+      }]),
+      { value: custom, label: "Enter a different branch name" },
+    ],
+  );
+  if (choice === null) return null;
+  if (choice === finish && finished !== undefined) {
+    const problem = await replacementProblem(finished, Infinity, requiredPrefix, repository);
+    if (problem === undefined) return finished;
+    context.io.stdout(`${problem}\n`);
+  } else if (choice !== custom) return generated.name;
+  while (true) {
+    const answer = await context.ask(`Branch name (at most ${maximum} characters${requiredPrefix ? `, starting with ${requiredPrefix}` : ""}): `);
+    if (answer === null) return null;
+    const problem = await replacementProblem(answer, maximum, requiredPrefix, repository);
+    if (problem === undefined) return answer;
+    context.io.stdout(`${problem}\n`);
+  }
+}
+
+async function replacementProblem(
+  name: string,
+  maximum: number,
+  requiredPrefix: string | undefined,
+  repository: Parameters<typeof validateNewBranchName>[0],
+): Promise<string | undefined> {
+  if (name.trim().length === 0) return "Branch name must not be blank.";
+  if (terminalControl.test(name)) return "Branch name must not contain control characters.";
+  if (Array.from(name).length > maximum) return `Branch name must be at most ${maximum} characters.`;
+  if (requiredPrefix !== undefined && !name.startsWith(requiredPrefix)) {
+    return `Branch name must start with ${requiredPrefix}.`;
+  }
+  try {
+    await validateNewBranchName(repository, name);
+  } catch {
+    return `Invalid branch name: ${safeDisplay(name)}`;
+  }
+  return undefined;
 }
 
 export function createNewHandler(services: NewServices): CommandHandlers["new"] {
   return async (branch, options, context) => {
     resolveIssueInput(branch, {});
-    const branchInput = normalizeBranchInput(branch);
+    const branchInput = normalizeBranchInput(branch).name;
     const repository = await services.discoverRepository(context.cwd);
     await context.machine?.repository(repository);
     const config = await services.loadConfig(repository);
@@ -101,7 +186,18 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
       const provider = { github: "GitHub", linear: "Linear", jira: "Jira" }[input.kind];
       context.io.stdout(`${provider} ticket ${safeDisplay(branch)} was not found. Creating literal branch ${safeDisplay(branchInput)}.\n`);
     }
-    const selectedBranch = ticket ? jiraBranchName(ticket.key, ticket.title) : branchInput;
+    const maximum = config.maxGeneratedBranchNameLength;
+    const generated: GeneratedName = ticket
+      ? generateTicketBranch(ticket.key, ticket.title, maximum)
+      : normalizeBranchInput(branch, maximum);
+    const selectedName = maximum === undefined ? generated.name
+      : await confirmShortenedName(generated, maximum, ticket ? `${ticket.key}-` : undefined, repository, context);
+    if (selectedName === null) {
+      context.machine?.cancelled();
+      context.io.stdout("Cancelled.\n");
+      return;
+    }
+    const selectedBranch = selectedName;
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
     await context.machine?.worktree(worktree, true);
     try {
