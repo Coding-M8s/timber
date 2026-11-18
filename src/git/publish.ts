@@ -105,6 +105,13 @@ async function destination(repository: RepositoryContext, config: RepositoryConf
   return { remote: name, upstream: `refs/remotes/${name}/${tree.branch}`, setUpstream: true };
 }
 
+/** Where publish would push, read-only: the same preflight and remote choice, with no push. */
+export async function planPublish(repository: RepositoryContext, selected: Worktree, config: RepositoryConfig) {
+  const tree = await preflight(repository, selected);
+  const target = await destination(repository, config, tree);
+  return { path: tree.path, branch: tree.branch, head: tree.head, remote: target.remote, upstream: target.upstream };
+}
+
 /** Push one verified branch under its own name; never forces and never prompts. */
 export async function publishWorktree(
   repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,

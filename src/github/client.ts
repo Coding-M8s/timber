@@ -7,19 +7,33 @@ export interface GithubRuntime {
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   timeoutMs: number;
 }
-const defaultRuntime: GithubRuntime = { token: readGithubToken, fetch: (url, init) => fetch(url, init), timeoutMs: 10_000 };
+export const defaultGithubRuntime: GithubRuntime = { token: readGithubToken, fetch: (url, init) => fetch(url, init), timeoutMs: 10_000 };
 const malformed = () => new Error("GitHub returned an invalid response; no workspace was created.");
+
+/** Per-call wording and verbs; defaults keep issue lookup behavior. */
+export interface GithubRequestOptions {
+  method?: "GET" | "POST";
+  body?: unknown;
+  /** Diagnostic for a timeout; it says what this request leaves behind. */
+  timeout?: string;
+  /** Diagnostic for a body that fails validation or parsing. */
+  malformed?: () => Error;
+  /** Error for a non-success status, or undefined to use the shared mapping. The body is never echoed. */
+  rejected?: (status: number, body: unknown) => Error | undefined;
+}
 
 export class GithubLookupFailure extends Error {
   constructor(message: string, readonly reason?: "not-found") { super(message); }
 }
 
-async function request<T>(path: string, runtime: GithubRuntime, validate: (body: unknown) => T): Promise<T> {
+export async function request<T>(path: string, runtime: GithubRuntime, validate: (body: unknown) => T,
+  options: GithubRequestOptions = {}): Promise<T> {
+  const invalid = options.malformed ?? malformed;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
-      reject(new Error("GitHub lookup timed out; no workspace was created."));
+      reject(new Error(options.timeout ?? "GitHub lookup timed out; no workspace was created."));
       controller.abort();
     }, runtime.timeoutMs);
   });
@@ -29,14 +43,21 @@ async function request<T>(path: string, runtime: GithubRuntime, validate: (body:
     let response: Response;
     try {
       response = await runtime.fetch(`https://api.github.com${path}`, {
-        method: "GET", redirect: "error", signal: controller.signal,
+        method: options.method ?? "GET", redirect: "error", signal: controller.signal,
         headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`,
-          "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "timber" },
+          "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "timber",
+          ...(options.body === undefined ? {} : { "Content-Type": "application/json" }) },
+        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       });
     } catch { throw new Error("GitHub network or redirect failure; check connectivity and retry explicitly."); }
     controller.signal.throwIfAborted();
     if (!response.ok || response.redirected) {
-      void response.body?.cancel().catch(() => {});
+      if (options.rejected && !response.redirected) {
+        let rejectedBody: unknown = null;
+        try { rejectedBody = await response.json(); } catch { /* an unreadable body is classified by status alone */ }
+        const custom = options.rejected(response.status, rejectedBody);
+        if (custom) throw custom;
+      } else void response.body?.cancel().catch(() => {});
       if (response.status === 401) throw new Error("GitHub authentication failed; check your environment token or run timber setup.");
       if (response.status === 403 || response.status === 429) throw new Error("GitHub denied access or rate limited the request; check permissions and rate limits.");
       if (response.status === 404 || response.status === 410) throw new GithubLookupFailure(
@@ -45,7 +66,7 @@ async function request<T>(path: string, runtime: GithubRuntime, validate: (body:
       throw new Error("GitHub request failed or redirected; check the selected repository and try again.");
     }
     let body: unknown;
-    try { body = await response.json(); } catch { throw malformed(); }
+    try { body = await response.json(); } catch { throw invalid(); }
     controller.signal.throwIfAborted();
     return validate(body);
   };
@@ -54,7 +75,7 @@ async function request<T>(path: string, runtime: GithubRuntime, validate: (body:
 }
 
 export async function resolveGithubTicket(repo: GithubRepository, number: number, allowClosed: boolean,
-  runtime: GithubRuntime = defaultRuntime): Promise<GithubTicket> {
+  runtime: GithubRuntime = defaultGithubRuntime): Promise<GithubTicket> {
   return request(`/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/issues/${number}`, runtime, body => {
     if (typeof body !== "object" || body === null || !("number" in body) || body.number !== number
       || !("title" in body) || typeof body.title !== "string" || !body.title.trim()
@@ -67,7 +88,7 @@ export async function resolveGithubTicket(repo: GithubRepository, number: number
   });
 }
 
-export async function checkGithubConnection(runtime: GithubRuntime = defaultRuntime): Promise<string> {
+export async function checkGithubConnection(runtime: GithubRuntime = defaultGithubRuntime): Promise<string> {
   return request("/user", runtime, body => {
     if (typeof body !== "object" || body === null || !("login" in body) || typeof body.login !== "string"
       || !/^[A-Za-z0-9][A-Za-z0-9-]*$/u.test(body.login)) throw malformed();

@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { jsonDisplay } from "../display";
 import type { RepositoryConfig, RepositoryContext } from "../types";
 
 export interface GithubRepository { owner: string; name: string }
@@ -36,4 +37,20 @@ export async function readGithubRemote(repository: RepositoryContext, name: stri
   const urls = await read(repository.currentWorktreeRoot, ["remote", "get-url", "--all", "--", name]);
   if (urls.length !== 1) throw invalid();
   return parseGithubRemoteUrl(urls[0]!);
+}
+
+/**
+ * The github.com repository behind one named remote. Read-only; the message
+ * names the remote's role so it fits any command. With push, read the URL Git
+ * pushes to, which pushurl or pushInsteadOf can point at another repository.
+ */
+export async function githubRepositoryOfRemote(repository: RepositoryContext, remote: string, role: string,
+  push = false, read: RemoteReader = readRemote): Promise<GithubRepository> {
+  const unusable = () => new Error(`The ${role} remote ${jsonDisplay(remote)} does not identify one github.com repository; Timber creates pull requests only on github.com.`);
+  if (!repository.remotes.some(value => value.name === remote)) throw unusable();
+  let urls: readonly string[];
+  try { urls = await read(repository.currentWorktreeRoot, ["remote", "get-url", ...(push ? ["--push"] : []), "--all", "--", remote]); }
+  catch { throw unusable(); }
+  if (urls.length !== 1) throw unusable();
+  try { return parseGithubRemoteUrl(urls[0]!); } catch { throw unusable(); }
 }

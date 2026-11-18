@@ -1,11 +1,11 @@
 # Experimental IDE machine interface (v1)
 
 This additive interface is experimental. It supports repository inventory,
-ordinary New/Open outcomes, Rebase and Publish outcomes, reading, saving and
+ordinary New/Open outcomes, Rebase, Publish and PR outcomes, reading, saving and
 checking settings for app consumers, and reading each worktree's pull request.
 It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
-No IDE consumer is included. Rebase and Publish records, native cleanup approval,
+No IDE consumer is included. Rebase, Publish and PR records, native cleanup approval,
 [settings for app consumers](#settings-for-app-consumers-experimental-v1) and
 [pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1) are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
@@ -24,6 +24,7 @@ timber open 'GH-123' --result-file /private/temp/open.json --no-editor --no-agen
 timber open --setup --result-file /private/temp/retry.json --no-editor --no-agent -- '/absolute/worktree path'
 timber rebase --result-file /private/temp/rebase.json -- '/absolute/worktree path'
 timber publish --result-file /private/temp/publish.json -- '/absolute/worktree path'
+timber pr --title 'Add login' --result-file /private/temp/pr.json -- '/absolute/worktree path'
 ```
 
 `ls --json` writes exactly one UTF-8 JSON object plus newline to stdout after
@@ -49,6 +50,10 @@ require. See [Rebase outcome](#rebase-outcome).
 
 `publish` accepts `--result-file <path>` under the same rules and also launches
 nothing. See [Publish outcome](#publish-outcome).
+
+`pr` accepts `--result-file <path>` under the same rules and launches nothing.
+A missing `--title` is reported in the record, not by option parsing. See
+[Pull request outcome](#pull-request-outcome).
 
 Result-file mode keeps human stdout/stderr and chooser output unchanged. Hook
 stdout/stderr keep their ordinary channels and cannot become machine records.
@@ -84,7 +89,7 @@ content, so do not publish raw streams or result files as public logs.
 The following TypeScript notation defines the JSON values, not an importable SDK.
 All fields are required except the `worktrees` array, which exists only on `ls`,
 the `rebase` object, which exists only on `rebase`, the `publish` object, which
-exists only on `publish`, and the `config` object, which exists only on a
+exists only on `publish`, the `pr` object, which exists only on `pr`, and the `config` object, which exists only on a
 [settings apply](#saving-settings).
 There are no `undefined` values.
 
@@ -134,9 +139,17 @@ type PublishRecord = {
   pushedCommit: string | null; // commit now on the remote; null unless published or up-to-date
 };
 
+type PullRequestRecord = {
+  result: "created" | "exists" | "refused" | "failed";
+  number: number | null;   // pull request number on GitHub
+  url: string | null;      // https://github.com/<owner>/<repo>/pull/<number>
+  base: string | null;     // base branch as GitHub names it, such as "main"
+  published: boolean;      // this run pushed commits to the remote
+};
+
 type RecordV1 = {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "config";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -146,6 +159,7 @@ type RecordV1 = {
   worktrees?: WorktreeRecord[]; // always present for ls, including failed ls
   rebase?: RebaseRecord;        // always present for rebase, including refusals
   publish?: PublishRecord;      // always present for publish, including refusals
+  pr?: PullRequestRecord;       // always present for pr, including refusals
   config?: ConfigApplyRecord;   // always present for a settings apply
   setupSkipped?: true;          // new/open: --no-setup skipped configured post_create hooks
 };
@@ -371,6 +385,56 @@ exact-selection guidance, even in a terminal: result-file mode never opens a
 chooser, so `cancelled` does not occur. Select by exact branch or absolute path.
 Modified and untracked files do not block a publish and are not pushed. Git's
 pre-push hook keeps its ordinary behavior, with closed stdin.
+
+## Pull request outcome
+
+`timber pr <branch-or-worktree> --title <text> [--body <text>] [--base <ref>]
+[--draft] --result-file <path>` publishes a worktree's branch and opens a GitHub
+pull request for it, so an app never calls GitHub or pushes on its own. Target
+selection, publishing, human stdout/stderr and exit codes are the same as without
+the flag; see the [CLI contract](cli-contract.md#open-a-pull-request-157).
+
+The record has `command: "pr"`, `materialized: false`, no `worktrees`, no
+`publish` object, and a `pr` object whose `result` is the value to branch on:
+
+| `result` | `outcome` | Exit | Meaning |
+| --- | --- | --- | --- |
+| `created` | `succeeded` | 0 | This run created pull request `number`. |
+| `exists` | `succeeded` | 0 | A pull request from the branch into the same base was already open. Nothing was created. |
+| `refused` | `failed` | 1 | Timber declined, or publish refused because the remote branch moved on. Nothing was pushed and no local ref changed. |
+| `failed` | `failed` | 1 | An operation broke: a missing GitHub login, a failed publish, GitHub rejecting the creation, the network, or a timeout. |
+
+- The branch is published first with the rules of
+  [Publish outcome](#publish-outcome), including when a pull request is already
+  open. `published` is true only when this run pushed commits; it is false for
+  an up-to-date branch and for every stop before the push.
+- `refused` covers selection and safety stops (as for publish), a missing or
+  invalid title, an unassigned, invalid or local-branch saved base, an unusable
+  `--base`, a base equal to the branch, a remote that is not on github.com, and
+  a remote branch that has moved on. Timber's own refusals happen before the
+  login is read; a remote that moved on is refused by the push, which pushes
+  nothing.
+- A missing GitHub login is `failed` and stops before the push. The user signs
+  in with `gh auth login` or sets `GH_TOKEN`, and the app retries deliberately.
+- `failed` after the push leaves the branch published: `published` says whether
+  this run moved it. A rejected creation (for example no commits between the
+  base and the branch, a base branch missing on GitHub, or drafts unsupported)
+  has a fixed `diagnostic` and never GitHub's own text. A creation timeout may
+  have created the pull request; running `pr` again reports it as `exists`.
+- `number` and `url` are null unless `result` is `created` or `exists`. `url`
+  is built from the validated repository and number. `base` holds the base
+  branch this run resolved; it is null when the run ended before a base was
+  resolved.
+
+The body mentions the worktree's [issue link](#issue-link), or, when none is
+saved, a ticket key at the start of the branch name: `Refs #123` (or
+`Refs owner/repo#123` for an issue in another repository) and `Refs ENG-42` for
+Jira and Linear, unless the body already mentions it. An `invalid` link adds no
+mention. Timber never adds a closing keyword.
+
+`worktree` is the selected worktree as it was before the push. It is null when
+no single target was selected. Result-file mode never opens a chooser, so
+`cancelled` does not occur. Select by exact branch or absolute path.
 
 ## Native cleanup approval (experimental v1)
 

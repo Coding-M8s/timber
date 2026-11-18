@@ -10,6 +10,7 @@ import type { BaseAssociationRead } from "./git/base-metadata";
 import type { IssueLink, IssueLinkRead, IssueLinkWrite } from "./git/issue-link";
 import type { RebaseReport } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
+import type { PullRequestOptions, PullRequestReport } from "./github/pull-request";
 import type { TerminalChooser, TerminalTextPrompt } from "./selection";
 import type { GithubRepository } from "./github/repository";
 import type { LinearTicket } from "./linear/client";
@@ -62,6 +63,9 @@ export interface CommandServices {
   /** Push a verified registered worktree's branch under its own name; never forces or prompts. */
   publishWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     io: CommandIO, report?: PublishReport): Promise<number>;
+  /** Publish a verified registered worktree's branch, then open or report its GitHub pull request; never prompts. */
+  openPullRequest(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
+    options: PullRequestOptions, io: CommandIO, report?: PullRequestReport): Promise<number>;
   /** Snapshot a verified, idle registered worktree into private Git-directory storage; never changes the source. */
   createBackup(repository: RepositoryContext, worktree: Worktree, io: CommandIO): Promise<number>;
   /** Recover a verified backup into a new worktree and recovery branch; never overwrites or runs repository code. */
@@ -152,6 +156,8 @@ export interface CommandHandlers {
   rebase?(input: string, options: { base?: string }, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires publishing. */
   publish?(input: string, context: CommandContext): Promise<number>;
+  /** Optional for existing embedders; production entry point wires pull requests. */
+  pr?(input: string, options: PullRequestOptions, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires backups. */
   backupCreate?(input: string, context: CommandContext): Promise<number>;
   backupRestore?(id: string, destination: string, context: CommandContext): Promise<number>;
