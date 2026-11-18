@@ -279,6 +279,7 @@ describe("notice", () => {
     expect(skipsUpdateCheck([])).toBe(true);
     expect(skipsUpdateCheck(["open", "--help"])).toBe(false);
     expect(skipsUpdateCheck(["__update-check"])).toBe(true);
+    expect(skipsUpdateCheck(["uninstall", "--yes"])).toBe(true);
     expect(skipsUpdateCheck(["__complete", "--bash", "x"])).toBe(true);
   });
 });

@@ -931,9 +931,10 @@ timber uninstall --yes              # confirm without a prompt
   confirmation (default No). Without an interactive terminal it exits nonzero and
   removes nothing unless `--yes` is given. `--yes` covers only the items of the
   chosen mode.
-- `--remove-settings` also removes `config.toml`, `credentials/jira.json` and
-  the `setup-hint-shown` marker, using the same XDG resolution as
-  `src/config-paths.ts`. The `timber/` config, credentials and state
+- `--remove-settings` also removes `config.toml`, `credentials/jira.json`,
+  `credentials/linear.json`, the `setup-hint-shown` marker and the
+  `update-check.json` cache, using the same XDG resolution as
+  `src/config-paths.ts`. The `timber/` config, credentials, state and cache
   directories are then removed only if empty. Unknown files are never deleted;
   they are listed.
 - Before anything is removed, every target is checked. A symlink, a target
@@ -943,7 +944,8 @@ timber uninstall --yes              # confirm without a prompt
   are never touched. One output line says so.
 - After removal Timber warns on stderr when another `timber` is still on `PATH`
   and reminds the user to remove shell completion lines they added. Shell
-  startup files are never edited. Credential contents are never printed.
+  startup files are never edited. Credential contents are never printed. No
+  update notice or background update check runs after `uninstall`.
 
 ## Shell completion (TIM-23, #84, #85)
 

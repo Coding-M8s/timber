@@ -24,7 +24,7 @@ export function skipsUpdateCheck(argv: readonly string[]): boolean {
   const command = argv.find(argument => !argument.startsWith("-"));
   // No subcommand: bare --version or --help, whose output scripts and the installer read.
   if (command === undefined) return true;
-  if (command.startsWith("__") || command === "completion" || command === "update") return true;
+  if (command.startsWith("__") || command === "completion" || command === "update" || command === "uninstall") return true;
   return argv.some(argument => argument === "--json" || argument === "--result-file" || argument.startsWith("--result-file="));
 }
 

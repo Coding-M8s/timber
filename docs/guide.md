@@ -468,14 +468,16 @@ yourself.
 
 Use this table if you already deleted the executable, or on Windows, where a
 running `.exe` cannot delete itself. Defaults shown; `XDG_CONFIG_HOME` and
-`XDG_STATE_HOME` apply when set to absolute paths.
+`XDG_STATE_HOME` and `XDG_CACHE_HOME` apply when set to absolute paths.
 
 | Item | Linux and macOS | Windows |
 | --- | --- | --- |
 | Executable | `~/.local/bin/timber` | `%LOCALAPPDATA%\Programs\Timber\timber.exe`, and its PATH entry |
 | Machine settings | `~/.config/timber/config.toml` | `%USERPROFILE%\.config\timber\config.toml` |
 | Jira credentials | `~/.config/timber/credentials/jira.json` | `%USERPROFILE%\.config\timber\credentials\jira.json` |
+| Linear credentials | `~/.config/timber/credentials/linear.json` | `%USERPROFILE%\.config\timber\credentials\linear.json` |
 | Setup hint marker | `~/.local/state/timber/setup-hint-shown` | `%USERPROFILE%\.local\state\timber\setup-hint-shown` |
+| Update check cache | `~/.cache/timber/update-check.json` | `%USERPROFILE%\.cache\timber\update-check.json` |
 | Repository settings | `.timber.toml` in each primary worktree (optional) | same |
 | Repository metadata | `<git common dir>/timber/` and `timber-setup.lock` (optional) | same |
 | Worktrees and branches | `timber done`, or `git worktree remove` | same |

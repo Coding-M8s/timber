@@ -8,7 +8,7 @@ import { git } from "./helpers/git";
 
 interface Home {
   root: string; bin: string; exe: string; env: NodeJS.ProcessEnv;
-  config: string; credentials: string; marker: string;
+  config: string; credentials: string; linear: string; marker: string; cache: string;
 }
 
 async function withHome(run: (home: Home) => Promise<void>): Promise<void> {
@@ -18,18 +18,24 @@ async function withHome(run: (home: Home) => Promise<void>): Promise<void> {
     const exe = join(bin, "timber");
     const configHome = join(root, "xdg-config");
     const stateHome = join(root, "xdg-state");
+    const cacheHome = join(root, "xdg-cache");
     await mkdir(bin);
     await mkdir(join(configHome, "timber/credentials"), { recursive: true, mode: 0o700 });
     await mkdir(join(stateHome, "timber"), { recursive: true });
+    await mkdir(join(cacheHome, "timber"), { recursive: true });
     await writeFile(exe, "#!/bin/sh\n", { mode: 0o755 });
     const config = join(configHome, "timber/config.toml");
     const credentials = join(configHome, "timber/credentials/jira.json");
+    const linear = join(configHome, "timber/credentials/linear.json");
     const marker = join(stateHome, "timber/setup-hint-shown");
+    const cache = join(cacheHome, "timber/update-check.json");
     await writeFile(config, "x = 1\n");
     await writeFile(credentials, "{\"token\":\"super-secret-token\"}\n", { mode: 0o600 });
+    await writeFile(linear, "{\"version\":1,\"token\":\"linear-secret-key\"}\n", { mode: 0o600 });
     await writeFile(marker, "1\n");
-    await run({ root, bin, exe, config, credentials, marker,
-      env: { HOME: root, XDG_CONFIG_HOME: configHome, XDG_STATE_HOME: stateHome, PATH: join(root, "empty") } });
+    await writeFile(cache, "{\"checkedAt\":0}\n");
+    await run({ root, bin, exe, config, credentials, linear, marker, cache,
+      env: { HOME: root, XDG_CONFIG_HOME: configHome, XDG_STATE_HOME: stateHome, XDG_CACHE_HOME: cacheHome, PATH: join(root, "empty") } });
   } finally { await rm(root, { recursive: true, force: true }); }
 }
 
@@ -57,12 +63,14 @@ test("confirming removes only the executable and keeps settings", async () => {
     const h = harness(home, {}, "remove");
     expect(await h.run({})).toBe(0);
     expect(await present(home.exe)).toBe(false);
-    for (const path of [home.config, home.credentials, home.marker]) expect(await present(path)).toBe(true);
+    for (const path of [home.config, home.credentials, home.linear, home.marker, home.cache]) expect(await present(path)).toBe(true);
     const text = h.out.join("");
     expect(text).toContain("will remove");
     expect(text).toContain(home.exe);
     expect(text).toContain("will keep");
     expect(text).toContain(home.credentials);
+    expect(text).toContain(home.linear);
+    expect(text).not.toContain("not a Timber file");
     expect(text).toContain("never touched");
     expect(text).toContain(".bashrc");
     expect(text).not.toContain("super-secret-token");
@@ -103,13 +111,16 @@ test("--remove-settings removes known files and empty directories but keeps unkn
     await writeFile(unknown, "mine\n");
     const h = harness(home);
     expect(await h.run({ yes: true, removeSettings: true })).toBe(0);
-    for (const path of [home.exe, home.config, home.credentials, home.marker]) expect(await present(path)).toBe(false);
+    for (const path of [home.exe, home.config, home.credentials, home.linear, home.marker, home.cache]) expect(await present(path)).toBe(false);
     expect(await present(join(home.credentials, ".."))).toBe(false);
+    expect(await present(join(home.cache, ".."))).toBe(false);
     expect(await readFile(unknown, "utf8")).toBe("mine\n");
     expect(await present(join(home.config, ".."))).toBe(true);
     expect(await present(join(home.marker, ".."))).toBe(false);
     expect(h.out.join("")).toContain(unknown);
+    expect(h.out.join("")).not.toContain(home.linear + " (not a Timber file");
     expect(h.out.join("")).not.toContain("super-secret-token");
+    expect(h.out.join("")).not.toContain("linear-secret-key");
   });
 });
 
