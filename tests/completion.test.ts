@@ -15,7 +15,7 @@ test("completion discovers commands and filters their prefix outside Git", async
 test("completion flags are specific to the actual command", async () => {
   expect(await candidates("timber done --")).toEqual(["--base", "--discard-ignored", "--help", "--keep-branch", "--keep-ignored"]);
   expect(await candidates("timber open --")).toEqual([
-    "--agent", "--editor", "--help", "--no-agent", "--no-editor", "--result-file", "--setup", "--w", "--workflow",
+    "--agent", "--editor", "--help", "--no-agent", "--no-editor", "--no-setup", "--result-file", "--setup", "--w", "--workflow",
   ]);
   expect(await candidates("timber open --w")).toEqual(["--w", "--workflow"]);
   expect(await candidates("timber new --w")).toEqual(["--w", "--workflow"]);
@@ -31,8 +31,8 @@ test("unknown commands, extra operands and nonrepository target requests are qui
   for (const line of ["timber wat --", "timber open ", "timber done ", "timber open first second", "timber ls ", "timber new feature "]) {
     expect(await candidates(line)).toEqual([]);
   }
-  expect(await candidates("timber open first --no-")).toEqual(["--no-agent", "--no-editor"]);
-  expect(await candidates("timber open --typo --no-")).toEqual(["--no-agent", "--no-editor"]);
+  expect(await candidates("timber open first --no-")).toEqual(["--no-agent", "--no-editor", "--no-setup"]);
+  expect(await candidates("timber open --typo --no-")).toEqual(["--no-agent", "--no-editor", "--no-setup"]);
   expect(await candidates("timber open -- --")).toEqual([]);
 });
 
@@ -69,7 +69,7 @@ test("Fish argv transport matches shared candidate requests", async () => {
   }
 
   expect(await transport(["__complete", "--fish", "--", "--no-", "open"])).toEqual({
-    code: 0, candidates: ["--no-agent", "--no-editor"], stderr: "",
+    code: 0, candidates: ["--no-agent", "--no-editor", "--no-setup"], stderr: "",
   });
   expect(await transport(["__complete", "--fish", "--", "--tool=cu", "arena", "new"])).toEqual({
     code: 0, candidates: ["--tool=cursor"], stderr: "",
@@ -109,13 +109,13 @@ test("structured completion transport accepts native shell words", async () => {
     stdout: (text: string) => { stdout += text; }, stderr: (text: string) => { stderr += text; },
   } } };
   expect(await runCli(["__complete-words", "--", "--no-", "open"], dependencies)).toBe(0);
-  expect(stdout.split("\0").filter(Boolean)).toEqual(["--no-agent", "--no-editor"]);
+  expect(stdout.split("\0").filter(Boolean)).toEqual(["--no-agent", "--no-editor", "--no-setup"]);
   expect(stderr).toBe("");
 });
 
 test("Unicode operands before a flag prefix do not affect candidate lookup", async () => {
   const prefix = "timber open --no-editor ü --no-";
-  expect(await candidates(prefix)).toEqual(["--no-agent", "--no-editor"]);
+  expect(await candidates(prefix)).toEqual(["--no-agent", "--no-editor", "--no-setup"]);
 });
 
 test("candidate discovery follows additions to Commander definitions", async () => {
@@ -137,7 +137,7 @@ test("Bash parser keeps mid-word literals and declines only expanding positions"
 });
 
 test("shell line continuations do not introduce empty arguments", async () => {
-  expect(await candidates("timber \\\n open --no-")).toEqual(["--no-agent", "--no-editor"]);
+  expect(await candidates("timber \\\n open --no-")).toEqual(["--no-agent", "--no-editor", "--no-setup"]);
 });
 
 test("Bash transport declines retained prefixes with active shell expansion", async () => {

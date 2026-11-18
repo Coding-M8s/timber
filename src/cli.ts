@@ -15,7 +15,7 @@ import { completionScript } from "./completion/shells";
 
 function requireSuppressedLaunches(options: { editor?: boolean; agent?: boolean }): void {
   if (options.editor !== false || options.agent !== false) {
-    throw new Error("--result-file requires explicit --no-editor and --no-agent. Setup hooks still run.");
+    throw new Error("--result-file requires explicit --no-editor and --no-agent. Setup hooks still run unless --no-setup is given.");
   }
 }
 
@@ -91,8 +91,10 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--base <ref>", "Override the configured base branch")
     .option("--remote <name>", "Select the GitHub issue remote only; does not change --base")
     .option("-c", "Allow a closed or completed GitHub, Linear, or Jira issue; does not reopen it")
-    .action(async (branch: string[], options: { resultFile?: string; base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; c?: boolean }) => {
+    .option("--no-setup", "Skip post_create hooks; run them later with timber open --setup")
+    .action(async (branch: string[], options: { resultFile?: string; base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; c?: boolean; setup?: boolean }) => {
       const normalized: NewOptions = {
+        ...(options.setup === false ? { setup: false as const } : {}),
         ...(options.remote === undefined ? {} : { remote: options.remote }),
         ...(options.c === true ? { allowClosed: true } : {}),
         ...(options.base === undefined ? {} : { base: options.base }),
@@ -108,14 +110,21 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       }
     });
 
+  const setupChoices = new Set<string>();
   resultOptions(workflowOptions(agentOptions(editorOptions(program.command("open <input>")))))
     .description("Open an existing branch or worktree; choose a missing base interactively")
     .option("--setup", "Rerun ordinary and workflow post_create hooks in the selected worktree")
+    .option("--no-setup", "Skip post_create hooks even when this creates the worktree")
+    .on("option:setup", () => { setupChoices.add("enable"); })
+    .on("option:no-setup", () => { setupChoices.add("disable"); })
+    .hook("preAction", command => {
+      if (setupChoices.size > 1) command.error("Conflicting options: --setup and --no-setup.");
+    })
     .action(async (input: string, options: { resultFile?: string; workflow?: string; w?: string; editor?: boolean; setup?: boolean; agent?: boolean }) => {
       const normalized: OpenOptions = {
         ...(options.workflow === undefined && options.w === undefined ? {} : { workflow: options.workflow ?? options.w }),
         ...(options.editor === undefined ? {} : { editor: options.editor }),
-        ...(options.setup === true ? { setup: true as const } : {}),
+        ...(options.setup === undefined ? {} : { setup: options.setup }),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
       };
       if (options.resultFile !== undefined) {

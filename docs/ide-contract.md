@@ -128,6 +128,7 @@ type RecordV1 = {
   worktrees?: WorktreeRecord[]; // always present for ls, including failed ls
   rebase?: RebaseRecord;        // always present for rebase, including refusals
   config?: ConfigApplyRecord;   // always present for a settings apply
+  setupSkipped?: true;          // new/open: --no-setup skipped configured post_create hooks
 };
 ```
 
@@ -202,6 +203,11 @@ actual target. Existing-worktree setup failure returns the existing target with
 never rolls them back. The worktree snapshot precedes hooks, so a hook/external
 writer may change or remove it later; the record is not proof of present existence.
 Successful/cancelled records have null `diagnostic`; warnings remain on stderr.
+
+With `--no-setup`, New/Open run no hook. When ordinary or selected workflow hooks
+were configured, the record has `setupSkipped: true`, and the caller runs them with
+`timber open --setup -- <path>`, repeating `--workflow <name>` when one was given.
+Without configured hooks the field is absent.
 
 Publication/close failures return nonzero even if Git/setup completed, and may leave
 no usable result. Signal termination follows existing process behavior and need not

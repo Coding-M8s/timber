@@ -4,6 +4,7 @@ import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
 
 import { FormattedError, failureWithRetry, jsonDisplay, retryNamingWorkflow, safeDisplay, workflowRetryFlag } from "../display";
 import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
+import { reportSkippedSetup } from "../hooks";
 
 function exactSelector(target: OpenTarget): string {
   if (target.kind === "worktree") return target.worktree.path;
@@ -183,20 +184,25 @@ export function createOpenHandler(
       worktree = selected.worktree;
     }
 
+    // --no-setup wins over creation; --setup reruns setup on a worktree that already existed.
+    const runsSetup = options.setup === true || (created && options.setup !== false);
+    const hasSetup = Boolean(config.hooks?.postCreate.length || workflow?.postCreate.length);
     if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
       context.io.stdout(`${created ? "Created" : "Opened existing"} worktree at ${safeDisplay(worktree.path)}\n`);
       if (!services.launchEditorTerminals) throw new Error("Orca terminal integration is unavailable; workspace retained.");
+      reportSkippedSetup(created && hasSetup, options.setup === false, worktree.path, workflowName, context);
       await services.launchEditorTerminals({ repository, worktree, config: editorConfig, agent: agentCommand,
-        setup: created || options.setup === true,
+        setup: runsSetup,
         ...(workflowName === null ? {} : { workflowName }),
         ...(workflow === null ? {} : { workflowScripts: workflow.postCreate }) }, context.io);
       return;
     }
 
-    if ((created || options.setup) && (config.hooks?.postCreate.length || workflow?.postCreate.length)) {
+    if (runsSetup && hasSetup) {
       await services.runSetup(repository, worktree, config, context.io,
         workflowName ?? undefined, workflow?.postCreate);
     }
+    reportSkippedSetup(created && hasSetup, options.setup === false, worktree.path, workflowName, context);
 
     const editor = await services.launchEditor(worktree, editorConfig, options.editor === false);
     if (editor.kind === "failed") {

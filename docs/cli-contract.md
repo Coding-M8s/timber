@@ -615,7 +615,16 @@ from the primary root's config, never the linked worktree's config.
 editor or agent. Normal `open` reuses an existing worktree without setup. `open --setup`
 explicitly runs every step from the beginning for the selected worktree,
 including primary and detached worktrees; creation plus `--setup` runs once.
-`--no-editor` does not disable setup.
+`--no-editor` does not disable setup. `new --no-setup` and `open --no-setup`
+create the worktree as usual and run no ordinary or workflow `post_create` hook;
+with enabled Orca integration they open no setup terminal. Editor and agent
+choices are unchanged. When hooks were skipped, Timber prints the command that
+runs them, `timber open --setup -- '<absolute-worktree-path>'` (with the same
+`--workflow <name>` when one was given). `open --setup --no-setup` is a usage
+error, refused before any mutation. A `--result-file` record still reports
+`materialized: true` for a created worktree, and adds `setupSkipped: true` only
+when configured hooks were skipped, so a caller knows whether to run
+`open --setup` itself.
 
 On Linux, invoke `/bin/sh` with argument array `["-c", configuredSource]` for
 each step, sequentially, with worktree cwd, closed stdin, and stdout/stderr

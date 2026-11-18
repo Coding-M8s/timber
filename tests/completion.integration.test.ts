@@ -83,7 +83,7 @@ test("duplicate branch worktrees offer only unambiguous path selectors", async (
 
 test("missing repository directories return quietly", async () => {
   expect(await candidates("timber done ", "/nonexistent/timber-completion-test")).toEqual([]);
-  expect(await candidates("timber open --no-", "/nonexistent/timber-completion-test")).toEqual(["--no-agent", "--no-editor"]);
+  expect(await candidates("timber open --no-", "/nonexistent/timber-completion-test")).toEqual(["--no-agent", "--no-editor", "--no-setup"]);
 });
 
 test("unreadable Git metadata quietly yields no targets while commands still complete", async () => {

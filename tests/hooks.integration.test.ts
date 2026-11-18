@@ -144,3 +144,67 @@ test("explicit setup on detached worktrees supplies an empty branch and no stale
     expect(await exists(join(target, "setup-ran"))).toBe(true);
   });
 });
+
+test("new --no-setup creates the worktree, runs no hook, and names the later setup command", async () => {
+  await withRepository(async (primary, directory) => {
+    const target = join(directory, "primary repo-worktrees", "skip-setup");
+    await configure(primary, ['printf "run\\n" >> count']);
+    const result = await cli(primary, "new", "skip-setup", "--no-setup", "--no-editor");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`Setup skipped (--no-setup). Run it with: timber open --setup -- '${target}'`);
+    expect(await git(primary, "rev-parse", "refs/heads/skip-setup")).toBe(await git(target, "rev-parse", "HEAD"));
+    expect(await exists(join(target, "count"))).toBe(false);
+    const later = await cli(primary, "open", target, "--setup", "--no-editor");
+    expect(later.exitCode).toBe(0);
+    expect(await readFile(join(target, "count"), "utf8")).toBe("run\n");
+  });
+});
+
+test("new --no-setup stays quiet about setup when no hooks are configured", async () => {
+  await withRepository(async primary => {
+    await configure(primary, []);
+    const result = await cli(primary, "new", "no-hooks", "--no-setup", "--no-editor");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain("Setup skipped");
+  });
+});
+
+test("new --no-setup skips workflow hooks and repeats the workflow in the setup command", async () => {
+  await withRepository(async (primary, directory) => {
+    const target = join(directory, "primary repo-worktrees", "skip-workflow");
+    await configure(primary, ['touch ordinary'], '[workflows.review]\npost_create = ["touch workflow"]');
+    const result = await cli(primary, "new", "skip-workflow", "--workflow", "review", "--no-setup", "--no-editor");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`timber open --setup --workflow review -- '${target}'`);
+    expect(await exists(join(target, "ordinary"))).toBe(false);
+    expect(await exists(join(target, "workflow"))).toBe(false);
+  });
+});
+
+test("open --no-setup materializes a branch without running hooks", async () => {
+  await withRepository(async (primary, directory) => {
+    await git(primary, "branch", "local");
+    await configure(primary, ['printf "run\\n" >> count']);
+    const result = await cli(primary, "open", "local", "--no-setup", "--no-editor");
+    expect(result.exitCode).toBe(0);
+    const target = join(directory, "primary repo-worktrees", "local");
+    expect(result.stdout).toContain("Setup skipped (--no-setup)");
+    expect(await git(primary, "rev-parse", "refs/heads/local")).toBe(await git(target, "rev-parse", "HEAD"));
+    expect(await exists(join(target, "count"))).toBe(false);
+  });
+});
+
+test("open refuses --setup with --no-setup before changing anything", async () => {
+  await withRepository(async (primary, directory) => {
+    await git(primary, "branch", "local");
+    await configure(primary, ['touch ran']);
+    const refs = await git(primary, "show-ref");
+    const worktrees = await git(primary, "worktree", "list", "--porcelain");
+    const result = await cli(primary, "open", "local", "--setup", "--no-setup", "--no-editor");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("Conflicting options: --setup and --no-setup.");
+    expect(await git(primary, "show-ref")).toBe(refs);
+    expect(await git(primary, "worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(await exists(join(directory, "primary repo-worktrees", "local"))).toBe(false);
+  });
+});

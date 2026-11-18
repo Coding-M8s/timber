@@ -361,3 +361,29 @@ test("new, open and done records carry the saved base of their worktree", async 
     expect(await exists(target)).toBe(false);
   });
 });
+
+test("new --no-setup with a result file records a materialized worktree and runs no hook", async () => {
+  await withRepository(async (primary, directory) => {
+    await configure(primary, ["touch ran"]);
+    const output = join(directory, "result.json");
+    const result = await cli(primary, "new", "--no-setup", ...flags(output), "--", "machine-skip");
+    expect(result.exitCode).toBe(0);
+    const data = await record(output);
+    expect(data.command).toBe("new");
+    expect(data.outcome).toBe("succeeded");
+    expect(data.materialized).toBe(true);
+    expect(data.setupSkipped).toBe(true);
+    expect(await exists(join(data.worktree.path, "ran"))).toBe(false);
+  });
+});
+
+test("new --no-setup without hooks records no skipped setup", async () => {
+  await withRepository(async (primary, directory) => {
+    await configure(primary, []);
+    const output = join(directory, "result.json");
+    expect((await cli(primary, "new", "--no-setup", ...flags(output), "--", "machine-none")).exitCode).toBe(0);
+    const data = await record(output);
+    expect(data.outcome).toBe("succeeded");
+    expect("setupSkipped" in data).toBe(false);
+  });
+});
