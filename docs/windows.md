@@ -76,3 +76,7 @@ Agents run in the invoking terminal. Orca editor-owned terminals are Linux-only.
 Keep Windows PowerShell installed: Timber uses it to protect private metadata
 and saved credentials with Windows ACLs. Existing unsafe permissions are refused
 rather than silently changed.
+
+## Uninstall
+
+The `timber uninstall` command is not available on Windows. Delete `timber.exe`, remove its PATH entry, and follow the [manual removal table](guide.md#manual-removal).

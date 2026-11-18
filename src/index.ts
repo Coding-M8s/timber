@@ -12,6 +12,7 @@ import { reserveArena, readArena, openArenaForResume, validateArenaAttempt, read
 import { showInstallationHint } from "./guidance";
 import { runEditorTask } from "./editor-terminals/runner";
 import { createEditorTerminalLauncher } from "./editor-terminals/launch";
+import { createUninstallHandler } from "./commands/uninstall";
 import { createSetupHandler } from "./commands/setup";
 import { createSetupPrompt } from "./setup/terminal";
 import { checkExecutable } from "./setup/executable";
@@ -65,7 +66,8 @@ const launchEditorTerminals = createEditorTerminalLauncher({ self: { executable:
   ...(Bun.main.startsWith("/$bunfs/") ? {} : { entry: Bun.main }) } });
 
 const machineListing = (process.argv[2] === "ls" && process.argv.slice(3).includes("--json"))
-  || process.argv[2] === "__app-config";
+  || process.argv[2] === "__app-config"
+  || process.argv[2] === "uninstall";
 if (!completing && !machineListing) {
   await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
 }
@@ -92,6 +94,8 @@ process.exitCode = await runCli(process.argv.slice(2), {
       discoverRepository, loadConfig: loadRepositoryConfig, readArena, readArenaPick, openArenaForPick,
       validateArenaAttempt, summarizeArenaAttempt, inspectArenaRemoval, archiveArenaAttempt, cleanupWorktree,
     }),
+    uninstall: createUninstallHandler({ executablePath: process.execPath, standalone: Bun.main.startsWith("/$bunfs/"),
+      uid: process.getuid?.() }),
     setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
       jira: createJiraSetupSession,
       github: createGithubSetupSession,

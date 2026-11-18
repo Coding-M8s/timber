@@ -230,6 +230,19 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--global", "Configure defaults for all repositories on this machine", false)
     .action((options: { global: boolean }) => handlers.setup({ global: options.global }, context));
 
+  program.command("uninstall")
+    .description("Remove the running standalone Timber executable; settings are kept unless requested")
+    .option("--remove-settings", "Also remove machine config, saved Jira credentials and the setup hint marker")
+    .option("--yes", "Confirm without a prompt; required without an interactive terminal")
+    .addHelpText("after", "\nOnly a standalone release build is removed, never a Bun source run. Symlinks, files owned by another user and paths inside Git are refused. Unknown files are never deleted. Repositories, worktrees, branches, .timber.toml and <git common dir>/timber/ are never touched.")
+    .action(async (options: { removeSettings?: boolean; yes?: boolean }) => {
+      if (!handlers.uninstall) throw new Error("Uninstall handler is unavailable in this embedding.");
+      onExitCode(await handlers.uninstall({
+        ...(options.removeSettings === true ? { removeSettings: true } : {}),
+        ...(options.yes === true ? { yes: true } : {}),
+      }, context));
+    });
+
   program.command("ls")
     .description("List this repository's worktrees with branches, workflows, and file status (read-only)")
     .option("--json", "Print experimental v1 repository/worktree JSON")
