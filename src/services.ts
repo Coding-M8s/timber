@@ -122,6 +122,9 @@ export interface OpenOptions {
 }
 
 export interface CommandHandlers {
+  /** Optional for existing embedders; production entry point wires updates. */
+  update?(options: { check?: boolean; version?: string }, context: CommandContext): Promise<number>;
+  updateCheck?(context: CommandContext): Promise<number>;
   rebase?(input: string, options: { base?: string }, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires backups. */
   backupCreate?(input: string, context: CommandContext): Promise<number>;

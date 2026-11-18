@@ -12,3 +12,7 @@ export function globalConfigPath(env: NodeJS.ProcessEnv = process.env): string {
 export function installationMarkerPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(xdgRoot(env.XDG_STATE_HOME, env.HOME || (process.platform === "win32" ? env.USERPROFILE : undefined) || homedir(), ".local/state"), "timber/setup-hint-shown");
 }
+
+export function updateCheckCachePath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(xdgRoot(env.XDG_CACHE_HOME, env.HOME || (process.platform === "win32" ? env.USERPROFILE : undefined) || homedir(), ".cache"), "timber/update-check.json");
+}

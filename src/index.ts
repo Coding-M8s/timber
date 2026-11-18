@@ -19,6 +19,7 @@ import { inspectSetupTarget, saveSetupConfig } from "./setup/storage";
 import { createJiraSetupSession } from "./setup/jira";
 import { launchAgent } from "./agent";
 import { runCli } from "./cli";
+import { notifyAfterCommand, updateHandlers } from "./update/runtime";
 import { createRebaseHandler } from "./commands/rebase";
 import { createBackupCreateHandler, createBackupRestoreHandler } from "./commands/backup";
 import { createBackup, restoreBackup } from "./backup/service";
@@ -71,6 +72,7 @@ if (!completing && !machineListing) {
 
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
+    ...updateHandlers,
     arenaNew: createArenaNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveSource: resolveArenaSource, finalizeSource: finalizeArenaSource, createWorktree,
       planDraft: planArenaDraft, reserveArena, validateArenaAttempt, checkExecutable, runSetup, launchEditor, launchAgent,
@@ -136,3 +138,4 @@ process.exitCode = await runCli(process.argv.slice(2), {
     ...(ask ? { ask } : {}),
   },
 });
+await notifyAfterCommand(process.argv.slice(2), { stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
