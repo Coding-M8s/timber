@@ -1,4 +1,4 @@
-import { isFresh, readUpdateCache } from "./cache";
+import { isFresh, readUpdateCache, writeUpdateCache } from "./cache";
 import { isNewerStable } from "./tag";
 
 export interface NoticeDeps {
@@ -22,7 +22,8 @@ export interface NoticeDeps {
 /** Commands and flags whose output must stay free of update traffic and notices. */
 export function skipsUpdateCheck(argv: readonly string[]): boolean {
   const command = argv.find(argument => !argument.startsWith("-"));
-  if (command === undefined) return false;
+  // No subcommand: bare --version or --help, whose output scripts and the installer read.
+  if (command === undefined) return true;
   if (command.startsWith("__") || command === "completion" || command === "update") return true;
   return argv.some(argument => argument === "--json" || argument === "--result-file" || argument.startsWith("--result-file="));
 }
@@ -42,7 +43,12 @@ export async function notifyUpdate(deps: NoticeDeps): Promise<void> {
     if (cache?.tag !== undefined && isNewerStable(cache.tag, deps.version)) {
       deps.stderr(`Update available: timber ${deps.version} -> ${cache.tag.slice(1)}\nRun: timber update\n`);
     }
-    if (cache === null || !isFresh(cache, deps.now())) deps.spawnCheck();
+    if (cache !== null && isFresh(cache, deps.now())) return;
+    // Record the attempt before starting the child, so commands run while it is still
+    // working see a fresh cache and start no second check. An unwritable cache starts
+    // nothing, because the child could not record its result either.
+    const claimed = await writeUpdateCache(deps.cachePath, { checkedAt: deps.now(), ...(cache?.tag === undefined ? {} : { tag: cache.tag }) });
+    if (claimed) deps.spawnCheck();
   } catch {
     // The notice is a convenience and must never change a command's outcome.
   }
