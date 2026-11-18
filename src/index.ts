@@ -25,6 +25,8 @@ import { createRebaseHandler } from "./commands/rebase";
 import { createBackupCreateHandler, createBackupRestoreHandler } from "./commands/backup";
 import { createBackup, restoreBackup } from "./backup/service";
 import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
+import { createPublishHandler } from "./commands/publish";
+import { publishWorktree } from "./git/publish";
 import { createDoneHandler } from "./commands/done";
 import { createListHandler } from "./commands/list";
 import { createNewHandler } from "./commands/new";
@@ -126,6 +128,10 @@ process.exitCode = await runCli(process.argv.slice(2), {
     }),
     backupRestore: createBackupRestoreHandler({ discoverRepository, restoreBackup }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
+    // Shares rebase selection so a paused rebase's branch reports its detached worktree.
+    publish: createPublishHandler({
+      discoverRepository, loadConfig: loadRepositoryConfig, publishWorktree, resolveOpenTarget: resolveRebaseTarget,
+    }),
     done: createDoneHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,
     }),

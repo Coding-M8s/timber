@@ -24,6 +24,7 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     readBaseAssociation: async () => ({ kind: "unassigned" }),
     writeBaseAssociation: async () => {},
     rebaseWorktree: unexpected("rebaseWorktree"),
+    publishWorktree: unexpected("publishWorktree"),
     createBackup: unexpected("createBackup"),
     restoreBackup: unexpected("restoreBackup"),
     inspectCleanup: unexpected("inspectCleanup"),

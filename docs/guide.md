@@ -162,6 +162,7 @@ timber open my-feature --no-editor
 timber open my-feature --setup
 timber new my-feature --no-setup
 timber ls
+timber publish my-feature
 timber done my-feature
 timber done my-feature --base parent-feature
 timber done my-feature --keep-branch
@@ -447,6 +448,22 @@ when local base metadata cannot be trusted. A narrow terminal may wrap a complet
 
 Listing works offline and requires no `.timber.toml`. It does not fetch, prune,
 refresh the index, open an editor, launch an agent, or change files or refs.
+
+### Publish a branch
+
+`timber publish my-feature` pushes the branch of an existing worktree under its
+own name and reports the commit that is now on the remote. A branch with an
+upstream goes to that upstream's remote. A branch without one goes to the
+configured `remote`, or to the only remote, and that becomes its upstream.
+Modified and untracked files are not pushed and do not block publishing.
+
+Timber never force-pushes. If the remote branch has commits yours does not
+contain, including after you rebased or amended published commits, publish
+refuses and changes nothing; integrate or force-push with Git yourself. It also
+never asks for a password or passphrase: sign in with your Git credential
+helper, SSH agent or the GitHub CLI first. Tags and pull requests are not part
+of this command. Apps can read the outcome from a
+[result file](ide-contract.md#publish-outcome).
 
 ## Remove Timber
 

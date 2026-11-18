@@ -151,6 +151,18 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
         : await runMachineCommand("rebase", context, machineContext => rebase(input, normalized, machineContext), options.resultFile));
     });
 
+  program.command("publish <branch-or-worktree>")
+    .description("Push an existing worktree's branch to its remote and set its upstream")
+    .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
+    .addHelpText("after", "\nPushes the branch under its own name to its upstream remote, or to the configured or only remote.\nNever force-pushes, pushes tags or prompts for credentials. A remote that has moved on is refused.")
+    .action(async (input: string, options: { resultFile?: string }) => {
+      const publish = handlers.publish;
+      if (!publish) throw new Error("Publish handler is unavailable in this embedding.");
+      onExitCode(options.resultFile === undefined
+        ? await publish(input, context)
+        : await runMachineCommand("publish", context, machineContext => publish(input, machineContext), options.resultFile));
+    });
+
   const backup = program.command("backup")
     .description("Create private recovery backups of a worktree, including ignored files, and restore them");
   backup.command("create <branch-or-worktree>")

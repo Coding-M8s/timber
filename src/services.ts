@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import type { BaseAssociationRead } from "./git/base-metadata";
 import type { RebaseReport } from "./git/rebase";
+import type { PublishReport } from "./git/publish";
 import type { TerminalChooser, TerminalTextPrompt } from "./selection";
 import type { GithubRepository } from "./github/repository";
 import type { LinearTicket } from "./linear/client";
@@ -53,6 +54,9 @@ export interface CommandServices {
   /** Select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     explicitBase: string | undefined, io: CommandIO, report?: RebaseReport): Promise<number>;
+  /** Push a verified registered worktree's branch under its own name; never forces or prompts. */
+  publishWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
+    io: CommandIO, report?: PublishReport): Promise<number>;
   /** Snapshot a verified, idle registered worktree into private Git-directory storage; never changes the source. */
   createBackup(repository: RepositoryContext, worktree: Worktree, io: CommandIO): Promise<number>;
   /** Recover a verified backup into a new worktree and recovery branch; never overwrites or runs repository code. */
@@ -131,6 +135,8 @@ export interface CommandHandlers {
   update?(options: { check?: boolean; version?: string }, context: CommandContext): Promise<number>;
   updateCheck?(context: CommandContext): Promise<number>;
   rebase?(input: string, options: { base?: string }, context: CommandContext): Promise<number>;
+  /** Optional for existing embedders; production entry point wires publishing. */
+  publish?(input: string, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires backups. */
   backupCreate?(input: string, context: CommandContext): Promise<number>;
   backupRestore?(id: string, destination: string, context: CommandContext): Promise<number>;

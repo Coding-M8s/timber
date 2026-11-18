@@ -1,7 +1,7 @@
 # Timber CLI behavioral contract
 
 The additive [experimental IDE machine interface](ide-contract.md) defines opt-in
-`ls --json` and New/Open/Rebase `--result-file` records, plus hidden commands
+`ls --json` and New/Open/Rebase/Publish `--result-file` records, plus hidden commands
 that let an app read, save and check settings. Ordinary human commands and
 release behavior retain the contracts below.
 
@@ -88,6 +88,39 @@ resolve and stage before continuing, which may expose later conflicts. Rerunning
 Timber refuses an existing operation. Cleanup refuses in-progress Git operations,
 even when conflicts are staged and the index has no unmerged paths. Native Git
 continuation/abort suffice; no Timber continuation flags or AI resolution.
+
+## Publish a worktree's branch (#154)
+
+`timber publish <branch-or-worktree>` pushes the branch of an existing
+Git-registered worktree. Selection matches `rebase`: exact branch, absolute path,
+or delimiter-boundary ticket matching, filtered to registered worktrees, with the
+existing chooser or capped diagnostic; cancellation does not push. Never create a
+worktree or branch. Refuse a detached HEAD, an unborn branch, and missing, stale
+or unverifiable targets. The primary worktree is eligible when explicitly
+selected. Modified and untracked files, locks and in-progress operations on a
+checked-out branch do not block publishing; only commits are pushed.
+
+Push the branch under its own name, `refs/heads/<branch>` to the same ref. With
+an upstream, use that upstream's remote; refuse an upstream that is a local
+branch, names no configured remote, or has a different branch name. Without an
+upstream, use the configured `remote` or the sole remote, refuse when neither
+identifies one, and set the upstream with the push. Revalidate the selected path,
+reciprocal Git identity, checked-out branch and tip before the push.
+
+Run one `git push` in the target cwd with a literal argument array and closed
+stdin. Never force, with or without a lease; never push tags; never delete a
+remote ref. Disable terminal, askpass, credential-manager and SSH prompts, so a
+remote that needs a sign-in fails with a sign-in reason instead of waiting.
+Ordinary Git hooks remain Git's responsibility. Do not fetch, pull, rebase or
+create pull requests.
+
+Published and up-to-date return zero and report worktree, branch, remote,
+upstream and the commit on the remote. A remote branch that has moved on
+(a non-fast-forward rejection) is a refusal: nothing is pushed, no local ref or
+branch setting changes, and the diagnostic says Timber never force-pushes.
+Distinguish that refusal from sign-in, network, remote-side and hook failures.
+Every refusal and failure returns exit 1. Git's own output and remote messages
+go to stderr with control characters escaped.
 
 ## Saved worktree bases (#79)
 
