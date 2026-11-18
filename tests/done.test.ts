@@ -283,3 +283,26 @@ test("noninteractive done supplies no discard confirmation", async () => {
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
 });
+
+test("done reports retained backups after cleanup and never fails cleanup over a backup read", async () => {
+  const cleanupWorktree = async () => ({ removedWorktreePath: tree.path, deletedLocalBranch: "feature/one", retainedLocalBranch: null });
+  const reported = await invoke(services({
+    cleanupWorktree,
+    retainedBackups: async (actual, path) => {
+      expect(actual).toBe(repository);
+      expect(path).toBe(tree.path);
+      return ["20261115T090807Z-0123abcd"];
+    },
+  }));
+  expect(reported.exitCode).toBe(0);
+  expect(reported.stdout).toContain("Kept 1 recovery backup of this worktree: 20261115T090807Z-0123abcd\n");
+  expect(reported.stdout).toContain("can still contain copies of ignored files");
+
+  const none = await invoke(services({ cleanupWorktree, retainedBackups: async () => [] }));
+  expect(none.stdout).toBe("Removed worktree at /manual feature\nDeleted local branch feature/one\n");
+
+  const unreadable = await invoke(services({ cleanupWorktree, retainedBackups: async () => { throw new Error("unreadable"); } }));
+  expect(unreadable.exitCode).toBe(0);
+  expect(unreadable.stdout).toContain("Could not check for recovery backups of this worktree; review them with timber backup list.");
+  expect(unreadable.stderr).toBe("");
+});

@@ -28,7 +28,7 @@ to describe Linux, including Orca and POSIX process-group behavior.
 10. `done` resolves cleanup targets among registered worktrees; remote-only and unchecked branches do not make a single matching worktree ambiguous. Multiple worktrees use the five-option chooser (or a capped diagnostic without a terminal), and selection is revalidated by absolute path and branch before cleanup. Cancellation succeeds without mutation. `done` never removes the primary worktree. For ordinary cleanup, modified or untracked files block removal, and unpublished or unknown publication blocks removal unless commits are contained in the validated base or content integration is proven. A successful exact live upstream query confirming the configured remote branch is absent authorizes automatic removal and local branch deletion regardless of local commit integration or modified/untracked files. Report this reason before removal. Missing upstream configuration or tracking cache, remote failures, timeouts and malformed responses are not proof of deletion. For other file/commit preservation refusals, interactive cleanup shows the reason and asks whether to delete anyway, defaulting to No. Accepting authorizes discarding local commits and modified/untracked files for the exact selected identity, tip and file state; cancelling succeeds without hooks or mutation. Noninteractive cleanup refuses when confirmation is required; no force CLI flag is exposed. Unknown file status, invalid identity/metadata, locks, stale registrations, primary worktrees and in-progress Git operations remain hard failures. Revalidate tracked/untracked file contents, index state, target and applicable upstream evidence after confirmation/hooks before removal; changed state stops cleanup. Ignored runtime file changes do not invalidate discard when ignored files are being discarded; --keep-ignored remains enforced, including inside initialized submodules. Keep options remain enforced.
 11. Except for confirmed upstream deletion or explicit interactive discard under rule 10, delete a local branch only when every local commit is reachable from its verified live remote upstream, its commits are contained in the validated base, or Git proves content integration: a successful virtual merge produces exactly the validated base tree, or the complete local tip tree matches a commit reachable from the pinned validated base. Historical tree equality preserves the complete snapshot even after later base edits or reverts, without requiring the original commit IDs or a live feature upstream. Recheck the target and preservation evidence before removal and branch deletion. Publication-only cleanup must verify the live upstream after the final local safety reads and again after worktree removal; changed upstream identity or lost publication retains the local branch. A missing base does not block verified publication, but a validated local base branch cannot be deleted. Use only built-in merge behavior: reject custom merge-driver configuration and disable renormalization for this proof. Virtual merge conflicts alone never authorize deletion; historical integration requires exact full-tree equality from a successful, hash-validated history read rooted only at the pinned base commit. Unsupported Git operations and uncertain integration evidence never authorize deletion through these proofs. `--keep-branch` retains the local branch; clean published worktree cleanup does not require integration with or without this option. Do not infer safety from a closed PR. Detached worktrees require commit ancestry into the validated base or explicit interactive discard. Confirmed upstream-deletion cleanup pins the remote identity and rechecks live absence before removal and local branch deletion; changed or unknown upstream evidence retains the worktree, or the local branch if removal already completed. Explicit discard skips commit-preservation proofs but not conditional ref deletion or base/identity checks.
 12. No `--force` CLI option. Git force removal is internal and permitted only under rule 10 discard authorization. No remote branch deletion, automatic stash, or implicit process killing.
-13. `done` discards ignored files and directories, including `.env`, with the worktree by default. `--keep-ignored` refuses cleanup when ignored content exists, leaving those files, the worktree, and branch in their original locations; it does not copy them elsewhere. Retain `--discard-ignored` as a compatibility option. Reject combining it with `--keep-ignored`. Neither ignored-file option authorizes bypassing modified/untracked files or commit/integration checks; rule 10 controls discard authorization. Document the default in CLI help and the README.
+13. `done` discards ignored files and directories, including `.env`, with the worktree by default. `--keep-ignored` refuses cleanup when ignored content exists, leaving those files, the worktree, and branch in their original locations; it does not copy them elsewhere. Retain `--discard-ignored` as a compatibility option. Reject combining it with `--keep-ignored`. Neither ignored-file option authorizes bypassing modified/untracked files or commit/integration checks; rule 10 controls discard authorization. Document the default in CLI help and the README. Recovery backups are outside the worktree and are kept; see [backup lifecycle](#backup-list-deletion-and-done-lifecycle-120).
 14. Editors default to off, including when a command is configured without `enabled = true`. `new` and `open` accept `--editor` and `--no-editor`; explicit enable or disable overrides `[editor].enabled`. Agent launching is opt-in and uses either the invoking terminal or explicitly selected editor terminals; see the launch contracts below.
 15. CLI success means required Git/setup work completed. If editor/agent startup fails after creation, retain the workspace and explain how to retry. Editor launch success is process startup only: Timber returns promptly and does not report a later nonzero editor exit, even when editor args include `--wait`.
 16. Human output goes to stdout; errors go to stderr; failed operations return a nonzero exit code. Keep noninteractive behavior deterministic; never hang waiting for input in CI.
@@ -231,9 +231,92 @@ backup. If Git fails before creating the worktree but leaves the branch, report 
 workspace and branch, returns nonzero, and reports exact
 `git worktree remove --force` and `git branch -D` commands for manual removal.
 
-Listing, deletion and retention are separate (#120, #121). Until then, backups are
-kept until their directory and ref are removed manually. Ordinary `rebase`
-behavior is unchanged.
+Ordinary `rebase` behavior is unchanged. Listing, deletion and the `done`
+lifecycle are below (#120); retention is separate (#121).
+
+## Backup list, deletion and done lifecycle (#120)
+
+`timber backup list` is read-only. It reads `<commonGitDir>/timber/backups/` and
+`refs/timber/backups/` and prints, for each usable backup, its ID, source branch
+(or `detached HEAD`), creation time, snapshot size and entry count, recorded source
+worktree path, protection status and expiry, followed by the total size. Names,
+branches and paths are rendered with control characters escaped. A usable backup
+is a private directory, not a link, whose record and manifest validate as for
+restore, which holds exactly the record, the manifest and the listed blobs, and
+whose ref names the recorded commit. Everything else is reported under "Not
+usable" with a reason and is never offered for deletion: malformed, unreadable or
+nonprivate records, links, unexpected or missing files, a missing or moved ref,
+`.incomplete-<id>` directories, unrecognized names, and refs with no backup
+directory. Interrupted deletions (`.deleting-<id>`) are listed separately as
+unfinished. Missing storage lists no backups and creates nothing. Output never
+includes snapshot file names or contents and repeats that backups can contain
+copies of ignored files such as `.env` after their source worktree is removed.
+
+Expiry: version 1 records carry no retention policy, so expiry is shown as
+"none, no retention policy; kept until deleted". Timber never derives an expiry
+for a record without a recorded policy; #121 defines retention and its migration.
+
+Protection: a backup is protected while a rebase is active or uncertain for it.
+Timber inspects the common Git directory and every `worktrees/<name>` admin
+directory, including stale ones, for `rebase-merge` or `rebase-apply`. A backup is
+protected when its recorded source admin directory (mapped into the current
+common Git directory, so moved repositories still match) has rebase state, or
+when any rebase names the backup's recorded branch in `head-name`. Uncertainty
+protects every backup: an admin directory or rebase marker that cannot be
+inspected, a link in `worktrees/`, rebase state whose branch cannot be read (this
+includes `git am`), or a record whose source admin directory cannot be mapped.
+A missing admin directory, for example after `timber done`, is not rebase
+state. Version 1 backups are created only from idle worktrees and record no
+operation origin; a future record that marks a rebase origin must stay protected
+until completion or abort is reliably observed, never inferred from a missing
+rebase directory (#121). Protected backups are listed with their reason and are
+never offered, by either form of `backup done`.
+
+`timber backup done` reviews eligible (usable, unprotected) backups one at a time,
+oldest ID first, showing the same details as `list`, then asks `Delete backup
+<id>? Type y and press Enter to delete [y/N]`. Only `y` or `Y` followed by Enter
+deletes; Enter alone, any other answer (including `yes`) keeps that backup and
+moves to the next. End of input or Ctrl-C stops the review and keeps the rest.
+`timber backup done --all` selects every eligible backup, prints the IDs, the
+count and the total size, and asks once, `Delete all <n> backups (<size>)?`, with
+the same rule; selection is not confirmation, and declining deletes nothing. Both
+forms first print protected and unusable entries as not offered. Deletion
+requires an interactive terminal (stdin and stdout are terminals and CI is off);
+otherwise both forms refuse with a nonzero exit before reading storage. There is
+no noninteractive or force option. Cancellation exits 0.
+
+Each confirmed backup is deleted as one logical bundle: snapshot directory, ref
+and record. Immediately before deletion Timber rereads the directory and record
+and requires the same record bytes (SHA-256), the same directory identity
+(device and inode, so a substituted link or directory fails), exactly the
+expected files, the ref still naming the recorded commit, and no protection.
+Any difference keeps the backup unchanged and reports it. It then renames
+`<id>/` to `.deleting-<id>/` inside the backup root, checks identity and
+protection again (renaming back on any difference), deletes the ref with
+`git update-ref -d <ref> <commit>` so a moved ref is never deleted (renaming back
+on failure), and removes only the manifest-listed blobs, then `manifest.json`,
+then `record.json`, by name with no recursion and no link following, checking the
+directory identity before each removal, and finally removes the empty directory.
+Unrelated files, other backups, other refs and every source worktree are never
+touched. Git runs with hooks disabled and argument arrays.
+
+A failure after the ref is deleted reports the actual remaining state (whether
+the ref still exists and how many files remain where), says the backup is no
+longer restorable, never reports success for it, and exits nonzero. The next
+`timber backup done` (either form) offers the unfinished deletion with the same
+confirmation and finishes it only when its contents are a state Timber's own
+deletion order can leave (a subset of listed blobs, then manifest, then record)
+and any remaining ref names the recorded commit; otherwise it is listed as not
+usable for manual inspection, and the report includes a manual `rm -r` command.
+The summary reports how many were deleted and how many were not fully deleted.
+
+`timber done` never deletes or changes backups; its Git and worktree safety
+rules are unchanged. After a successful cleanup it reports the IDs of usable
+backups whose recorded source worktree path is the removed worktree, that they
+can still contain copies of ignored files including secrets such as `.env`, and
+how to list, restore and delete them. A failure to read backups only replaces
+that report with a pointer to `timber backup list`; it never changes the cleanup
+outcome. Restore works unchanged after `timber done` removed the source worktree.
 
 ## Update notice and `update` (#146)
 

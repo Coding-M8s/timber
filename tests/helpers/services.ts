@@ -27,6 +27,8 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     publishWorktree: unexpected("publishWorktree"),
     createBackup: unexpected("createBackup"),
     restoreBackup: unexpected("restoreBackup"),
+    listBackups: unexpected("listBackups"),
+    reviewBackupDeletion: unexpected("reviewBackupDeletion"),
     inspectCleanup: unexpected("inspectCleanup"),
     cleanupWorktree: unexpected("cleanupWorktree"),
     launchEditor: unexpected("launchEditor"),

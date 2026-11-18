@@ -1,7 +1,8 @@
 import { rmSync } from "node:fs";
 import { lstat, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { execa, execaSync } from "execa";
+import { execaSync } from "execa";
+import { backupGit, backupGitEnvironment, disabledHooks } from "./git";
 import { FormattedError, safeDisplay, shellQuoteForDisplay } from "../display";
 import { gitOperation } from "../git/operations";
 import { assertWorktreeIdentity, listWorktreeInventory } from "../git/worktrees";
@@ -12,24 +13,12 @@ import {
   assertStorageSpace, copySnapshot, restoreSnapshot, sameListing, SnapshotError, snapshotBytes, verifyBlobs, walkWorktree,
 } from "./snapshot";
 import {
-  BackupRecordError, backupRef, createPrivateDirectory, digest, ensureBackupsRoot, newBackupId, readPublishedBackup,
+  BackupRecordError, backupRef, createPrivateDirectory, digest, ensureBackupsRoot, formatBytes, newBackupId, readPublishedBackup,
   recoveryBranch, writePrivateFile, type BackupRecord,
 } from "./storage";
 
-const environment = {
-  GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "false", SSH_ASKPASS: "false", GCM_INTERACTIVE: "Never",
-  GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true", GIT_OPTIONAL_LOCKS: "0",
-};
-const disabledHooks = process.platform === "win32" ? "NUL" : "/dev/null";
-
-/** Hooks are repository code; backup and restore never run them. */
-async function git(cwd: string, args: readonly string[]) {
-  try {
-    return await execa("git", ["-c", `core.hooksPath=${disabledHooks}`, ...args], { cwd, stdin: "ignore", reject: false, env: environment });
-  } catch {
-    throw new Error("Could not start Git for backup; check the Git installation and repository access.");
-  }
-}
+const environment = backupGitEnvironment;
+const git = backupGit;
 
 async function output(cwd: string, args: readonly string[]): Promise<string> {
   const result = await git(cwd, args);
@@ -91,15 +80,6 @@ async function preflight(repository: RepositoryContext, selected: Pick<Worktree,
 async function exists(path: string): Promise<boolean> {
   try { await lstat(path); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code !== "ENOENT"; }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
-  return `${value.toFixed(1)} ${units[unit]}`;
 }
 
 /** Publish a verified snapshot and private ref, or nothing that looks usable. */

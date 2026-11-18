@@ -61,6 +61,12 @@ export interface CommandServices {
   createBackup(repository: RepositoryContext, worktree: Worktree, io: CommandIO): Promise<number>;
   /** Recover a verified backup into a new worktree and recovery branch; never overwrites or runs repository code. */
   restoreBackup(repository: RepositoryContext, id: string, destination: string, cwd: string, io: CommandIO): Promise<number>;
+  /** Read-only listing of backups, unfinished deletions and unusable entries. */
+  listBackups(repository: RepositoryContext, io: CommandIO): Promise<number>;
+  /** Interactive deletion; requires the text prompt and `y` then Enter per decision. */
+  reviewBackupDeletion(repository: RepositoryContext, options: { all: boolean }, io: CommandIO, ask: TerminalTextPrompt | undefined): Promise<number>;
+  /** IDs of valid backups recorded from a worktree path; optional so embedders without backups keep `done` unchanged. */
+  retainedBackups?(repository: RepositoryContext, worktreePath: string): Promise<readonly string[]>;
   /** Inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
   /** Recheck identity and safety at mutation time. Confirmed upstream absence or
@@ -140,6 +146,8 @@ export interface CommandHandlers {
   /** Optional for existing embedders; production entry point wires backups. */
   backupCreate?(input: string, context: CommandContext): Promise<number>;
   backupRestore?(id: string, destination: string, context: CommandContext): Promise<number>;
+  backupList?(context: CommandContext): Promise<number>;
+  backupDone?(options: { all: boolean }, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires arena creation. */
   arenaNew?(name: string, options: ArenaNewOptions, context: CommandContext): Promise<number>;
   /** Existing attempts only; no materialization or ordinary agent substitution. */

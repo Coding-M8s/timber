@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBackupCreateHandler, createBackupRestoreHandler } from "../src/commands/backup";
+import { createBackupCreateHandler, createBackupDoneHandler, createBackupRestoreHandler } from "../src/commands/backup";
 import { assertStorageSpace, copySnapshot, sameListing, SnapshotError, walkWorktree } from "../src/backup/snapshot";
 import { newBackupId, validateManifest, validateRecord } from "../src/backup/storage";
 import type { CommandContext } from "../src/services";
@@ -111,4 +111,22 @@ test("restore resolves the destination from the invoking directory", async () =>
   });
   expect(await createBackupRestoreHandler(services)("20261115T090807Z-0123abcd", "../recovered", context({ cwd: "/work/nested" }))).toBe(0);
   expect(calls).toEqual([["20261115T090807Z-0123abcd", "../recovered", "/work/nested"]]);
+});
+
+test("backup done refuses without a terminal prompt before touching the repository", async () => {
+  const handler = createBackupDoneHandler(createServiceDouble());
+  await expect(handler({ all: true }, context())).rejects.toThrow("Deleting backups requires an interactive terminal; nothing was deleted.");
+});
+
+test("backup done passes the terminal prompt and --all selection to the deletion service", async () => {
+  const ask = async () => null;
+  const handler = createBackupDoneHandler(createServiceDouble({
+    discoverRepository: async () => repositoryFixture(),
+    reviewBackupDeletion: async (_repository, options, _io, actual) => {
+      expect(options).toEqual({ all: true });
+      expect(actual).toBe(ask);
+      return 0;
+    },
+  }));
+  expect(await handler({ all: true }, context({ ask }))).toBe(0);
 });

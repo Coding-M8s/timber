@@ -75,6 +75,15 @@ export async function writePrivateFile(path: string, content: string): Promise<v
   } finally { await handle.close(); }
 }
 
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
 export function digest(content: string | Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -165,16 +174,32 @@ export interface PublishedBackup {
   directory: string;
   record: BackupRecord;
   manifest: ManifestEntry[];
+  /** Digest of the exact record bytes; deletion compares it to prove the same backup. */
+  recordSha256: string;
+  /** Directory identity at read time; a replaced directory or link has a different identity. */
+  device: number;
+  inode: number;
 }
 
 /** Read a published backup without trusting its location, permissions or contents. */
 export async function readPublishedBackup(commonGitDir: string, id: string): Promise<PublishedBackup> {
   if (!backupIdPattern.test(id)) throw new BackupRecordError("Invalid backup ID; use the ID printed by timber backup create.");
-  const directory = join(backupsRoot(commonGitDir), id);
   try {
     await assertPrivateStorage(join(commonGitDir, "timber"), await lstat(join(commonGitDir, "timber")), true);
     await assertPrivateStorage(backupsRoot(commonGitDir), await lstat(backupsRoot(commonGitDir)), true);
-    await assertPrivateStorage(directory, await lstat(directory), true);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new BackupRecordError("No backup with that ID exists in this repository.");
+    throw new BackupRecordError("Backup storage is not a private directory; inspect it before retrying.");
+  }
+  return readBackupAt(join(backupsRoot(commonGitDir), id), id);
+}
+
+/** Read one backup directory, published or being deleted, after its parents were checked. */
+export async function readBackupAt(directory: string, id: string): Promise<PublishedBackup> {
+  let info;
+  try {
+    info = await lstat(directory);
+    await assertPrivateStorage(directory, info, true);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new BackupRecordError("No backup with that ID exists in this repository.");
     throw new BackupRecordError("Backup storage is not a private directory; inspect it before retrying.");
@@ -197,5 +222,5 @@ export async function readPublishedBackup(commonGitDir: string, id: string): Pro
   if (manifest.length !== record.entries || bytes !== record.bytes) {
     throw new BackupRecordError("Backup manifest totals do not match its record; it cannot be used.");
   }
-  return { directory, record, manifest };
+  return { directory, record, manifest, recordSha256: digest(recordText), device: info.dev, inode: info.ino };
 }

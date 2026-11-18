@@ -164,7 +164,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
 
   const backup = program.command("backup")
-    .description("Create private recovery backups of a worktree, including ignored files, and restore them");
+    .description("Create, list, restore and delete private recovery backups of a worktree, including ignored files");
   backup.command("create <branch-or-worktree>")
     .description("Snapshot a worktree's commit and files, including modified, untracked and ignored files")
     .addHelpText("after", "\nStored privately in the repository's Git directory, so removing the worktree keeps the backup.\nIgnored files such as .env are copied. The Git index and in-progress operations are not captured.\nRefuses worktrees with an in-progress rebase, merge or similar operation. Never runs hooks, editors or agents.")
@@ -178,6 +178,21 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .action(async (id: string, destination: string) => {
       if (!handlers.backupRestore) throw new Error("Backup handler is unavailable in this embedding.");
       onExitCode(await handlers.backupRestore(id, destination, context));
+    });
+  backup.command("list")
+    .description("Show this repository's backups with branch, creation time, size, protection and expiry")
+    .addHelpText("after", "\nRead-only. Missing, malformed or unrecognized entries are reported and never deleted.")
+    .action(async () => {
+      if (!handlers.backupList) throw new Error("Backup handler is unavailable in this embedding.");
+      onExitCode(await handlers.backupList(context));
+    });
+  backup.command("done")
+    .description("Review backups one at a time and delete each only after y then Enter")
+    .option("--all", "Select every eligible backup and ask once, showing the count and total size")
+    .addHelpText("after", "\nRequires an interactive terminal; the default answer is No. Backups of an active or uncertain\nrebase are protected and never offered. Deletes the snapshot directory, private ref and record together.")
+    .action(async (options: { all?: boolean }) => {
+      if (!handlers.backupDone) throw new Error("Backup handler is unavailable in this embedding.");
+      onExitCode(await handlers.backupDone({ all: options.all === true }, context));
     });
 
   const arena = program.command("arena")

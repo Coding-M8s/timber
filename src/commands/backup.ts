@@ -25,3 +25,23 @@ export function createBackupRestoreHandler(
     return services.restoreBackup(repository, id, destination, context.cwd, context.io);
   };
 }
+
+/** Read-only; reports problems without treating them as deletion authorization. */
+export function createBackupListHandler(
+  services: Pick<CommandServices, "discoverRepository" | "listBackups">,
+): NonNullable<CommandHandlers["backupList"]> {
+  return async context => services.listBackups(await services.discoverRepository(context.cwd), context.io);
+}
+
+/** Deletion needs the interactive text prompt; without a terminal it refuses before reading storage. */
+export function createBackupDoneHandler(
+  services: Pick<CommandServices, "discoverRepository" | "reviewBackupDeletion">,
+): NonNullable<CommandHandlers["backupDone"]> {
+  return async (options, context) => {
+    if (!context.ask) {
+      throw new Error("Deleting backups requires an interactive terminal; nothing was deleted. Review them with timber backup list.");
+    }
+    const repository = await services.discoverRepository(context.cwd);
+    return services.reviewBackupDeletion(repository, options, context.io, context.ask);
+  };
+}
