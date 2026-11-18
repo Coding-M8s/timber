@@ -54,6 +54,16 @@ test("a branch with no upstream is published and tracked, a later commit is push
       publish: { result: "up-to-date", remote: "origin", upstream, pushedCommit: second } });
     expect(await localState(primary)).toBe(before);
     expect(await remoteTip(remote)).toBe(second);
+
+    // A level branch that lost its upstream gets it back without pushing a commit.
+    await git(target, "branch", "--unset-upstream");
+    const restored = join(directory, "restored.json");
+    const level = await cli(primary, "publish", target, "--result-file", restored);
+    expect(level.exitCode).toBe(0);
+    expect(level.stdout.endsWith("Already up to date. Upstream set.")).toBe(true);
+    expect(await record(restored)).toMatchObject({ publish: { result: "up-to-date", remote: "origin", upstream, pushedCommit: second } });
+    expect(await git(target, "rev-parse", "--symbolic-full-name", "@{upstream}")).toBe(upstream);
+    expect(await remoteTip(remote)).toBe(second);
   });
 });
 
@@ -131,7 +141,16 @@ test("detached, missing, unmatched and differently named upstream targets are re
     await git(target, "branch", "--set-upstream-to=origin/main");
     const named = await refused("named", target, "different name", { path: target });
     expect(named.publish).toMatchObject({ remote: null, upstream: null });
+    // A local branch as upstream is not a remote to publish to.
+    await git(target, "branch", "--set-upstream-to=trunk");
+    await refused("local", target, "local branch", { path: target });
     await git(target, "branch", "--unset-upstream");
+
+    // Two remotes and no configured one: Timber does not guess.
+    await git(primary, "remote", "add", "other", remote);
+    const ambiguous = await refused("ambiguous", target, "Remote is missing or ambiguous", { path: target });
+    expect(ambiguous.publish).toMatchObject({ remote: null, upstream: null });
+    await git(primary, "remote", "remove", "other");
 
     await refused("unmatched", "no-such-branch", "No registered worktree matches", null);
 
