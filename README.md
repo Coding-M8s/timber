@@ -95,7 +95,7 @@ is lost. See [winner selection](docs/guide.md#choose-an-arena-winner).
 
 ## More help
 
-Use `timber <command> --help` for flags.
+Use `timber <command> --help` for flags. To remove Timber, see [Remove Timber](docs/guide.md#remove-timber).
 
 - [User guide](docs/guide.md): configuration, Jira, trusted shell hooks, and workflows
 - [Arena](docs/guide.md#arena-multiple-isolated-attempts): create, resume, compare, and pick isolated attempts

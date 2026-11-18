@@ -447,6 +447,40 @@ when local base metadata cannot be trusted. A narrow terminal may wrap a complet
 Listing works offline and requires no `.timber.toml`. It does not fetch, prune,
 refresh the index, open an editor, launch an agent, or change files or refs.
 
+## Remove Timber
+
+```bash
+timber uninstall                    # remove the executable; keep settings
+timber uninstall --remove-settings  # also remove settings, credentials and state
+```
+
+The command lists what it will remove and keep, then asks for confirmation. In a
+script, add `--yes`; without it a noninteractive run refuses and removes nothing.
+It removes only the running standalone executable, never a Bun source or
+`bun link` run (see [CONTRIBUTING.md](../CONTRIBUTING.md)). It refuses symlinks,
+files owned by another user and paths inside a Git directory. Unknown files in
+Timber's directories are listed and never deleted. Repositories, worktrees,
+branches, `.timber.toml` and `<git common dir>/timber/` are never touched.
+Remove any completion lines you added to `.bashrc`, `.zshrc` or fish config
+yourself.
+
+### Manual removal
+
+Use this table if you already deleted the executable, or on Windows, where a
+running `.exe` cannot delete itself. Defaults shown; `XDG_CONFIG_HOME` and
+`XDG_STATE_HOME` apply when set to absolute paths.
+
+| Item | Linux and macOS | Windows |
+| --- | --- | --- |
+| Executable | `~/.local/bin/timber` | `%LOCALAPPDATA%\Programs\Timber\timber.exe`, and its PATH entry |
+| Machine settings | `~/.config/timber/config.toml` | `%USERPROFILE%\.config\timber\config.toml` |
+| Jira credentials | `~/.config/timber/credentials/jira.json` | `%USERPROFILE%\.config\timber\credentials\jira.json` |
+| Setup hint marker | `~/.local/state/timber/setup-hint-shown` | `%USERPROFILE%\.local\state\timber\setup-hint-shown` |
+| Repository settings | `.timber.toml` in each primary worktree (optional) | same |
+| Repository metadata | `<git common dir>/timber/` and `timber-setup.lock` (optional) | same |
+| Worktrees and branches | `timber done`, or `git worktree remove` | same |
+| Completion lines | user-added lines in shell startup files | PowerShell profile, if added |
+
 ## Bash tab completion
 
 Activate command, flag, and worktree completion in the current Bash session:

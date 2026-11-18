@@ -914,6 +914,37 @@ Malformed configuration still reports its actionable error. `ls` validates both
 scopes while remaining offline and read-only. Guidance never starts setup or
 blocks CI implicitly.
 
+## Uninstall (#147)
+
+```bash
+timber uninstall                    # remove the executable; keep settings
+timber uninstall --remove-settings  # also remove machine settings, credentials and state
+timber uninstall --yes              # confirm without a prompt
+```
+
+- Removes only the running executable (`process.execPath`), and only for a
+  standalone compiled release build. A Bun source or `bun link` run is refused
+  with a pointer to CONTRIBUTING.md. Windows is refused with a pointer to the
+  manual steps in docs/windows.md and docs/guide.md, because a running `.exe`
+  cannot be deleted.
+- Prints exactly what will be removed and kept, then requires interactive
+  confirmation (default No). Without an interactive terminal it exits nonzero and
+  removes nothing unless `--yes` is given. `--yes` covers only the items of the
+  chosen mode.
+- `--remove-settings` also removes `config.toml`, `credentials/jira.json` and
+  the `setup-hint-shown` marker, using the same XDG resolution as
+  `src/config-paths.ts`. The `timber/` config, credentials and state
+  directories are then removed only if empty. Unknown files are never deleted;
+  they are listed.
+- Before anything is removed, every target is checked. A symlink, a target
+  not owned by the current user, a non-regular file, or a path inside a Git
+  worktree or Git directory is refused and nothing is removed.
+- Repositories, worktrees, branches, `.timber.toml` and `<git common dir>/timber/`
+  are never touched. One output line says so.
+- After removal Timber warns on stderr when another `timber` is still on `PATH`
+  and reminds the user to remove shell completion lines they added. Shell
+  startup files are never edited. Credential contents are never printed.
+
 ## Shell completion (TIM-23, #84, #85)
 
 `timber completion bash`, `timber completion zsh`, and `timber completion fish`

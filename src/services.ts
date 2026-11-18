@@ -137,6 +137,8 @@ export interface CommandHandlers {
   /** Existing attempts only; no materialization or ordinary agent substitution. */
   arenaResume?(name: string, options: ArenaResumeOptions, context: CommandContext): Promise<number>;
   arenaPick?(name: string, options: ArenaPickOptions, context: CommandContext): Promise<number>;
+  /** Optional for existing embedders; production entry point wires uninstall. */
+  uninstall?(options: { yes?: boolean; removeSettings?: boolean }, context: CommandContext): Promise<number>;
   setup(options: { global: boolean }, context: CommandContext): Promise<void>;
   new: (branch: string, options: NewOptions, context: CommandContext) => Promise<void | number>;
   open(input: string, options: OpenOptions, context: CommandContext): Promise<void | number>;
