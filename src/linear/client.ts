@@ -17,7 +17,8 @@ export class LinearLookupFailure extends Error {
   constructor(message: string, readonly reason?: "not-found") { super(message); }
 }
 
-function missingIssue(body: unknown): boolean {
+/** True only for Linear's exact missing-issue error response. */
+export function missingIssue(body: unknown): boolean {
   // shortcut: missing-error wording must match exactly; update from a verified response if Linear changes it.
   const result = z.object({ data: z.null().optional(), errors: z.tuple([z.object({
     message: z.enum(["Entity not found: Issue", "Could not find referenced Issue."]),

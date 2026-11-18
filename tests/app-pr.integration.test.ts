@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { git, withRepository } from "./helpers/git";
+import { snapshot } from "./helpers/snapshot";
 import { readAppPullRequests } from "../src/app-pr/read";
 import type { AppPullRequestServices } from "../src/app-pr/read";
 import { loadRepositoryConfig } from "../src/config";
@@ -13,24 +14,6 @@ import { listWorktreeInventory } from "../src/git/worktrees";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const token = "ghp_SECRET_TOKEN_5d1e9a";
-
-/** Every file's path, size and mtime, then refs, worktrees and status: what a read-only call must leave alone. */
-async function snapshot(directory: string, worktrees: readonly string[]): Promise<string> {
-  const files: string[] = [];
-  const walk = async (path: string) => {
-    for (const item of (await readdir(path, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-      const full = join(path, item.name);
-      const info = await stat(full);
-      files.push(`${full} ${info.size} ${info.mtimeMs}`);
-      if (item.isDirectory()) await walk(full);
-    }
-  };
-  await walk(directory);
-  const primary = worktrees[0]!;
-  const git = (cwd: string, ...args: string[]) => execa("git", args, { cwd, env: { GIT_OPTIONAL_LOCKS: "0" } }).then(result => result.stdout);
-  const status = await Promise.all(worktrees.map(path => git(path, "status", "--porcelain=v2", "--ignored", "--branch")));
-  return [...files, await git(primary, "for-each-ref"), await git(primary, "worktree", "list", "--porcelain"), ...status].join("\n");
-}
 
 interface Seen { requests: { query: string; variables: Record<string, string> }[]; tokenReads: number }
 

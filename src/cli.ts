@@ -1,4 +1,5 @@
 import { runAppConfig } from "./commands/app-config";
+import { runAppIssue } from "./commands/app-issue";
 import { runAppPullRequests } from "./commands/app-pr";
 import { runNativeCleanup } from "./machine-done";
 import { runMachineCommand } from "./machine";
@@ -336,6 +337,9 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
 
   program.command("__app-pr", { hidden: true })
     .action(async () => { onExitCode(await runAppPullRequests(context)); });
+
+  program.command("__app-issue <worktree>", { hidden: true })
+    .action(async (worktree: string) => { onExitCode(await runAppIssue(worktree, context)); });
 
   program.command("done <branch-or-worktree>")
     .option("--base <ref>", "Verify integration against this base instead of the saved/configured/default branch")

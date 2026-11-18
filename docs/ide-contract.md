@@ -2,12 +2,14 @@
 
 This additive interface is experimental. It supports repository inventory,
 ordinary New/Open outcomes, Rebase, Publish and PR outcomes, reading, saving and
-checking settings for app consumers, and reading each worktree's pull request.
+checking settings for app consumers, reading each worktree's pull request, and
+reading a worktree's linked issue.
 It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
 No IDE consumer is included. Rebase, Publish and PR records, native cleanup approval,
 [settings for app consumers](#settings-for-app-consumers-experimental-v1) and
-[pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1) are described below. Linux x86_64 is the tested
+[pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1) and
+[linked issues for app consumers](#linked-issues-for-app-consumers-experimental-v1) are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
 
@@ -701,3 +703,77 @@ type PullRequest = {
 
 Other hosts, review comments and pull request actions are not part of this
 interface.
+
+## Linked issues for app consumers (experimental v1)
+
+An app can show the current state of the issue a worktree belongs to with one
+hidden, read-only command run in any worktree of the repository:
+
+```sh
+timber __app-issue -- '/absolute/worktree path'
+timber __app-issue feature/login
+```
+
+The argument is an absolute registered worktree path or an exact branch name
+checked out in a worktree; there is no fuzzy matching and no chooser. The issue is
+the [saved issue link](#issue-link) (`issue` in `ls --json`). Timber prints one
+JSON object plus newline to stdout and exits 0 when the outcome is `found` or
+`none`, or 1 when it is `failed`; the record is printed in both cases. It never
+prompts (run it with stdin closed), never writes files, never fetches or changes
+a ref, and never changes the issue. The network part, reading the login and the
+tracker request together, stops after 15 seconds.
+
+```ts
+type IssueRecord = {
+  schemaVersion: 1;
+  repository: RepositoryIdentity | null; // null when discovery failed
+  worktree: { path: string; branch: string | null; isPrimary: boolean } | null; // null when nothing matched
+  outcome: "found" | "none" | "failed";
+  issue: Issue | null;        // non-null only when found
+  reason: "offline" | "sign-in-needed" | "not-found" | "forbidden" | "failed" | null; // non-null only when failed
+  diagnostic: string | null;  // terminal-safe failure text, not a stable code; non-null only when failed
+};
+
+type Issue = {
+  tracker: "github" | "jira" | "linear";
+  key: string;                // as saved in the link: the GitHub number or the Jira/Linear key
+  url: string;                // as saved in the link
+  title: string;
+  status: {
+    name: string;             // the tracker's own name, such as "In Review"; GitHub reports "Open" or "Closed"
+    category: "open" | "in-progress" | "closed";
+  };
+  assignee: string | null;    // display name; the login for GitHub; null when unassigned
+};
+```
+
+- `none` means the worktree has no saved link, which is always so for the
+  primary worktree. Timber then reads no login and contacts nothing.
+- `category` comes from the tracker's own grouping. Jira: To Do is `open`, In
+  Progress is `in-progress`, Done is `closed`. Linear: triage, backlog and
+  unstarted are `open`, started is `in-progress`, completed, canceled and
+  duplicate are `closed`. GitHub issues are only `open` or `closed`.
+- A GitHub issue is read from the repository in its saved URL, not from the
+  current remote. A Jira issue is read from the configured `[jira]` site, and
+  only when the saved URL is on that same site. A Linear issue is read by key.
+- `sign-in-needed` means no usable login, a rejected one, or, for Jira, no
+  configured site. `offline` means the tracker could not be reached or did not
+  answer within the time limit. `not-found` means the tracker has no such issue
+  or hides it from this login, including a deleted Linear issue. `forbidden`
+  means the login is known but may not read the issue. `failed` covers rate
+  limits, redirects, invalid responses, an unreadable repository, a target that
+  names no registered worktree, damaged link metadata (as `invalid` in
+  `ls --json`), and a Jira link on a site other than the configured one.
+  Retry on the next refresh; Timber never retries on its own.
+- The login is the one `timber new` uses for that tracker: for GitHub,
+  `GH_TOKEN` or `GITHUB_TOKEN` when set, otherwise the GitHub CLI login for
+  github.com; for Jira, `JIRA_EMAIL` and `JIRA_API_TOKEN` when set, otherwise the
+  saved pair for the site; for Linear, `LINEAR_API_KEY` when set, otherwise the
+  saved key. The app never reads a login itself, and sign-in is not part of this
+  interface. Tokens never appear in stdout, stderr or diagnostics.
+- Titles, status names and assignee names are text from the tracker. Display
+  them as untrusted text; do not render them as trusted markup or pass them to a
+  shell.
+
+Editing issues, transitions, comments and listing issues that are not linked
+are not part of this interface.
