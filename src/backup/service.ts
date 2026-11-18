@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { lstat, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execaSync } from "execa";
-import { backupGit, backupGitEnvironment, disabledHooks } from "./git";
+import { backupGit as git, backupGitEnvironment as environment, disabledHooks } from "./git";
 import { FormattedError, safeDisplay, shellQuoteForDisplay } from "../display";
 import { gitOperation } from "../git/operations";
 import { assertWorktreeIdentity, listWorktreeInventory } from "../git/worktrees";
@@ -16,9 +16,6 @@ import {
   BackupRecordError, backupRef, createPrivateDirectory, digest, ensureBackupsRoot, formatBytes, newBackupId, readPublishedBackup,
   recoveryBranch, writePrivateFile, type BackupRecord,
 } from "./storage";
-
-const environment = backupGitEnvironment;
-const git = backupGit;
 
 async function output(cwd: string, args: readonly string[]): Promise<string> {
   const result = await git(cwd, args);

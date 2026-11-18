@@ -291,8 +291,8 @@ and requires the same record bytes (SHA-256), the same directory identity
 (device and inode, so a substituted link or directory fails), exactly the
 expected files, the ref still naming the recorded commit, and no protection.
 Any difference keeps the backup unchanged and reports it. It then renames
-`<id>/` to `.deleting-<id>/` inside the backup root, checks identity and
-protection again (renaming back on any difference), deletes the ref with
+`<id>/` to `.deleting-<id>/` inside the backup root, checks identity, exact
+contents and protection again (renaming back on any difference), deletes the ref with
 `git update-ref -d <ref> <commit>` so a moved ref is never deleted (renaming back
 on failure), and removes only the manifest-listed blobs, then `manifest.json`,
 then `record.json`, by name with no recursion and no link following, checking the
