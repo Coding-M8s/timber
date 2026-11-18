@@ -387,3 +387,37 @@ test("new --no-setup without hooks records no skipped setup", async () => {
     expect("setupSkipped" in data).toBe(false);
   });
 });
+
+test("open --no-setup records skipped setup only when it creates the worktree, and only workflow hooks count too", async () => {
+  await withRepository(async (primary, directory) => {
+    await git(primary, "branch", "local");
+    await configure(primary, [], '[workflows.review]\npost_create = ["touch workflow-ran"]');
+    const created = join(directory, "created.json");
+    expect((await cli(primary, "open", "--no-setup", "--workflow", "review", ...flags(created), "--", "local")).exitCode).toBe(0);
+    const first = await record(created);
+    expect(first).toMatchObject({ command: "open", outcome: "succeeded", materialized: true, setupSkipped: true });
+    expect(await exists(join(first.worktree.path, "workflow-ran"))).toBe(false);
+
+    const reopened = join(directory, "reopened.json");
+    const again = await cli(primary, "open", "--no-setup", ...flags(reopened), "--", first.worktree.path);
+    expect(again.exitCode).toBe(0);
+    expect(again.stdout).not.toContain("Setup skipped");
+    const second = await record(reopened);
+    expect(second).toMatchObject({ outcome: "succeeded", materialized: false });
+    expect("setupSkipped" in second).toBe(false);
+  });
+});
+
+test("open --setup --no-setup with a result file is refused before the file or a worktree exists", async () => {
+  await withRepository(async (primary, directory) => {
+    await git(primary, "branch", "local");
+    const output = join(directory, "refused.json");
+    const refs = await git(primary, "show-ref");
+    const result = await cli(primary, "open", "--setup", "--no-setup", ...flags(output), "--", "local");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("Conflicting options: --setup and --no-setup.");
+    expect(await exists(output)).toBe(false);
+    expect(await git(primary, "show-ref")).toBe(refs);
+    expect(await exists(join(directory, "primary repo-worktrees", "local"))).toBe(false);
+  });
+});
