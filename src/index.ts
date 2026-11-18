@@ -22,7 +22,8 @@ import { launchAgent } from "./agent";
 import { runCli } from "./cli";
 import { notifyAfterCommand, updateHandlers } from "./update/runtime";
 import { createRebaseHandler } from "./commands/rebase";
-import { createBackupCreateHandler, createBackupRestoreHandler } from "./commands/backup";
+import { createBackupCreateHandler, createBackupDoneHandler, createBackupListHandler, createBackupRestoreHandler } from "./commands/backup";
+import { listBackups, retainedBackups, reviewBackupDeletion } from "./backup/lifecycle";
 import { createBackup, restoreBackup } from "./backup/service";
 import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
 import { createPublishHandler } from "./commands/publish";
@@ -127,13 +128,15 @@ process.exitCode = await runCli(process.argv.slice(2), {
       resolveOpenTarget: (repository, input, config) => resolveRebaseTarget(repository, input, config, { inspectStatus: false }),
     }),
     backupRestore: createBackupRestoreHandler({ discoverRepository, restoreBackup }),
+    backupList: createBackupListHandler({ discoverRepository, listBackups }),
+    backupDone: createBackupDoneHandler({ discoverRepository, reviewBackupDeletion }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
     // Shares rebase selection so a paused rebase's branch reports its detached worktree.
     publish: createPublishHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, publishWorktree, resolveOpenTarget: resolveRebaseTarget,
     }),
     done: createDoneHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree,
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree, retainedBackups,
     }),
   },
   context: {

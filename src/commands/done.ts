@@ -32,7 +32,7 @@ function ambiguousMessage(input: string, candidates: readonly Worktree[]): strin
 /** Resolve one existing worktree; fresh safety checks and all mutations belong to cleanup. */
 export function createDoneHandler(
   services: Pick<CommandServices,
-    "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "cleanupWorktree">,
+    "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "cleanupWorktree" | "retainedBackups">,
 ): CommandHandlers["done"] {
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or absolute worktree path to clean up.");
@@ -105,5 +105,20 @@ export function createDoneHandler(
     } else if (result.retainedLocalBranch !== null) {
       context.io.stdout(`Retained local branch ${display(result.retainedLocalBranch)}\n`);
     }
+    if (!services.retainedBackups) return;
+    // Cleanup already succeeded; a backup read failure only changes this report.
+    let kept: readonly string[];
+    try { kept = await services.retainedBackups(repository, result.removedWorktreePath); }
+    catch {
+      context.io.stdout("Could not check for recovery backups of this worktree; review them with timber backup list.\n");
+      return;
+    }
+    if (!kept.length) return;
+    context.io.stdout([
+      `Kept ${kept.length} recovery backup${kept.length === 1 ? "" : "s"} of this worktree: ${kept.join(", ")}`,
+      "Backups are not removed by timber done and can still contain copies of ignored files, including secrets such as .env.",
+      "Review with timber backup list, restore with timber backup restore <id> <new-directory>, delete with timber backup done.",
+      "",
+    ].join("\n"));
   };
 }
