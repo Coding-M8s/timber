@@ -1,9 +1,9 @@
-import { lstat, readdir, realpath, rmdir, unlink } from "node:fs/promises";
+import { lstat, readdir, rmdir, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { execa } from "execa";
-import { globalConfigPath, installationMarkerPath } from "../config-paths";
+import { globalConfigPath, installationMarkerPath, updateCheckCachePath } from "../config-paths";
 import { safeDiagnostic, safeDisplay as display } from "../display";
 import { findExecutable } from "../platform/executable";
+import { gitLocation } from "../platform/git-location";
 import type { CommandHandlers } from "../services";
 
 export interface UninstallDependencies {
@@ -26,26 +26,11 @@ function code(error: unknown): string | undefined {
   return typeof error === "object" && error !== null && "code" in error ? String((error as { code: unknown }).code) : undefined;
 }
 
-/** Same Git probe as the Jira credential store: never a place Timber may delete from. */
+/** Same Git probe as the credential stores: never a place Timber may delete from. */
 export async function pathInsideGit(path: string): Promise<boolean> {
-  let ancestor = dirname(path);
-  while (true) {
-    try { await lstat(ancestor); break; }
-    catch (error) { if (code(error) !== "ENOENT") throw error; }
-    const parent = dirname(ancestor);
-    if (parent === ancestor) return false;
-    ancestor = parent;
-  }
-  const result = await execa("git", ["rev-parse", "--is-inside-work-tree", "--is-inside-git-dir"], {
-    cwd: await realpath(ancestor), reject: false,
-    env: { GIT_OPTIONAL_LOCKS: "0", GIT_DIR: undefined, GIT_WORK_TREE: undefined, GIT_COMMON_DIR: undefined,
-      GIT_CEILING_DIRECTORIES: undefined, GIT_DISCOVERY_ACROSS_FILESYSTEM: "1", LC_ALL: "C" },
-  });
-  if (result.stdout.split("\n").includes("true")) return true;
-  const notRepository = result.exitCode === 128
-    && result.stderr.trim() === "fatal: not a git repository (or any of the parent directories): .git";
-  if (result.exitCode !== 0 && !notRepository) throw new Error("Git could not verify that the location is outside Git.");
-  return false;
+  const location = await gitLocation(path);
+  if (location === "unverified") throw new Error("Git could not verify that the location is outside Git.");
+  return location === "inside";
 }
 
 interface Plan {
@@ -79,17 +64,19 @@ async function buildPlan(removeSettings: boolean, dependencies: Required<Pick<Un
   const configFile = globalConfigPath(dependencies.env);
   const configDirectory = dirname(configFile);
   const credentialsDirectory = join(configDirectory, "credentials");
-  const credentialsFile = join(credentialsDirectory, "jira.json");
+  const credentialFiles = ["jira.json", "linear.json"].map(name => join(credentialsDirectory, name));
   const marker = installationMarkerPath(dependencies.env);
   const stateDirectory = dirname(marker);
-  const settings = [configFile, credentialsFile, marker];
+  const updateCache = updateCheckCachePath(dependencies.env);
+  const cacheDirectory = dirname(updateCache);
+  const settings = [configFile, ...credentialFiles, marker, updateCache];
   if (!removeSettings) {
     for (const path of settings) if (await exists(path)) plan.keptSettings.push(path);
     return plan;
   }
   for (const path of settings) if (await exists(path)) plan.files.push(path);
   const known = new Set([...settings, credentialsDirectory]);
-  for (const directory of [configDirectory, credentialsDirectory, stateDirectory]) {
+  for (const directory of [configDirectory, credentialsDirectory, stateDirectory, cacheDirectory]) {
     if (!await exists(directory)) continue;
     plan.directories.push(directory);
     for (const name of await entries(directory)) {
@@ -147,7 +134,7 @@ export function createUninstallHandler(dependencies: UninstallDependencies): Non
       }
     }
     out(`Removed ${display(dependencies.executablePath)}.\n`);
-    if (removeSettings) out("Removed machine settings, saved Jira credentials and the setup hint marker.\n");
+    if (removeSettings) out("Removed machine settings, saved Jira and Linear credentials, the setup hint marker and the update check cache.\n");
     const remaining = await findExecutable("timber", env);
     if (remaining !== null) {
       context.io.stderr(`warning: another timber is still on PATH at ${safeDiagnostic(remaining)}. Remove it separately.\n`);

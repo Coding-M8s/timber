@@ -4,9 +4,9 @@ import type { Stats } from "node:fs";
 import { link, lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { execa } from "execa";
 import { z } from "zod";
 import { globalConfigPath } from "../config-paths";
+import { gitLocation } from "../platform/git-location";
 import { configFileSchema } from "../config";
 import type { JiraConfig } from "../types";
 import { SetupCancelled, SetupChangedError } from "../setup/types";
@@ -55,29 +55,12 @@ async function checkOwner(path: string, info: Stats, mode?: number): Promise<voi
 
 /** Resolve existing ancestors too: an XDG path inside a worktree/.git is never a secret store. */
 async function assertOutsideGit(path: string): Promise<void> {
-  let ancestor = dirname(path);
-  while (true) {
-    try { await lstat(ancestor); break; }
-    catch (error) { if (code(error) !== "ENOENT") throw storeError(); }
-    const parent = dirname(ancestor);
-    if (parent === ancestor) throw storeError();
-    ancestor = parent;
-  }
-  try {
-    const result = await execa("git", ["rev-parse", "--is-inside-work-tree", "--is-inside-git-dir"], {
-      cwd: await realpath(ancestor), reject: false,
-      env: { GIT_OPTIONAL_LOCKS: "0", GIT_DIR: undefined, GIT_WORK_TREE: undefined, GIT_COMMON_DIR: undefined,
-        GIT_CEILING_DIRECTORIES: undefined, GIT_DISCOVERY_ACROSS_FILESYSTEM: "1", LC_ALL: "C" },
-    });
-    if (result.stdout.split("\n").includes("true")) throw new Error("Jira credentials must be stored outside all Git worktrees and Git administrative directories. Change XDG_CONFIG_HOME to a private user configuration directory and rerun setup.");
-    const notRepository = result.exitCode === 128
-      && result.stderr.trim() === "fatal: not a git repository (or any of the parent directories): .git";
-    if (result.exitCode !== 0 && !notRepository) {
-      throw new Error("Jira credentials must be stored outside Git; Git could not verify this location. Check Git discovery/safety settings or choose another private XDG_CONFIG_HOME and rerun setup.");
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Jira credentials must")) throw error;
-    throw storeError();
+  let location;
+  try { location = await gitLocation(path); }
+  catch { throw storeError(); }
+  if (location === "inside") throw new Error("Jira credentials must be stored outside all Git worktrees and Git administrative directories. Change XDG_CONFIG_HOME to a private user configuration directory and rerun setup.");
+  if (location === "unverified") {
+    throw new Error("Jira credentials must be stored outside Git; Git could not verify this location. Check Git discovery/safety settings or choose another private XDG_CONFIG_HOME and rerun setup.");
   }
 }
 

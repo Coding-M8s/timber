@@ -232,7 +232,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
 
   program.command("uninstall")
     .description("Remove the running standalone Timber executable; settings are kept unless requested")
-    .option("--remove-settings", "Also remove machine config, saved Jira credentials and the setup hint marker")
+    .option("--remove-settings", "Also remove machine config, saved Jira and Linear credentials, the setup hint marker and the update check cache")
     .option("--yes", "Confirm without a prompt; required without an interactive terminal")
     .addHelpText("after", "\nOnly a standalone release build is removed, never a Bun source run. Symlinks, files owned by another user and paths inside Git are refused. Unknown files are never deleted. Repositories, worktrees, branches, .timber.toml and <git common dir>/timber/ are never touched.")
     .action(async (options: { removeSettings?: boolean; yes?: boolean }) => {
