@@ -4,6 +4,7 @@ import { safeDiagnostic } from "./display";
 import { readBaseAssociation, type BaseAssociationRead } from "./git/base-metadata";
 import type { AppConfigReport } from "./app-config/settings";
 import type { RebaseReport } from "./git/rebase";
+import type { PublishReport } from "./git/publish";
 import type { CommandContext } from "./services";
 import type { RepositoryContext, Worktree } from "./types";
 
@@ -17,6 +18,8 @@ export interface MachineReporter {
   inventory(entries: readonly InventoryEntry[]): Promise<void>;
   /** Attaches the live rebase report; it is read once the handler has finished. */
   rebase(report: RebaseReport): void;
+  /** Attaches the live publish report; it is read once the handler has finished. */
+  publish(report: PublishReport): void;
   /** Attaches the live settings report; it is read once the handler has finished. */
   config(report: AppConfigReport): void;
   cancelled(): void;
@@ -47,7 +50,7 @@ interface WorktreeRecord extends Worktree {
 
 export interface MachineRecord {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "config";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "config";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -58,6 +61,8 @@ export interface MachineRecord {
   worktrees?: WorktreeRecord[];
   /** Present only for rebase. */
   rebase?: RebaseReport;
+  /** Present only for publish. */
+  publish?: PublishReport;
   /** Present only for a settings apply. */
   config?: AppConfigReport;
 }
@@ -108,6 +113,7 @@ export async function runMachineCommand(
     },
     inventory: async trees => { record.worktrees = await Promise.all(trees.map(worktreeRecord)); },
     rebase: report => { record.rebase = report; },
+    publish: report => { record.publish = report; },
     config: report => { record.config = report; },
     cancelled: () => { record.outcome = "cancelled"; },
   };

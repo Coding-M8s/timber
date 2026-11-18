@@ -1,10 +1,10 @@
 # Experimental IDE machine interface (v1)
 
 This additive interface is experimental. It supports repository inventory,
-ordinary New/Open outcomes, Rebase outcomes, and reading, saving and checking
-settings for app consumers. It does not change the existing
+ordinary New/Open outcomes, Rebase and Publish outcomes, and reading, saving and
+checking settings for app consumers. It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
-No IDE consumer is included. Rebase records, native cleanup approval and
+No IDE consumer is included. Rebase and Publish records, native cleanup approval and
 [settings for app consumers](#settings-for-app-consumers-experimental-v1) are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
@@ -21,6 +21,7 @@ timber new 'feature name' --result-file /private/temp/new.json --no-editor --no-
 timber open 'GH-123' --result-file /private/temp/open.json --no-editor --no-agent
 timber open --setup --result-file /private/temp/retry.json --no-editor --no-agent -- '/absolute/worktree path'
 timber rebase --result-file /private/temp/rebase.json -- '/absolute/worktree path'
+timber publish --result-file /private/temp/publish.json -- '/absolute/worktree path'
 ```
 
 `ls --json` writes exactly one UTF-8 JSON object plus newline to stdout after
@@ -43,6 +44,9 @@ does not save it, so it is not part of any record.
 `rebase` accepts `--result-file <path>` with the same reservation, write and
 failure rules. Rebase launches no editor or agent, so it has no launch flags to
 require. See [Rebase outcome](#rebase-outcome).
+
+`publish` accepts `--result-file <path>` under the same rules and also launches
+nothing. See [Publish outcome](#publish-outcome).
 
 Result-file mode keeps human stdout/stderr and chooser output unchanged. Hook
 stdout/stderr keep their ordinary channels and cannot become machine records.
@@ -77,8 +81,9 @@ content, so do not publish raw streams or result files as public logs.
 
 The following TypeScript notation defines the JSON values, not an importable SDK.
 All fields are required except the `worktrees` array, which exists only on `ls`,
-the `rebase` object, which exists only on `rebase`, and the `config` object,
-which exists only on a [settings apply](#saving-settings).
+the `rebase` object, which exists only on `rebase`, the `publish` object, which
+exists only on `publish`, and the `config` object, which exists only on a
+[settings apply](#saving-settings).
 There are no `undefined` values.
 
 ```ts
@@ -116,9 +121,16 @@ type RebaseRecord = {
   baseSaved: boolean;         // this run wrote the saved base association
 };
 
+type PublishRecord = {
+  result: "published" | "up-to-date" | "refused" | "failed";
+  remote: string | null;       // remote the branch is published to
+  upstream: string | null;     // upstream as refs/remotes/<remote>/<branch>
+  pushedCommit: string | null; // commit now on the remote; null unless published or up-to-date
+};
+
 type RecordV1 = {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "config";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "config";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -127,6 +139,7 @@ type RecordV1 = {
   diagnostic: string | null;
   worktrees?: WorktreeRecord[]; // always present for ls, including failed ls
   rebase?: RebaseRecord;        // always present for rebase, including refusals
+  publish?: PublishRecord;      // always present for publish, including refusals
   config?: ConfigApplyRecord;   // always present for a settings apply
 };
 ```
@@ -273,6 +286,56 @@ chooser, so `cancelled` does not occur. Select by exact branch or absolute path.
 After any outcome, refresh `ls --json` and read Git state before acting on the
 worktree. Never retry automatically after `conflicts` or `failed`. Progress
 streaming and automatic conflict resolution are not part of this interface.
+
+## Publish outcome
+
+`timber publish <branch-or-worktree> --result-file <path>` pushes a worktree's
+branch, so an app never pushes on its own. Target selection, the push, human
+stdout/stderr and exit codes are the same as without the flag; see the
+[CLI contract](cli-contract.md#publish-a-worktrees-branch-154). Git's own output
+and remote messages stay on stderr and never enter the record.
+
+The record has `command: "publish"`, `materialized: false`, no `worktrees`, and a
+`publish` object whose `result` is the value to branch on:
+
+| `result` | `outcome` | Exit | Meaning |
+| --- | --- | --- | --- |
+| `published` | `succeeded` | 0 | The remote branch was created or fast-forwarded to `pushedCommit`. |
+| `up-to-date` | `succeeded` | 0 | The remote branch already was at `pushedCommit`. No commit was pushed. |
+| `refused` | `failed` | 1 | Timber declined, or the remote branch has moved on. Nothing was pushed and no local ref changed. |
+| `failed` | `failed` | 1 | An operation broke: a missing sign-in, the network, the remote, a Git hook, or Git itself. |
+
+- The branch is pushed under its own name. A branch with an upstream is pushed
+  to that upstream's remote. A branch without one is pushed to the configured
+  `remote`, or to the only remote, and that becomes its upstream. `up-to-date`
+  can therefore still set a missing upstream; it never transfers a commit.
+- `refused` covers selection and safety stops: no matching, an ambiguous, or an
+  unregistered target; a detached HEAD, an unborn branch, or a missing or
+  unverifiable worktree; no usable remote; an upstream that is a local branch or
+  has a different name; and a remote branch that has moved on. `diagnostic`
+  says which.
+- A remote branch has moved on when it holds commits the local branch does not
+  contain. That includes a branch that was rebased or amended after it was
+  published. Timber never force-pushes, so the user has to integrate or
+  force-push with Git. Pushing tags and creating pull requests are not part of
+  this command.
+- Timber never waits for a password, passphrase or credential prompt, with or
+  without a terminal. A remote that needs a sign-in ends as `failed`, and
+  `diagnostic` says a sign-in is needed. The user signs in outside Timber (a
+  Git credential helper, an SSH agent, or the GitHub CLI) and the app retries
+  deliberately.
+- `remote` and `upstream` hold what this run selected before it stopped, so
+  both are null when the run ended first, as for a detached HEAD. `upstream` is
+  the remote-tracking ref name, not the shortened form in human output.
+  `pushedCommit` is null for `refused` and `failed`; after `failed`, read the
+  remote with Git instead of assuming nothing arrived.
+
+`worktree` is the selected worktree as it was before the push. It is null when
+no single target was selected. An ambiguous target fails with the existing
+exact-selection guidance, even in a terminal: result-file mode never opens a
+chooser, so `cancelled` does not occur. Select by exact branch or absolute path.
+Modified and untracked files do not block a publish and are not pushed. Git's
+pre-push hook keeps its ordinary behavior, with closed stdin.
 
 ## Native cleanup approval (experimental v1)
 
