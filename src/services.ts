@@ -7,6 +7,7 @@ import type {
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
 import type { BaseAssociationRead } from "./git/base-metadata";
+import type { IssueLink, IssueLinkRead, IssueLinkWrite } from "./git/issue-link";
 import type { RebaseReport } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
 import type { TerminalChooser, TerminalTextPrompt } from "./selection";
@@ -51,6 +52,10 @@ export interface CommandServices {
   createWorktree(repository: RepositoryContext, request: CreateWorktreeRequest, config: RepositoryConfig): Promise<Worktree>;
   readBaseAssociation(repository: RepositoryContext, worktree: Worktree, phase?: WorktreeReadPhase): Promise<BaseAssociationRead>;
   writeBaseAssociation(repository: RepositoryContext, worktree: Worktree, ref: string): Promise<void>;
+  /** Offline; reports damaged metadata as a value and never throws. */
+  readIssueLink(repository: RepositoryContext, worktree: Worktree, phase?: WorktreeReadPhase): Promise<IssueLinkRead>;
+  /** Offline; refuses a different existing link unless `replace` is set. */
+  writeIssueLink(repository: RepositoryContext, worktree: Worktree, link: IssueLink, options?: { replace?: boolean }): Promise<IssueLinkWrite>;
   /** Select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     explicitBase: string | undefined, io: CommandIO, report?: RebaseReport): Promise<number>;
@@ -128,6 +133,10 @@ export interface NewOptions {
 }
 
 export interface OpenOptions {
+  /** Tracker issue selector to link, such as jira:ENG-1, github:12, or a default tracker key. */
+  issue?: string;
+  /** Replace a different existing link instead of refusing. Requires `issue`. */
+  replaceIssue?: boolean;
   workflow?: string;
   editor?: boolean;
   /** True reruns all setup steps for an existing worktree; false skips them even on creation. */

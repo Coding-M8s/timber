@@ -2,6 +2,7 @@ import { open, lstat, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { safeDiagnostic } from "./display";
 import { readBaseAssociation, type BaseAssociationRead } from "./git/base-metadata";
+import { readIssueLink, type IssueLinkRead } from "./git/issue-link";
 import type { AppConfigReport } from "./app-config/settings";
 import type { RebaseReport } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
@@ -11,10 +12,10 @@ import type { RepositoryContext, Worktree } from "./types";
 /** Experimental v1 transport. Git's registered path remains authoritative. */
 export interface MachineReporter {
   repository(repository: RepositoryContext): Promise<void>;
-  /** Captures the worktree with the base saved at this moment. */
+  /** Captures the worktree with the base and issue link saved at this moment. */
   worktree(worktree: Worktree, materialized: boolean): Promise<void>;
-  /** Reads the captured worktree's saved base again, after the command changed it. */
-  refreshBase(): Promise<void>;
+  /** Reads the captured worktree's saved base and issue link again, after the command changed them. */
+  refreshMetadata(): Promise<void>;
   inventory(entries: readonly InventoryEntry[]): Promise<void>;
   /** Attaches the live rebase report; it is read once the handler has finished. */
   rebase(report: RebaseReport): void;
@@ -27,14 +28,17 @@ export interface MachineReporter {
   cancelled(): void;
 }
 
-/** A listed worktree with the saved base the listing already read. */
+/** A listed worktree with the saved base and issue link the listing already read. */
 export interface InventoryEntry {
   worktree: Worktree;
   base: BaseAssociationRead;
+  issue: IssueLinkRead;
 }
 
 /** Saved-base read; reports invalid metadata as a value and never throws. */
 export type BaseReader = (repository: RepositoryContext, worktree: Worktree) => Promise<BaseAssociationRead>;
+/** Issue-link read; reports invalid metadata as a value and never throws. */
+export type IssueReader = (repository: RepositoryContext, worktree: Worktree) => Promise<IssueLinkRead>;
 
 interface RepositoryIdentity {
   commonGitDir: string;
@@ -48,6 +52,8 @@ interface WorktreeRecord extends Worktree {
   canonicalPath: string | null;
   /** Saved canonical base ref as stored; its existence is not checked. */
   base: BaseAssociationRead;
+  /** Saved tracker issue as stored; the tracker is never contacted. */
+  issue: IssueLinkRead;
 }
 
 export interface MachineRecord {
@@ -71,12 +77,12 @@ export interface MachineRecord {
   setupSkipped?: true;
 }
 
-async function worktreeRecord({ worktree: tree, base }: InventoryEntry): Promise<WorktreeRecord> {
+async function worktreeRecord({ worktree: tree, base, issue }: InventoryEntry): Promise<WorktreeRecord> {
   // Status inspection already checks reciprocal Git identity. Unknown rows must
   // not acquire a different identity through a stale path or replacement symlink.
   const canonicalPath = tree.pathExists && tree.status.kind === "known"
     ? await realpath(tree.path).catch(() => null) : null;
-  return { ...tree, detached: tree.branch === null, canonicalPath, base };
+  return { ...tree, detached: tree.branch === null, canonicalPath, base, issue };
 }
 
 const unread = { kind: "invalid", reason: "unreadable" } as const;
@@ -85,7 +91,7 @@ const unread = { kind: "invalid", reason: "unreadable" } as const;
 export async function runMachineCommand(
   command: MachineRecord["command"], context: CommandContext,
   action: (context: CommandContext) => Promise<void | number>, resultFile?: string,
-  readBase: BaseReader = readBaseAssociation,
+  readBase: BaseReader = readBaseAssociation, readIssue: IssueReader = readIssueLink,
 ): Promise<number> {
   const destination = resultFile === undefined ? null : resolve(context.cwd, resultFile);
   // Exclusive creation rejects existing files and symlinks before any command work.
@@ -98,6 +104,8 @@ export async function runMachineCommand(
   // Without a discovered repository there is no identity to read metadata against.
   const savedBase = async (tree: Worktree): Promise<BaseAssociationRead> =>
     discovered === null ? unread : readBase(discovered, tree);
+  const savedIssue = async (tree: Worktree): Promise<IssueLinkRead> =>
+    discovered === null ? unread : readIssue(discovered, tree);
   const machine: MachineReporter = {
     repository: async repository => {
       discovered = repository;
@@ -108,12 +116,12 @@ export async function runMachineCommand(
       // Save actual returned state before the optional canonical-path and metadata reads.
       record.materialized = materialized;
       captured = tree;
-      record.worktree = { ...tree, detached: tree.branch === null, canonicalPath: null, base: unread };
-      record.worktree = await worktreeRecord({ worktree: tree, base: await savedBase(tree) });
+      record.worktree = { ...tree, detached: tree.branch === null, canonicalPath: null, base: unread, issue: unread };
+      record.worktree = await worktreeRecord({ worktree: tree, base: await savedBase(tree), issue: await savedIssue(tree) });
     },
-    refreshBase: async () => {
+    refreshMetadata: async () => {
       if (captured === null || record.worktree === null) return;
-      record.worktree = { ...record.worktree, base: await savedBase(captured) };
+      record.worktree = { ...record.worktree, base: await savedBase(captured), issue: await savedIssue(captured) };
     },
     inventory: async trees => { record.worktrees = await Promise.all(trees.map(worktreeRecord)); },
     rebase: report => { record.rebase = report; },

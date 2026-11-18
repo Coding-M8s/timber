@@ -112,6 +112,10 @@ type WorktreeRecord = {
     | { kind: "assigned"; ref: string } // canonical refs/remotes/... or refs/heads/...
     | { kind: "unassigned" }
     | { kind: "invalid"; reason: "malformed" | "stale" | "unreadable" };
+  issue:                     // tracker issue this worktree was created from or linked to
+    | { kind: "linked"; tracker: "github" | "jira" | "linear"; key: string; url: string }
+    | { kind: "none" }
+    | { kind: "invalid"; reason: "malformed" | "stale" | "unreadable" };
 };
 
 type RebaseRecord = {
@@ -186,6 +190,29 @@ New, Open and Done records carry the same field on `worktree`. New reports the
 base it saved, read before setup hooks run; if saving failed, it reports what was
 readable when the worktree was captured. Open never changes a base and reports
 the one already saved. Done reports the base of the captured worktree before
+deletion.
+
+## Issue link
+
+`issue` on every `WorktreeRecord` names the tracker issue the worktree belongs to.
+It was added within schema version 1; a reader that does not know the field can
+ignore it.
+
+- `linked`: `tracker` is `github`, `jira` or `linear`. `key` is the GitHub issue
+  number as a decimal string, such as `"153"`, or the Jira or Linear key, such as
+  `"ENG-12"`. `url` is the `https` issue URL the tracker lookup returned when the
+  link was saved. `tracker:key` is a valid `timber open --issue` selector.
+- `none`: nothing is saved, as for the primary worktree, worktrees made from a
+  branch name or sentence, and worktrees added with plain Git.
+- `invalid`: saved metadata exists but cannot be used, with the same reasons as
+  `base`. The row stays listed and a warning goes to stderr. Show the link as
+  unknown, not as none.
+
+Timber reads this field offline. It never contacts a tracker, so the issue's
+current title and state are not part of this field. `new` saves the link when it
+creates a worktree from an issue, `open --issue` attaches or replaces it, and
+`done` removes it with the worktree. New and Open records report the link read
+after the command saved it; Done reports the link of the captured worktree before
 deletion.
 
 ## Outcomes, exit status and recovery

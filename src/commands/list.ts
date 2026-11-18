@@ -30,7 +30,7 @@ function statusSummary(tree: Worktree): string {
 }
 
 export function createListHandler(
-  services: Pick<CommandServices, "discoverRepository" | "listWorktrees" | "loadConfig" | "readBaseAssociation">,
+  services: Pick<CommandServices, "discoverRepository" | "listWorktrees" | "loadConfig" | "readBaseAssociation" | "readIssueLink">,
 ): CommandHandlers["list"] {
   return async context => {
     const repository = await services.discoverRepository(context.cwd);
@@ -46,10 +46,16 @@ export function createListHandler(
       Number(b.isPrimary) - Number(a.isPrimary) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const rows = await Promise.all(sorted.map(async tree => {
       const base = await services.readBaseAssociation(repository, tree, phase);
+      const issue = await services.readIssueLink(repository, tree, phase);
+      const warnings = [
+        ...(base.kind === "invalid"
+          ? [`warning: Cannot read base association for ${display(tree.path)} (${base.reason}); Git worktree remains listed.\n`] : []),
+        ...(issue.kind === "invalid"
+          ? [`warning: Cannot read issue link for ${display(tree.path)} (${issue.reason}); Git worktree remains listed.\n`] : []),
+      ];
       return {
-        entry: { worktree: tree, base },
-        baseWarning: base.kind === "invalid"
-          ? `warning: Cannot read base association for ${display(tree.path)} (${base.reason}); Git worktree remains listed.\n` : null,
+        entry: { worktree: tree, base, issue },
+        warnings,
         cells: [
           tree.isPrimary ? "primary" : "linked",
           tree.branch === null ? "(detached HEAD)" : display(tree.branch),
@@ -63,7 +69,7 @@ export function createListHandler(
       await context.machine.inventory(rows.map(row => row.entry));
     }
     for (const row of rows) {
-      if (row.baseWarning !== null) context.io.stderr(row.baseWarning);
+      for (const warning of row.warnings) context.io.stderr(warning);
     }
     if (!context.machine) context.io.stdout(alignedRows(["WORKTREE", "BRANCH", "BASE", "STATUS", "PATH"], rows.map(row => row.cells)));
   };

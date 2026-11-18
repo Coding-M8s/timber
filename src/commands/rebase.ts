@@ -28,7 +28,7 @@ export function createRebaseHandler(
     try {
       return await services.rebaseWorktree(repository, selected, config, options.base, context.io, report);
     } finally {
-      await context.machine?.refreshBase();
+      await context.machine?.refreshMetadata();
     }
   };
 }

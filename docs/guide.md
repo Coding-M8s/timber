@@ -331,6 +331,12 @@ the configured `worktree_dir` or at the default sibling path
 `worktree_dir` values resolve from the primary repository root, even when
 `open` runs from a nested directory or linked worktree.
 
+Worktrees created from an issue remember it, and `timber ls --json` reports the
+link. To link a branch made before this or by hand, run
+`timber open my-feature --issue jira:ENG-12`. A worktree already linked to a different
+issue is left unchanged unless you add `--replace-issue`. See
+[issue links](cli-contract.md#worktree-issue-links-153).
+
 ### Finish a worktree
 
 Run `timber done <branch-or-worktree>` (or `bun run dev done <branch-or-worktree>`)

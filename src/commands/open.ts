@@ -5,6 +5,8 @@ import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
 import { FormattedError, failureWithRetry, jsonDisplay, retryNamingWorkflow, safeDisplay, workflowRetryFlag } from "../display";
 import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 import { reportSkippedSetup } from "../hooks";
+import { issueSelector, type IssueLink } from "../git/issue-link";
+import { linkedMessage, parseIssueOption, resolveIssueOption, type IssueOptionServices } from "./issue-option";
 
 function exactSelector(target: OpenTarget): string {
   if (target.kind === "worktree") return target.worktree.path;
@@ -109,14 +111,27 @@ function branchRequest(branch: Branch) {
 export function createOpenHandler(
   services: Pick<CommandServices,
     "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createWorktree" |
-    "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">,
+    "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">
+    & Partial<IssueOptionServices & Pick<CommandServices, "writeIssueLink">>,
 ): CommandHandlers["open"] {
+  const issueServices = (): IssueOptionServices & Pick<CommandServices, "writeIssueLink"> => {
+    const { resolveGithubRepository, resolveGithubTicket, resolveLinearTicket, resolveJiraTicket, readIssueLink, writeIssueLink } = services;
+    if (!resolveGithubRepository || !resolveGithubTicket || !resolveLinearTicket || !resolveJiraTicket || !readIssueLink || !writeIssueLink) {
+      throw new Error("Issue linking is unavailable in this build; nothing was changed.");
+    }
+    return { resolveGithubRepository, resolveGithubTicket, resolveLinearTicket, resolveJiraTicket, readIssueLink, writeIssueLink };
+  };
   return async (input, options, context) => {
     if (!input.trim()) throw new Error("Provide an existing branch or worktree path to open.");
 
     const repository = await services.discoverRepository(context.cwd);
     await context.machine?.repository(repository);
     const config = await services.loadConfig(repository);
+    if (options.replaceIssue === true && options.issue === undefined) {
+      throw new Error("--replace-issue requires --issue <selector>.");
+    }
+    const requestedIssue = options.issue === undefined ? null : parseIssueOption(options.issue, config);
+    const issues = requestedIssue === null ? null : issueServices();
     if (options.workflow !== undefined) {
       const requested = selectWorkflow(config, options.workflow);
       const selectedEditor = workflowEditor(config, requested, options.editor);
@@ -176,12 +191,29 @@ export function createOpenHandler(
     const canHostAgent = context.interactive === true
       || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
     const agentCommand = resolveWorkflowAgent(config, workflow, agentChoice, canHostAgent, created);
+    // Refuse a conflicting link and finish the tracker lookup before creating anything.
+    const link: IssueLink | null = requestedIssue === null ? null
+      : await resolveIssueOption(issues!, repository, config, requestedIssue,
+        selected.kind === "worktree" ? selected.worktree : null, options.replaceIssue === true);
     let worktree: Worktree;
     if (selected.kind === "branch") {
       worktree = await services.createWorktree(repository, branchRequest(selected.branch), config);
       await context.machine?.worktree(worktree, true);
     } else {
       worktree = selected.worktree;
+    }
+    if (link !== null) {
+      try {
+        await issues!.writeIssueLink(repository, worktree, link, { replace: options.replaceIssue === true });
+      } catch (error) {
+        if (!created) throw error;
+        throw new FormattedError(`${error instanceof Error ? error.message : "Could not save the issue link."}\nCreated worktree retained at ${safeDisplay(worktree.path)}. Setup and launch have not run.`);
+      } finally {
+        await context.machine?.refreshMetadata();
+      }
+      context.io.stdout(linkedMessage(link));
+    } else if (requestedIssue !== null) {
+      context.io.stdout(`Already linked to ${issueSelector(requestedIssue)}; nothing was changed.\n`);
     }
 
     // --no-setup wins over creation; --setup reruns setup on a worktree that already existed.
