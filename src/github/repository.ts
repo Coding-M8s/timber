@@ -12,8 +12,8 @@ export function parseGithubRemoteUrl(input: string): GithubRepository {
   return { owner: match[1]!, name };
 }
 
-type RemoteReader = (cwd: string, args: string[]) => Promise<readonly string[]>;
-const readRemote: RemoteReader = async (cwd, args) => {
+export type RemoteReader = (cwd: string, args: string[]) => Promise<readonly string[]>;
+export const readRemote: RemoteReader = async (cwd, args) => {
   try {
     const result = await execa("git", args, { cwd, stdin: "ignore", timeout: 10_000,
       maxBuffer: 16_384, env: { GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" } });
@@ -27,6 +27,12 @@ export async function resolveGithubRepository(repository: RepositoryContext, con
   if (!name || !repository.remotes.some(value => value.name === name)) {
     throw new Error("No valid GitHub issue remote selected. Configure remote or pass --remote <name>.");
   }
+  return readGithubRemote(repository, name, read);
+}
+
+/** The github.com repository a named remote fetches from; throws unless it has exactly one such URL. */
+export async function readGithubRemote(repository: RepositoryContext, name: string,
+  read: RemoteReader = readRemote): Promise<GithubRepository> {
   const urls = await read(repository.currentWorktreeRoot, ["remote", "get-url", "--all", "--", name]);
   if (urls.length !== 1) throw invalid();
   return parseGithubRemoteUrl(urls[0]!);

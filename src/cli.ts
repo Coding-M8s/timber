@@ -1,4 +1,5 @@
 import { runAppConfig } from "./commands/app-config";
+import { runAppPullRequests } from "./commands/app-pr";
 import { runNativeCleanup } from "./machine-done";
 import { runMachineCommand } from "./machine";
 import { parseArenaGroups } from "./arena/participants";
@@ -308,6 +309,9 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .action(async (action: string, integration: string | undefined, options) => {
       onExitCode(await runAppConfig(action, integration, options, context));
     });
+
+  program.command("__app-pr", { hidden: true })
+    .action(async () => { onExitCode(await runAppPullRequests(context)); });
 
   program.command("done <branch-or-worktree>")
     .option("--base <ref>", "Verify integration against this base instead of the saved/configured/default branch")
