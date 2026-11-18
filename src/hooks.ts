@@ -1,7 +1,7 @@
 import { execa } from "execa";
 import { hookShell } from "./platform/hook-shell";
 import { retryForDisplay, shellQuoteForDisplay, workflowRetryFlag } from "./display";
-import type { CommandIO } from "./services";
+import type { CommandContext, CommandIO } from "./services";
 import type { CleanupOptions, RepositoryConfig, RepositoryContext, Worktree } from "./types";
 
 /** Ordinary paths use POSIX quoting; control characters use a printable Bash command. */
@@ -23,6 +23,13 @@ function failureReason(error: unknown): string {
     }
   }
   return "the hook shell could not run";
+}
+
+/** With --no-setup, say that hooks were skipped and how to run them, also in the result record. Silent when nothing was skipped. */
+export function reportSkippedSetup(hasSetup: boolean, skipped: boolean, path: string, workflow: string | null | undefined, context: CommandContext): void {
+  if (!hasSetup || !skipped) return;
+  context.machine?.setupSkipped();
+  context.io.stdout(`Setup skipped (--no-setup). Run it with: ${retryCommand(path, workflow ?? undefined)}\n`);
 }
 
 export class SetupFailure extends Error {

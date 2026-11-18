@@ -19,6 +19,8 @@ export interface MachineReporter {
   rebase(report: RebaseReport): void;
   /** Attaches the live settings report; it is read once the handler has finished. */
   config(report: AppConfigReport): void;
+  /** `new` or `open` with --no-setup left configured post_create hooks for the caller to run. */
+  setupSkipped(): void;
   cancelled(): void;
 }
 
@@ -60,6 +62,8 @@ export interface MachineRecord {
   rebase?: RebaseReport;
   /** Present only for a settings apply. */
   config?: AppConfigReport;
+  /** Present, and true, only when --no-setup skipped configured post_create hooks. */
+  setupSkipped?: true;
 }
 
 async function worktreeRecord({ worktree: tree, base }: InventoryEntry): Promise<WorktreeRecord> {
@@ -109,6 +113,7 @@ export async function runMachineCommand(
     inventory: async trees => { record.worktrees = await Promise.all(trees.map(worktreeRecord)); },
     rebase: report => { record.rebase = report; },
     config: report => { record.config = report; },
+    setupSkipped: () => { record.setupSkipped = true; },
     cancelled: () => { record.outcome = "cancelled"; },
   };
   let failure: unknown;

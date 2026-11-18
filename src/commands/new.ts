@@ -10,6 +10,7 @@ import { LinearLookupFailure } from "../linear/client";
 import { GithubLookupFailure } from "../github/client";
 import { resolveIssueInput } from "../issue-input";
 import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
+import { reportSkippedSetup } from "../hooks";
 
 type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
@@ -212,18 +213,21 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
       context.io.stdout(`${provider}: ${ticket.url}\n${safeDisplay(ticket.key)} - ${safeDisplay(ticket.title)}\n`);
     }
 
+    const hasSetup = Boolean(config.hooks?.postCreate.length || workflow?.postCreate.length);
     if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
       if (!services.launchEditorTerminals) throw new Error("Orca terminal integration is unavailable; workspace retained.");
-      await services.launchEditorTerminals({ repository, worktree, config: editorConfig, agent: agentCommand, setup: true,
+      reportSkippedSetup(hasSetup, options.setup === false, worktree.path, options.workflow, context);
+      await services.launchEditorTerminals({ repository, worktree, config: editorConfig, agent: agentCommand, setup: options.setup !== false,
         ...(options.workflow === undefined ? {} : { workflowName: options.workflow }),
         ...(workflow === null ? {} : { workflowScripts: workflow.postCreate }) }, context.io);
       return;
     }
 
-    if (config.hooks?.postCreate.length || workflow?.postCreate.length) {
+    if (hasSetup && options.setup !== false) {
       await services.runSetup(repository, worktree, config, context.io,
         options.workflow, workflow?.postCreate);
     }
+    reportSkippedSetup(hasSetup, options.setup === false, worktree.path, options.workflow, context);
 
     const editor = await services.launchEditor(worktree, editorConfig, options.editor === false);
     if (editor.kind === "failed") {

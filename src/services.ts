@@ -113,13 +113,15 @@ export interface NewOptions {
   editor?: boolean;
   /** Explicit enable/disable; omission defers to agent.enabled. */
   agent?: boolean;
+  /** False skips every post_create hook; the caller runs `open --setup` later. */
+  setup?: false;
 }
 
 export interface OpenOptions {
   workflow?: string;
   editor?: boolean;
-  /** Explicitly rerun all setup steps for an existing worktree. */
-  setup?: true;
+  /** True reruns all setup steps for an existing worktree; false skips them even on creation. */
+  setup?: boolean;
   /** Explicit enable/disable; omission defers to agent.enabled. */
   agent?: boolean;
 }

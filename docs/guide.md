@@ -160,6 +160,7 @@ timber open TIM-42
 timber open "/absolute/path/to/my-feature-worktree"
 timber open my-feature --no-editor
 timber open my-feature --setup
+timber new my-feature --no-setup
 timber ls
 timber done my-feature
 timber done my-feature --base parent-feature
@@ -644,7 +645,10 @@ existing worktree skips setup unless you explicitly pass `--setup`. Missing effe
 hooks, an empty replacement table/list, or local `hooks = false` perform no setup.
 The table also accepts `pre_delete` for cleanup; invalid values and unknown keys
 are rejected before Git creation.
-`--no-editor` skips the editor while still allowing setup.
+`--no-editor` skips the editor while still allowing setup. `--no-setup` on
+`new` or `open` creates the worktree without running any hook, for example when
+a tool runs setup in its own terminal; Timber prints the `timber open --setup`
+command to run it later.
 
 On the initial Linux target, each step runs sequentially in a fresh
 `/bin/sh -c` process with the selected worktree as its working directory.

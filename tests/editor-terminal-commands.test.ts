@@ -36,6 +36,17 @@ for (const command of ["new", "open"] as const) {
     expect(h.launches[0]).toMatchObject({ setup: true, workflowName: "review", workflowScripts: ["workflow"],
       agent: { command: "codex", args: ["prompt"], waitForSetup: false } });
   });
+  test(`${command} --no-setup hands Orca no setup terminal and skips foreground setup`, async () => {
+    const h = harness();
+    const handler = command === "new" ? createNewHandler(h.services) : createOpenHandler(h.services);
+    await handler("feature", { setup: false }, ctx);
+    expect(h.calls).toEqual(["create", "editor-terminals"]);
+    expect(h.launches[0]).toMatchObject({ setup: false });
+    const foreground = harness();
+    const plain = command === "new" ? createNewHandler(foreground.services) : createOpenHandler(foreground.services);
+    await plain("feature", { editor: false, setup: false }, ctx);
+    expect(foreground.calls).toEqual(["create", "generic-editor", "foreground-agent"]);
+  });
   test(`${command} --no-editor retains sequential foreground behavior`, async () => {
     const h = harness();
     const handler = command === "new" ? createNewHandler(h.services) : createOpenHandler(h.services);
