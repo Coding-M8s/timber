@@ -6,7 +6,7 @@ import { completionCandidates } from "../src/completion/candidates";
 import { candidates } from "./helpers/completion";
 
 test("completion discovers commands and filters their prefix outside Git", async () => {
-  expect(await candidates("timber ")).toEqual(["arena", "backup", "completion", "done", "help", "ls", "new", "open", "rebase", "setup"]);
+  expect(await candidates("timber ")).toEqual(["arena", "backup", "completion", "done", "help", "ls", "new", "open", "rebase", "setup", "update"]);
   expect(await candidates("timber o")).toEqual(["open"]);
   expect(await candidates("timber completion ")).toEqual(["bash", "fish", "zsh"]);
   expect(await candidates("timber help o")).toEqual(["open"]);

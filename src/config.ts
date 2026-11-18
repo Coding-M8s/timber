@@ -67,6 +67,7 @@ export const configFileSchema = z.strictObject({
   base_branch: z.string().trim().min(1).optional(),
   remote: z.string().trim().min(1).optional(),
   max_generated_branch_name_length: z.number().int().positive().optional(),
+  update_check: z.boolean().optional(),
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
   hooks: z.union([z.literal(false), z.strictObject({
     post_create: hookStepsSchema.default([]),

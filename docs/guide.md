@@ -774,6 +774,65 @@ workspace. Nonzero exits and interrupts also retain the branch, worktree,
 and its files. Agent output goes directly to the terminal; Timber does not
 capture or log command arguments.
 
+## Update notice and `timber update`
+
+The standalone executable tells you when a newer release exists, and one command
+installs it:
+
+```bash
+timber update              # install the latest release
+timber update --check      # report only; installs nothing
+timber update --version v0.1.3   # install a specific published tag
+```
+
+**A network request is made by default.** About once a day, Timber starts a
+detached background process that sends one plain HTTPS GET to
+`https://github.com/Coding-M8s/timber/releases/latest` and reads the release tag
+from the redirect. It sends no identifiers, no Timber version, no repository
+details and no query, only a generic `User-Agent`. It never delays or waits on
+your command. `TIMBER_RELEASES_URL` (https only) selects another releases base,
+as for the installer.
+
+The result is cached in `${XDG_CACHE_HOME:-$HOME/.cache}/timber/update-check.json`
+(a relative `XDG_CACHE_HOME` is ignored). When the cached stable tag is newer than
+the running version, the next command prints this to stderr after its own output
+(stdout is unchanged):
+
+```text
+Update available: timber 0.1.2 -> 0.1.4
+Run: timber update
+```
+
+Because the check runs in the background, the notice appears on the run after the
+check. A failed check is silent, keeps the previous result and is retried no sooner
+than 24 hours later. A missing or corrupt cache file is treated as not checked yet.
+Release candidates (`-rc.N`) never trigger a notice.
+
+Neither the check nor the notice happens when stderr is not a terminal, `CI` is
+set, the command is hidden (`__*`), `update`, shell completion, or produces
+machine output (`--json`, `--result-file`), or Timber runs from source instead of
+the standalone executable.
+
+Turn it off with either of these:
+
+```bash
+export TIMBER_NO_UPDATE_CHECK=1
+```
+
+```toml
+# ${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml
+update_check = false
+```
+
+`timber update` downloads `install.sh` from the selected release and runs it with
+`TIMBER_INSTALL_DIR` set to the directory of the running executable, so the
+installer's checksum verification and leave-unchanged-on-failure behavior apply.
+When you are already on the latest version it says so and downloads nothing. It
+refuses, changing nothing, when run from source, when the install directory is not
+writable, when the executable is not named `timber`, when `curl` or `sh` is
+missing, or on Windows (see [Windows](windows.md)). `timber update --check` always
+does a fresh check and refreshes the cache.
+
 ## Troubleshooting
 
 | Symptom | Next step |

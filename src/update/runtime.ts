@@ -1,0 +1,72 @@
+import { spawn } from "node:child_process";
+import { access, constants, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execa } from "execa";
+import { version } from "../../package.json";
+import { globalConfigPath, updateCheckCachePath } from "../config-paths";
+import { readConfigScope } from "../config";
+import { findExecutable } from "../platform/executable";
+import type { CommandHandlers, CommandIO } from "../services";
+import { createUpdateCheckHandler, createUpdateHandler, type UpdateDeps } from "../commands/update";
+import { notifyUpdate } from "./notice";
+import { refreshUpdateCache, releasesBase } from "./latest";
+import { readUpdateCache } from "./cache";
+
+export const isStandalone = (): boolean => Bun.main.startsWith("/$bunfs/");
+
+/** Hidden one-shot child: detached and unref'd, so the parent never waits. */
+function spawnCheck(): void {
+  const child = spawn(process.execPath, ["__update-check"], { detached: true, stdio: "ignore", env: process.env });
+  child.on("error", () => {});
+  child.unref();
+}
+
+async function configDisabled(env: NodeJS.ProcessEnv): Promise<boolean> {
+  try { return (await readConfigScope(globalConfigPath(env))).values.update_check === false; }
+  catch { return true; }
+}
+
+export async function notifyAfterCommand(argv: readonly string[], io: CommandIO): Promise<void> {
+  await notifyUpdate({
+    argv, env: process.env, version, stderrIsTTY: process.stderr.isTTY === true, standalone: isStandalone(),
+    platform: process.platform, cachePath: updateCheckCachePath(process.env), now: Date.now,
+    configDisabled: () => configDisabled(process.env), spawnCheck, stderr: text => { io.stderr(text); },
+  });
+}
+
+async function download(url: string, destination: string): Promise<void> {
+  await execa("curl", ["--proto", "=https", "--proto-redir", "=https", "--tlsv1.2",
+    "--fail", "--silent", "--show-error", "--location", "--output", destination, url]);
+}
+
+export function realUpdateDeps(env: NodeJS.ProcessEnv = process.env): UpdateDeps {
+  return {
+    env, version, platform: process.platform, standalone: isStandalone(), executablePath: process.execPath,
+    cachePath: updateCheckCachePath(env), now: Date.now,
+    refresh: () => refreshUpdateCache({ env, cachePath: updateCheckCachePath(env), now: Date.now }),
+    readCache: () => readUpdateCache(updateCheckCachePath(env)),
+    releasesBase: () => releasesBase(env),
+    isWritable: async directory => { try { await access(directory, constants.W_OK); return true; } catch { return false; } },
+    hasCommand: async name => (await findExecutable(name, env)) !== null,
+    makeTempDir: () => mkdtemp(join(tmpdir(), "timber-update.")),
+    removeDir: directory => rm(directory, { recursive: true, force: true }),
+    download,
+    // Argument array and explicit environment; nothing is interpolated into a shell string.
+    runInstaller: async (file, installerEnv, io) => {
+      const result = await execa("sh", [file], { env: installerEnv, extendEnv: false, reject: false, stdin: "ignore" });
+      if (result.stdout) io.stdout(result.stdout + "\n");
+      if (result.stderr) io.stderr(result.stderr + "\n");
+      return result.exitCode ?? 1;
+    },
+    reportVersion: async executable => {
+      try { return (await execa(executable, ["--version"], { reject: false, stdin: "ignore" })).stdout.trim() || null; }
+      catch { return null; }
+    },
+  };
+}
+
+export const updateHandlers: Pick<CommandHandlers, "update" | "updateCheck"> = {
+  update: createUpdateHandler(realUpdateDeps()),
+  updateCheck: createUpdateCheckHandler(realUpdateDeps()),
+};

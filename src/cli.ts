@@ -44,6 +44,8 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .version(version)
     .description("Manage Git worktrees.")
     .exitOverride()
+    // Lets `timber update --version <tag>` reach the subcommand instead of printing Timber's own version.
+    .enablePositionalOptions()
     .configureOutput({ writeOut: context.io.stdout, writeErr: context.io.stderr });
 
   function resultOptions(command: Command): Command {
@@ -280,6 +282,22 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
       };
       return handlers.done(input, normalized, context);
     });
+
+  program.command("update")
+    .description("Install the latest Timber release, or --check for one without installing")
+    .option("--check", "Check for a newer release and refresh the cached result; installs nothing")
+    .option("--version <tag>", "Install a specific release tag such as v0.1.0")
+    .addHelpText("after", "\nStandalone executable only. Runs the release's install.sh, which verifies checksums and leaves the existing install in place on failure.")
+    .action(async (options: { check?: boolean; version?: string }) => {
+      if (!handlers.update) throw new Error("Update handler is unavailable in this embedding.");
+      onExitCode(await handlers.update({
+        ...(options.check === true ? { check: true } : {}),
+        ...(options.version === undefined ? {} : { version: options.version }),
+      }, context));
+    });
+
+  program.command("__update-check", { hidden: true })
+    .action(async () => { onExitCode(await (handlers.updateCheck?.(context) ?? 0)); });
 
   program.command("completion <shell>")
     .description("Print a completion script for Bash, Zsh, or Fish; does not modify shell startup files")

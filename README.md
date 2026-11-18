@@ -71,6 +71,7 @@ Run these inside the Git repository you want to work on:
 | `timber done my-feature --base parent-feature` | Override the cleanup merge target |
 | `timber arena pick search-fix --inspect` | Compare arena attempts without changes |
 | `timber arena pick search-fix` | Keep a winner; archive and remove the rest |
+| `timber update` | Install the latest release; [update notice and opt-outs](docs/guide.md#update-notice-and-timber-update) |
 
 New folders normally live at `../<repository-name>-worktrees/<branch-slug>`.
 Timber prints the absolute path; `cd` there yourself. Existing worktrees skip

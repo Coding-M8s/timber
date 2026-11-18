@@ -202,6 +202,43 @@ Listing, deletion and retention are separate (#120, #121). Until then, backups a
 kept until their directory and ref are removed manually. Ordinary `rebase`
 behavior is unchanged.
 
+## Update notice and `update` (#146)
+
+`timber update [--check] [--version <tag>]` updates the standalone executable.
+`--version` takes the installer's tag grammar (`vMAJOR.MINOR.PATCH` with an
+optional `-rc.N`). Without `--check` it refuses, with a diagnostic and no changes,
+on Windows, from a source run, when the install directory is not writable, when the
+running executable is not named `timber`, or when `curl` or `sh` is missing. Otherwise
+it resolves the latest tag from the `releases/latest` redirect (or uses `--version`),
+exits 0 without downloading when that is the running version (or, for latest, an older one),
+downloads `<releases>/download/<tag>/install.sh`, and runs `sh <file>` with
+`TIMBER_INSTALL_DIR` set to the running executable's directory and `TIMBER_VERSION`
+set to the tag. `curl` and `sh` receive argument arrays only. A nonzero installer exit is an
+error and leaves the existing executable as the installer left it (unchanged on
+download or checksum failure). On success it prints the version the new executable
+reports. `--check` does a fresh check, refreshes the cache, prints either
+`Update available: timber X -> Y` plus `Run: timber update` or `Timber X is up to date.`,
+and installs nothing.
+
+Hidden `__update-check` is the one-shot child the notice spawns detached and unref'd.
+It resolves the latest stable tag, writes `$XDG_CACHE_HOME/timber/update-check.json`
+(default `~/.cache/timber/`; JSON `{"tag"?, "checkedAt"}` with epoch milliseconds)
+by temp file and rename with private modes, and exits 0 silently. It records
+`checkedAt` even on failure and leaves a cached `tag` unchanged on failure.
+
+After any other command finishes, when the cached stable tag is newer than the
+running version, Timber prints `Update available: timber X -> Y` and `Run: timber update`
+to stderr. A cache that is missing, corrupt or older than 24 hours spawns the child; the
+parent never waits. Release candidates are never cached as the latest tag or announced.
+Both the check and the notice are skipped when stderr is not a terminal, `CI` is set,
+the command is hidden (`__*`), `update` or `completion`, an argument is `--json`
+or `--result-file`, the run is not a standalone executable, `TIMBER_NO_UPDATE_CHECK=1`
+is set, or global config sets `update_check = false`. The request is a plain HTTPS GET
+with a generic User-Agent and no query. `TIMBER_RELEASES_URL` must be https.
+
+`update_check` is an optional boolean; only the global configuration is consulted, and `false` disables
+the check and notice. See the [guide](guide.md#update-notice-and-timber-update).
+
 ## `new` branch input
 
 Quoted and unquoted sentence arguments are joined into the same raw input by the
@@ -220,7 +257,7 @@ inputs without U+0020 spaces remain exact regardless of this setting.
 Read `.timber.toml` from the primary worktree root and Linux machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml`. Empty or relative XDG paths use the HOME fallback. Do not search nested or linked-worktree configuration. Validate both existing files independently; unknown keys, unreadable files, and invalid values are errors even when overridden in the other scope. Missing files use defaults.
 
 Core configuration keys are `base_branch`, `remote`, `worktree_dir`,
-`max_generated_branch_name_length`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below.
+`max_generated_branch_name_length`, `update_check`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below.
 
 Precedence is explicit CLI options > repository TOML > global TOML > built-in defaults. Absent keys inherit. Present optional tables replace the whole lower-scope table: executable/argument combinations stay together, and argument arrays and hook lists never concatenate. Relative `worktree_dir` in either scope resolves against the current repository's primary root. Root-level `editor = false`, `agent = false`, `hooks = false`, or `jira = false` explicitly disables that inherited integration; `true` is invalid. Editor and agent tables with a command and `enabled = false` still support explicit `--editor` and `--agent`, respectively; root-level `false` removes the inherited command. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional integrations described below.
 
