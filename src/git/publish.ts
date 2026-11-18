@@ -148,9 +148,15 @@ async function publishSelected(
     }
     throw operationFailure(new Error(`Git push to ${safeDisplay(label)} failed${flag === "!" ? `: the remote answered ${safeDiagnostic(summary)}` : " (network, remote, hook or another Git error)"}. Nothing was forced; read Git's output above, then publish again.`));
   }
-  // Git records exactly what it pushed in the tracking ref, when the remote has one.
-  const tracked = (await git(tree.path, ["rev-parse", "--verify", "--quiet", `${target.upstream}^{commit}`])).stdout.trim();
-  const commit = oid.test(tracked) ? tracked : await output(tree.path, ["rev-parse", "--verify", `${branchRef}^{commit}`]);
+  // The push has landed, so nothing below may turn this run into a refusal.
+  // Git records exactly what it pushed in the tracking ref, when the remote has
+  // one; otherwise report the branch tip, falling back to the verified tip.
+  let commit = tree.head;
+  for (const ref of [target.upstream, branchRef]) {
+    const read = await git(tree.path, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).catch(() => null);
+    const value = read?.exitCode === 0 ? read.stdout.trim() : "";
+    if (oid.test(value)) { commit = value; break; }
+  }
   report.pushedCommit = commit;
   if (flag === "=") {
     report.result = "up-to-date";
