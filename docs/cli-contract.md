@@ -151,6 +151,41 @@ Git outcome and recovery guidance; it never resets or aborts Git. Conflicts reta
 native Git continuation/abort behavior. A later native abort does not restore the
 previous saved association. Cleanup uses the same saved-base precedence, with invocation-local overrides that never save a new association.
 
+## Worktree issue links (#153)
+
+When `new` creates a worktree from a GitHub, Jira or Linear issue, through an
+explicit selector or the default tracker, it saves the link in private, versioned
+Git-admin metadata beside the saved base, after saving the base and before setup or
+launches. The link holds the tracker (`github`, `jira`, `linear`), the key (the
+GitHub issue number or the Jira/Linear key the tracker returned), and the issue URL
+from the lookup. It is bound to the same worktree identity as the saved base and
+published atomically with private permissions. Saving and reading never contact a
+tracker. A branch name, a sentence, or a default-tracker input that fell back to a
+literal branch saves no link. Save failure retains the created worktree, skips setup
+and launches, and prints an `open --issue` retry command.
+
+`open --issue <selector>` attaches a link to an existing worktree or to the worktree
+it creates from an existing branch. The selector uses `new`'s issue forms, including
+default-tracker keys and numbers; other input is a usage error. Before any lookup,
+Timber reads the existing link offline: the same tracker and key changes nothing and
+makes no lookup, a different link is refused without changes unless
+`--replace-issue` is given, and malformed or unreadable metadata is refused even with
+`--replace-issue`. Stale identity records may be replaced. Timber then looks the issue
+up once to confirm it and read its URL. Closed and completed issues are accepted,
+since the link records existing work. A failed lookup stops before creating a
+worktree or changing metadata. The primary worktree cannot be linked.
+`--replace-issue` without `--issue` is a usage error. Other `open` behavior is
+unchanged.
+
+`done` removes the link with Git's worktree metadata. A branch kept with
+`--keep-branch` and opened again later starts unlinked. Rebase, publish, backups and
+Arena neither read nor write links.
+
+`ls --json` reports each worktree's link as described in the
+[IDE contract](ide-contract.md#issue-link). Damaged metadata is reported as invalid
+with a reason and a stderr warning, never hidden, and never fails the listing. The
+human table has no issue column.
+
 ## Worktree recovery backups (#119)
 
 `timber backup create <branch-or-worktree>` captures a recoverable starting point

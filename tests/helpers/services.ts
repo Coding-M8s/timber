@@ -23,6 +23,8 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     createWorktree: unexpected("createWorktree"),
     readBaseAssociation: async () => ({ kind: "unassigned" }),
     writeBaseAssociation: async () => {},
+    readIssueLink: async () => ({ kind: "none" }),
+    writeIssueLink: async () => "saved",
     rebaseWorktree: unexpected("rebaseWorktree"),
     publishWorktree: unexpected("publishWorktree"),
     createBackup: unexpected("createBackup"),

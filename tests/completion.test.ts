@@ -15,7 +15,8 @@ test("completion discovers commands and filters their prefix outside Git", async
 test("completion flags are specific to the actual command", async () => {
   expect(await candidates("timber done --")).toEqual(["--base", "--discard-ignored", "--help", "--keep-branch", "--keep-ignored"]);
   expect(await candidates("timber open --")).toEqual([
-    "--agent", "--editor", "--help", "--no-agent", "--no-editor", "--no-setup", "--result-file", "--setup", "--w", "--workflow",
+    "--agent", "--editor", "--help", "--issue", "--no-agent", "--no-editor", "--no-setup", "--replace-issue", "--result-file",
+    "--setup", "--w", "--workflow",
   ]);
   expect(await candidates("timber open --w")).toEqual(["--w", "--workflow"]);
   expect(await candidates("timber new --w")).toEqual(["--w", "--workflow"]);

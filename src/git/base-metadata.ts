@@ -1,12 +1,10 @@
 import { samePath } from "../platform/paths";
-import { assertPrivateStorage, protectNewStorage } from "../platform/private-storage";
-import { randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { shellQuoteForDisplay } from "../display";
 import type { RepositoryContext, Worktree } from "../types";
 import { WorktreeReadPhase, type WorktreeMetadataLocation } from "./worktree-read-phase";
+import { preparePrivateDirectory, readPrivateRecord, replacePrivateFile } from "./private-record";
 
 export type BaseAssociationRead =
   | { kind: "assigned"; ref: string }
@@ -39,27 +37,16 @@ function validRecord(value: unknown): value is Record<string, unknown> & {
 }
 
 async function readAt(place: Location): Promise<BaseAssociationRead> {
+  const read = await readPrivateRecord(place.directory, place.file, maxRecordBytes);
+  if (read.kind === "missing") return { kind: "unassigned" };
+  if (read.kind === "invalid") return read;
   try {
-    const directory = await lstat(place.directory);
-    if (!directory.isDirectory()) return { kind: "invalid", reason: "malformed" };
-    const stat = await lstat(place.file);
-    if (!stat.isFile() || stat.size > maxRecordBytes) return { kind: "invalid", reason: "malformed" };
-    if (process.platform === "win32") {
-      await assertPrivateStorage(place.directory, directory, true);
-      await assertPrivateStorage(place.file, stat, false);
-    }
-    const parsed: unknown = JSON.parse(await readFile(place.file, "utf8"));
-    if (!validRecord(parsed) || !await validRef(place.worktreePath, parsed.ref)) return { kind: "invalid", reason: "malformed" };
-    if (!samePath(parsed.worktreePath, place.worktreePath) || !samePath(parsed.commonGitDir, place.commonGitDir)
-      || !samePath(parsed.worktreeGitDir, place.worktreeGitDir)) return { kind: "invalid", reason: "stale" };
-    return { kind: "assigned", ref: parsed.ref };
-  } catch (error) {
-    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-      return { kind: "unassigned" };
-    }
-    if (error instanceof SyntaxError) return { kind: "invalid", reason: "malformed" };
-    return { kind: "invalid", reason: "unreadable" };
-  }
+    if (!validRecord(read.value) || !await validRef(place.worktreePath, read.value.ref)) return { kind: "invalid", reason: "malformed" };
+  } catch { return { kind: "invalid", reason: "unreadable" }; }
+  const record = read.value;
+  if (!samePath(record.worktreePath, place.worktreePath) || !samePath(record.commonGitDir, place.commonGitDir)
+    || !samePath(record.worktreeGitDir, place.worktreeGitDir)) return { kind: "invalid", reason: "stale" };
+  return { kind: "assigned", ref: record.ref };
 }
 
 async function validRef(cwd: string, ref: string): Promise<boolean> {
@@ -99,29 +86,10 @@ export async function writeBaseAssociation(
   if (Buffer.byteLength(record) > maxRecordBytes) {
     throw new Error("Base association is too large to save; use a shorter base ref or worktree path.");
   }
+  await preparePrivateDirectory(place.directory, "base");
   try {
-    await mkdir(place.directory, { mode: 0o700 });
-    await protectNewStorage(place.directory);
-  } catch (error) {
-    if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST")) {
-      throw new Error("Cannot create private base metadata; worktree retained. Check Git directory permissions.");
-    }
-  }
-  const directoryInfo = await lstat(place.directory);
-  if (!directoryInfo.isDirectory() || (process.platform !== "win32" && (directoryInfo.mode & 0o077) !== 0)) {
-    throw new Error("Base metadata directory is unsafe; no association saved.");
-  }
-  await assertPrivateStorage(place.directory, directoryInfo, true);
-  const temporary = join(place.directory, `.base-${randomUUID()}.tmp`);
-  try {
-    const file = await open(temporary, "wx", 0o600);
-    try {
-      await protectNewStorage(temporary);
-      await file.writeFile(record);
-      await file.sync();
-    } finally { await file.close(); }
-    await rename(temporary, place.file);
+    await replacePrivateFile(place.directory, place.file, "base", record);
   } catch {
     throw new Error(`Could not save the base association; the worktree was retained. Fix Git directory permissions, then retry with: ${assignmentRetry(worktree.path, ref)}`);
-  } finally { await unlink(temporary).catch(() => {}); }
+  }
 }

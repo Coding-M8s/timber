@@ -11,11 +11,12 @@ import { GithubLookupFailure } from "../github/client";
 import { resolveIssueInput } from "../issue-input";
 import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 import { reportSkippedSetup } from "../hooks";
+import { issueSelector, type IssueLink } from "../git/issue-link";
 
 type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
   "resolveGithubRepository" | "resolveGithubTicket" | "resolveLinearTicket" |
-  "createWorktree" | "writeBaseAssociation" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
+  "createWorktree" | "writeBaseAssociation" | "writeIssueLink" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
@@ -206,7 +207,16 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     } catch {
       throw new FormattedError(`Could not save the base association; created worktree retained at ${safeDisplay(worktree.path)}. Setup and launch have not run. Inspect its private Git metadata and permissions, then retry with:\ntimber rebase --base ${shellQuoteForDisplay(base.ref)} -- ${shellQuoteForDisplay(worktree.path)}`);
     }
-    await context.machine?.refreshBase();
+    if (ticket && input.kind !== "literal") {
+      const link: IssueLink = { tracker: input.kind, key: input.kind === "github" ? String(input.number) : ticket.key, url: ticket.url };
+      try {
+        await services.writeIssueLink(repository, worktree, link);
+      } catch {
+        await context.machine?.refreshMetadata();
+        throw new FormattedError(`Could not save the issue link; created worktree retained at ${safeDisplay(worktree.path)}. Setup and launch have not run. Inspect its private Git metadata and permissions, then retry with:\ntimber open --issue ${shellQuoteForDisplay(issueSelector(link))} --no-editor --no-agent -- ${shellQuoteForDisplay(worktree.path)}`);
+      }
+    }
+    await context.machine?.refreshMetadata();
     context.io.stdout(`Created ${safeDisplay(selectedBranch)} at ${safeDisplay(worktree.path)}\n`);
     if (ticket) {
       const provider = input.kind === "github" ? "GitHub" : input.kind === "linear" ? "Linear" : "Jira";

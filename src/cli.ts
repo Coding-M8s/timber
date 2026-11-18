@@ -118,13 +118,19 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .description("Open an existing branch or worktree; choose a missing base interactively")
     .option("--setup", "Rerun ordinary and workflow post_create hooks in the selected worktree")
     .option("--no-setup", "Skip post_create hooks even when this creates the worktree")
+    .option("--issue <selector>", "Link a tracker issue (github:<number>, jira:<KEY>, linear:<KEY>) to the worktree")
+    .option("--replace-issue", "Replace a different existing issue link instead of refusing; requires --issue")
     .on("option:setup", () => { setupChoices.add("enable"); })
     .on("option:no-setup", () => { setupChoices.add("disable"); })
     .hook("preAction", command => {
       if (setupChoices.size > 1) command.error("Conflicting options: --setup and --no-setup.");
+      const chosen = command.opts<{ issue?: string; replaceIssue?: boolean }>();
+      if (chosen.replaceIssue === true && chosen.issue === undefined) command.error("--replace-issue requires --issue <selector>.");
     })
-    .action(async (input: string, options: { resultFile?: string; workflow?: string; w?: string; editor?: boolean; setup?: boolean; agent?: boolean }) => {
+    .action(async (input: string, options: { resultFile?: string; workflow?: string; w?: string; editor?: boolean; setup?: boolean; agent?: boolean; issue?: string; replaceIssue?: boolean }) => {
       const normalized: OpenOptions = {
+        ...(options.issue === undefined ? {} : { issue: options.issue }),
+        ...(options.replaceIssue === true ? { replaceIssue: true } : {}),
         ...(options.workflow === undefined && options.w === undefined ? {} : { workflow: options.workflow ?? options.w }),
         ...(options.editor === undefined ? {} : { editor: options.editor }),
         ...(options.setup === undefined ? {} : { setup: options.setup }),

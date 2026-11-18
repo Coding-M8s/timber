@@ -42,6 +42,7 @@ import { resolveOpenTarget } from "./git/open-target";
 import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
 import { readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
+import { readIssueLink, writeIssueLink } from "./git/issue-link";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
 import { resolveGithubRepository } from "./github/repository";
 import { resolveLinearTicket } from "./linear/client";
@@ -109,19 +110,23 @@ process.exitCode = await runCli(process.argv.slice(2), {
       resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
       resolveGithubRepository, resolveGithubTicket,
       resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
-      createWorktree, writeBaseAssociation, runSetup, launchEditor, launchAgent, launchEditorTerminals,
+      createWorktree, writeBaseAssociation, writeIssueLink, runSetup, launchEditor, launchAgent, launchEditorTerminals,
     }),
     open: createOpenHandler({
       discoverRepository,
       loadConfig: loadRepositoryConfig,
       resolveOpenTarget,
+      resolveGithubRepository, resolveGithubTicket,
+      resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
+      resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
+      readIssueLink, writeIssueLink,
       createWorktree,
       runSetup,
       launchEditor,
       launchAgent,
       launchEditorTerminals,
     }),
-    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig, readBaseAssociation }),
+    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig, readBaseAssociation, readIssueLink }),
     backupCreate: createBackupCreateHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, createBackup,
       // Backup selection must not run status: it can execute repository clean filters.
