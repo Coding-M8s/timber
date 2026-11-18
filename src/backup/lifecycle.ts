@@ -324,6 +324,9 @@ async function deleteBackup(selected: EligibleBackup, inventory: BackupInventory
   if (moved.recordSha256 !== selected.recordSha256 || moved.device !== selected.device || moved.inode !== selected.inode) {
     return restore("it changed while it was being deleted");
   }
+  // Recheck exact contents while the ref still exists, so an added file keeps the backup instead of leaving a partial deletion.
+  try { await assertExactContents(moved); }
+  catch { return restore("it changed while it was being deleted"); }
   const recheck = await liveProtection(record, inventory.commonGitDir);
   if (recheck.protected) return restore(`it became protected: ${recheck.reason}`);
   const dropped = await backupGit(gitCwd, ["update-ref", "-m", "timber backup done", "-d", record.ref, record.commit]);
@@ -451,11 +454,15 @@ export async function reviewBackupDeletion(
   if (options.all) {
     const total = eligible.reduce((sum, backup) => sum + backup.record.bytes, 0);
     const count = eligible.length + unfinished.length;
-    const summary = [`Selected ${count} eligible backup${count === 1 ? "" : "s"} (${formatBytes(total)}):`,
+    // Unfinished deletions have no reliable remaining size, so the total covers usable backups only.
+    const size = unfinished.length
+      ? `${formatBytes(total)} plus ${unfinished.length} unfinished deletion${unfinished.length === 1 ? "" : "s"}`
+      : formatBytes(total);
+    const summary = [`Selected ${count} eligible backup${count === 1 ? "" : "s"} (${size}):`,
       ...eligible.map(backup => `  ${backup.id} ${backup.record.branch === null ? "detached HEAD" : safeDisplay(backup.record.branch)} ${formatBytes(backup.record.bytes)}`),
       ...unfinished.map(({ item }) => `  ${item.id} unfinished deletion`), ignoredWarning, ""];
     io.stdout(summary.join("\n"));
-    const answer = await ask(`Delete all ${count} backup${count === 1 ? "" : "s"} (${formatBytes(total)})? Type y and press Enter to delete [y/N] `);
+    const answer = await ask(`Delete all ${count} backup${count === 1 ? "" : "s"} (${size})? Type y and press Enter to delete [y/N] `);
     if (!confirmed(answer)) {
       io.stdout("Cancelled; no backups were deleted.\n");
       return 0;
