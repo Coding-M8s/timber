@@ -1,11 +1,13 @@
 # Experimental IDE machine interface (v1)
 
 This additive interface is experimental. It supports repository inventory,
-ordinary New/Open outcomes, Rebase and Publish outcomes, and reading, saving and
-checking settings for app consumers. It does not change the existing
+ordinary New/Open outcomes, Rebase and Publish outcomes, reading, saving and
+checking settings for app consumers, and reading each worktree's pull request.
+It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
-No IDE consumer is included. Rebase and Publish records, native cleanup approval and
-[settings for app consumers](#settings-for-app-consumers-experimental-v1) are described below. Linux x86_64 is the tested
+No IDE consumer is included. Rebase and Publish records, native cleanup approval,
+[settings for app consumers](#settings-for-app-consumers-experimental-v1) and
+[pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1) are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
 
@@ -521,3 +523,90 @@ type ConnectionCheck = {
   access are not checked. A failure is a result, not a crash: rejected logins,
   denied access, rate limits, timeouts (10 seconds) and network errors all
   return `ok: false` with a diagnostic that contains no credential.
+
+## Pull requests for app consumers (experimental v1)
+
+An app can show each worktree's GitHub pull request, its checks and its review
+decision with one hidden, read-only command run in any worktree of the
+repository:
+
+```sh
+timber __app-pr
+```
+
+It takes no arguments. It prints one JSON object plus newline to stdout and
+exits 0, or 1 when the repository could not be read or any lookup failed; the
+record is printed in both cases. It never prompts (run it with stdin closed),
+never writes files, never fetches or changes a ref, and never acts on a pull
+request. One call answers for every worktree, so an app can refresh on an
+interval. The network part, reading the login and every GitHub request
+together, stops after 15 seconds.
+
+```ts
+type PullRequestsRecord = {
+  schemaVersion: 1;
+  repository: RepositoryIdentity | null; // null when discovery failed
+  github: { owner: string; name: string } | null; // repository the pull requests were read from
+  diagnostic: string | null;  // set only when the repository or its worktrees could not be read
+  worktrees: PullRequestEntry[]; // primary first, then by registered path; empty when diagnostic is set
+};
+
+type PullRequestEntry = {
+  path: string;               // Git-registered worktree path, as in ls --json
+  branch: string | null;      // null for detached HEAD
+  isPrimary: boolean;
+  outcome: "found" | "none" | "failed";
+  pullRequest: PullRequest | null; // non-null only when found
+  reason: "offline" | "sign-in-needed" | "not-github" | "failed" | null; // non-null only when failed
+  diagnostic: string | null;  // terminal-safe failure text, not a stable code; non-null only when failed
+};
+
+type PullRequest = {
+  number: number;
+  url: string;
+  title: string;
+  state: "open" | "draft" | "merged" | "closed";
+  baseBranch: string;         // branch name on GitHub, not a local ref
+  checks: {
+    summary: "passing" | "failing" | "pending" | "none";
+    runs: { name: string; status: "passing" | "failing" | "pending" | "skipped"; url: string | null }[];
+  };
+  review: "approved" | "changes-requested" | "review-required" | "none";
+  description: string;        // the pull request body as written; may be empty
+};
+```
+
+- The pull requests are read from the github.com repository of the configured
+  `remote`, or `origin` when none is configured. When that remote is missing or
+  not on github.com, every entry with a branch is `failed` with `not-github`,
+  and Timber reads no login and contacts nothing.
+- A branch's pull request is one whose head is that branch on GitHub: the
+  branch's upstream when it tracks a github.com remote (so a branch pushed to a
+  fork is found under the fork's owner and upstream branch name), otherwise the
+  same branch name in the selected repository. Among the ten most recently
+  created pull requests for that branch name, an open one wins; otherwise the
+  newest is reported. A pull request from
+  another owner's branch of the same name is not matched.
+- `none` means no pull request was found, and is always the outcome for a
+  detached worktree. It does not mean the branch was pushed.
+- `checks.summary` is GitHub's combined state for the head commit; `none`
+  means no checks or statuses were reported. `runs` lists at most 100 check
+  runs and commit statuses. A neutral conclusion counts as passing; cancelled,
+  timed out and other unsuccessful conclusions count as failing.
+- `review` is GitHub's review decision; `none` means the repository requires
+  no review decision for this pull request.
+- A failure applies to every entry with a branch, since one lookup answers for
+  all of them. `sign-in-needed` means no usable login or a rejected one;
+  `offline` means GitHub could not be reached or did not answer within the time
+  limit; `failed` covers denied access, rate limits, a missing or inaccessible
+  repository and invalid responses. Retry on the next refresh; Timber never
+  retries on its own.
+- The login is the one `timber new github:<n>` uses: `GH_TOKEN` or
+  `GITHUB_TOKEN` when set, otherwise the GitHub CLI login for github.com. The
+  app needs no separate sign-in, and sign-in is not part of this interface.
+  Tokens never appear in stdout, stderr or diagnostics.
+- Titles and descriptions are text from GitHub. Display them as untrusted
+  text; do not render them as trusted markup or pass them to a shell.
+
+Other hosts, review comments and pull request actions are not part of this
+interface.
