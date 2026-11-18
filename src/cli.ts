@@ -170,6 +170,24 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
         : await runMachineCommand("publish", context, machineContext => publish(input, machineContext), options.resultFile));
     });
 
+  program.command("pr <branch-or-worktree>")
+    .description("Publish an existing worktree's branch and open a GitHub pull request for it")
+    .option("--title <text>", "Pull request title (required)")
+    .option("--body <text>", "Pull request description")
+    .option("--base <ref>", "Base branch (remote/branch or branch name); defaults to the worktree's saved base")
+    .option("--draft", "Open the pull request as a draft")
+    .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
+    .addHelpText("after", "\nPublishes the branch first with the rules of timber publish, then opens the pull request on github.com\nwith your GitHub CLI login or GH_TOKEN. Reports an already open pull request instead of creating another.\nThe worktree's linked issue, or one its branch is named for (GH-123-...), is mentioned in the body. Never prompts for credentials.")
+    .action(async (input: string, options: { title?: string; body?: string; base?: string; draft?: boolean; resultFile?: string }) => {
+      const pr = handlers.pr;
+      if (!pr) throw new Error("Pull request handler is unavailable in this embedding.");
+      const { resultFile, ...rest } = options;
+      const normalized = Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined));
+      onExitCode(resultFile === undefined
+        ? await pr(input, normalized, context)
+        : await runMachineCommand("pr", context, machineContext => pr(input, normalized, machineContext), resultFile));
+    });
+
   const backup = program.command("backup")
     .description("Create, list, restore and delete private recovery backups of a worktree, including ignored files");
   backup.command("create <branch-or-worktree>")

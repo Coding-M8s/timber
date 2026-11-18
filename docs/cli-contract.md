@@ -1,7 +1,7 @@
 # Timber CLI behavioral contract
 
 The additive [experimental IDE machine interface](ide-contract.md) defines opt-in
-`ls --json` and New/Open/Rebase/Publish `--result-file` records, plus hidden commands
+`ls --json` and New/Open/Rebase/Publish/PR `--result-file` records, plus hidden commands
 that let an app read, save and check settings. Ordinary human commands and
 release behavior retain the contracts below.
 
@@ -121,6 +121,58 @@ branch setting changes, and the diagnostic says Timber never force-pushes.
 Distinguish that refusal from sign-in, network, remote-side and hook failures.
 Every refusal and failure returns exit 1. Git's own output and remote messages
 go to stderr with control characters escaped.
+
+## Open a pull request (#157)
+
+`timber pr <branch-or-worktree> --title <text> [--body <text>] [--base <ref>]
+[--draft]` publishes a registered worktree's branch and opens one pull request
+for it on github.com. Selection matches `publish`. The title is required, one
+line and at most 256 characters; the body is at most 65536 characters.
+
+The base is `--base` when given, otherwise the saved base. `--base` accepts
+`<remote>/<branch>`, `refs/remotes/<remote>/<branch>`, or a plain branch on the
+configured or sole remote; the longest matching remote name wins. It is never
+saved. Refuse `HEAD`, `refs/heads/...`, an unassigned or invalid saved base, a
+saved local-branch base, a remote that is no longer configured, an invalid branch
+name, and a base equal to the branch itself in the same repository. The base
+remote's fetch URL and the publish remote's push URL must each name one
+github.com repository; they may differ, so a fork's branch opens against its
+upstream repository. Do not fetch
+or verify that the base exists; GitHub's rejection reports that.
+
+Every Timber preflight refusal happens before reading the GitHub login and before
+any push, so no local ref, branch setting or remote ref changes. A remote branch
+that has moved on is refused by the push itself, which also changes nothing.
+After preflight, read the login once
+(`GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`, with prompts disabled); a
+missing login fails before the push. Publish with exactly the rules of
+`timber publish`, even when a pull request already exists, so the pull request
+gets the latest commits.
+
+After the push, list open pull requests filtered by `<head-owner>:<branch>` and
+check the head branch, head repository and base of each result, since GitHub
+ignores a filter it cannot parse. When one is open into the same base, report it
+and create nothing; an open pull request into another base does not count.
+Otherwise create one with the title, body, base and draft flag. A creation that
+GitHub rejects because one already exists is followed by one more lookup.
+Build the reported URL from the validated repository and number. Map GitHub
+rejections to fixed diagnostics and never echo response bodies or tokens. Each
+request has the existing 10-second deadline, rejects redirects and is not
+retried; a creation timeout says the pull request may exist.
+
+The worktree's saved issue link (#153) names the issue to mention. Without a
+saved link, fall back to a ticket key at the start of the branch name (as
+`TIMBER_TASK_ID`), whose GH number belongs to the default issue remote. An
+unreadable link adds no mention and warns on stderr. Append a reference to the
+body unless it already mentions the issue: `Refs #<n>` for a GitHub issue in the
+base repository, `Refs owner/repo#<n>` for one in another repository (where a
+bare `#<n>` does not count as a mention), and `Refs <KEY>` for Jira and Linear.
+Never add a closing keyword: GH numbers share one local namespace across issue
+repositories.
+
+Created and exists return zero and print the number and URL. Every refusal and
+failure returns exit 1. Editing, merging, reviewers, labels and hosts other than
+github.com are out of scope.
 
 ## Saved worktree bases (#79)
 

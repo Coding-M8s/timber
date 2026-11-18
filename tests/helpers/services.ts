@@ -27,6 +27,7 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     writeIssueLink: async () => "saved",
     rebaseWorktree: unexpected("rebaseWorktree"),
     publishWorktree: unexpected("publishWorktree"),
+    openPullRequest: unexpected("openPullRequest"),
     createBackup: unexpected("createBackup"),
     restoreBackup: unexpected("restoreBackup"),
     listBackups: unexpected("listBackups"),

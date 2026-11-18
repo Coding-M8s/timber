@@ -28,6 +28,8 @@ import { createBackup, restoreBackup } from "./backup/service";
 import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
 import { createPublishHandler } from "./commands/publish";
 import { publishWorktree } from "./git/publish";
+import { createPullRequestHandler } from "./commands/pr";
+import { openPullRequest } from "./github/pull-request";
 import { createDoneHandler } from "./commands/done";
 import { createListHandler } from "./commands/list";
 import { createNewHandler } from "./commands/new";
@@ -139,6 +141,9 @@ process.exitCode = await runCli(process.argv.slice(2), {
     // Shares rebase selection so a paused rebase's branch reports its detached worktree.
     publish: createPublishHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, publishWorktree, resolveOpenTarget: resolveRebaseTarget,
+    }),
+    pr: createPullRequestHandler({
+      discoverRepository, loadConfig: loadRepositoryConfig, openPullRequest, resolveOpenTarget: resolveRebaseTarget,
     }),
     done: createDoneHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree, retainedBackups,

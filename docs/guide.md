@@ -163,6 +163,7 @@ timber open my-feature --setup
 timber new my-feature --no-setup
 timber ls
 timber publish my-feature
+timber pr my-feature --title "Add the feature"
 timber done my-feature
 timber done my-feature --base parent-feature
 timber done my-feature --keep-branch
@@ -470,6 +471,27 @@ never asks for a password or passphrase: sign in with your Git credential
 helper, SSH agent or the GitHub CLI first. Tags and pull requests are not part
 of this command. Apps can read the outcome from a
 [result file](ide-contract.md#publish-outcome).
+
+### Open a pull request
+
+`timber pr my-feature --title "Add the feature"` publishes the branch exactly as
+`timber publish` does, then opens a pull request on GitHub with your GitHub CLI
+login, or `GH_TOKEN`/`GITHUB_TOKEN` when set. Add `--body <text>` for a
+description and `--draft` for a draft.
+
+The pull request targets the worktree's saved base, such as `origin/main`
+becoming `main`. A worktree with no saved base, or with a local branch as its
+base, is refused before anything is pushed; pass `--base origin/main` (or a
+branch name on the configured remote) instead. `--base` does not change the
+saved base.
+
+If the branch already has an open pull request into that base, Timber reports it
+and creates nothing. The worktree's linked issue, or an issue named at the start
+of the branch such as `GH-123-fix-login` or `ENG-42-fix-login`, is mentioned in
+the body (`Refs #123` or `Refs ENG-42`) so the two are connected; Timber never
+adds a closing keyword. Only github.com remotes are
+supported, and Timber never prompts for a sign-in: run `gh auth login` first.
+Apps can read the outcome from a [result file](ide-contract.md#pull-request-outcome).
 
 ## Remove Timber
 

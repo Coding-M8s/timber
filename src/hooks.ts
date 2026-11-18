@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { taskIdOf } from "./task-id";
 import { hookShell } from "./platform/hook-shell";
 import { retryForDisplay, shellQuoteForDisplay, workflowRetryFlag } from "./display";
 import type { CommandContext, CommandIO } from "./services";
@@ -52,7 +53,7 @@ export interface SetupTask {
 export function taskEnvironment(task: Pick<SetupTask, "cwd" | "repositoryRoot" | "branch" | "workflow">) {
   return { TIMBER_REPO: task.repositoryRoot, TIMBER_WORKTREE: task.cwd,
     TIMBER_BRANCH: task.branch ?? "",
-    TIMBER_TASK_ID: task.branch?.match(/^([A-Z][A-Z0-9]*-\d+)(?=$|[-_./])/)?.[1],
+    TIMBER_TASK_ID: taskIdOf(task.branch),
     TIMBER_WORKFLOW: task.workflow };
 }
 
