@@ -121,7 +121,7 @@ export async function findJiraSuggestions(
   });
 }
 
-interface JiraRequestContext {
+export interface JiraRequestContext {
   siteOrigin: string;
   apiRoot: string;
   authorization: string;
@@ -137,7 +137,8 @@ export async function checkJiraConnection(config: JiraConfig, runtime: JiraRunti
   });
 }
 
-async function prepareRequest(config: JiraConfig, runtime: JiraRuntime): Promise<JiraRequestContext> {
+/** Validated site, API root and Basic authorization; throws a safe diagnostic when no usable login exists. */
+export async function prepareRequest(config: JiraConfig, runtime: JiraRuntime): Promise<JiraRequestContext> {
   const siteOrigin = validatedSiteOrigin(config);
   const { JIRA_EMAIL: email, JIRA_API_TOKEN: token } = runtime.env;
   let pair: JiraCredentials | null;
