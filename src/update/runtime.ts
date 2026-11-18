@@ -11,13 +11,15 @@ import type { CommandHandlers, CommandIO } from "../services";
 import { createUpdateCheckHandler, createUpdateHandler, type UpdateDeps } from "../commands/update";
 import { notifyUpdate } from "./notice";
 import { refreshUpdateCache, releasesBase } from "./latest";
-import { readUpdateCache } from "./cache";
 
 export const isStandalone = (): boolean => Bun.main.startsWith("/$bunfs/");
 
-/** Hidden one-shot child: detached and unref'd, so the parent never waits. */
-function spawnCheck(): void {
-  const child = spawn(process.execPath, ["__update-check"], { detached: true, stdio: "ignore", env: process.env });
+/**
+ * Hidden one-shot child: detached and unref'd, so the parent never waits. It runs from the
+ * temp directory so it never holds a worktree open or depends on one that `done` removed.
+ */
+export function spawnCheck(start: typeof spawn = spawn): void {
+  const child = start(process.execPath, ["__update-check"], { cwd: tmpdir(), detached: true, stdio: "ignore", env: process.env });
   child.on("error", () => {});
   child.unref();
 }
@@ -31,7 +33,7 @@ export async function notifyAfterCommand(argv: readonly string[], io: CommandIO)
   await notifyUpdate({
     argv, env: process.env, version, stderrIsTTY: process.stderr.isTTY === true, standalone: isStandalone(),
     platform: process.platform, cachePath: updateCheckCachePath(process.env), now: Date.now,
-    configDisabled: () => configDisabled(process.env), spawnCheck, stderr: text => { io.stderr(text); },
+    configDisabled: () => configDisabled(process.env), spawnCheck: () => { spawnCheck(); }, stderr: text => { io.stderr(text); },
   });
 }
 
@@ -43,9 +45,7 @@ async function download(url: string, destination: string): Promise<void> {
 export function realUpdateDeps(env: NodeJS.ProcessEnv = process.env): UpdateDeps {
   return {
     env, version, platform: process.platform, standalone: isStandalone(), executablePath: process.execPath,
-    cachePath: updateCheckCachePath(env), now: Date.now,
     refresh: () => refreshUpdateCache({ env, cachePath: updateCheckCachePath(env), now: Date.now }),
-    readCache: () => readUpdateCache(updateCheckCachePath(env)),
     releasesBase: () => releasesBase(env),
     isWritable: async directory => { try { await access(directory, constants.W_OK); return true; } catch { return false; } },
     hasCommand: async name => (await findExecutable(name, env)) !== null,
@@ -53,10 +53,9 @@ export function realUpdateDeps(env: NodeJS.ProcessEnv = process.env): UpdateDeps
     removeDir: directory => rm(directory, { recursive: true, force: true }),
     download,
     // Argument array and explicit environment; nothing is interpolated into a shell string.
-    runInstaller: async (file, installerEnv, io) => {
-      const result = await execa("sh", [file], { env: installerEnv, extendEnv: false, reject: false, stdin: "ignore" });
-      if (result.stdout) io.stdout(result.stdout + "\n");
-      if (result.stderr) io.stderr(result.stderr + "\n");
+    // Output streams to the terminal so download progress and PATH warnings appear as they happen.
+    runInstaller: async (file, installerEnv) => {
+      const result = await execa("sh", [file], { env: installerEnv, extendEnv: false, reject: false, stdio: ["ignore", "inherit", "inherit"] });
       return result.exitCode ?? 1;
     },
     reportVersion: async executable => {

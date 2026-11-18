@@ -206,21 +206,23 @@ behavior is unchanged.
 
 `timber update [--check] [--version <tag>]` updates the standalone executable.
 `--version` takes the installer's tag grammar (`vMAJOR.MINOR.PATCH` with an
-optional `-rc.N`). Without `--check` it refuses, with a diagnostic and no changes,
+optional `-rc.N`). `--check` and `--version` together are rejected. Without `--check` it refuses, with a diagnostic and no changes,
 on Windows, from a source run, when the install directory is not writable, when the
 running executable is not named `timber`, or when `curl` or `sh` is missing. Otherwise
 it resolves the latest tag from the `releases/latest` redirect (or uses `--version`),
-exits 0 without downloading when that is the running version (or, for latest, an older one),
+exits 0 without downloading when that is the running version (or, for latest, an older one;
+the message says `already installed` for an exact `--version` and `already the latest version` otherwise),
 downloads `<releases>/download/<tag>/install.sh`, and runs `sh <file>` with
 `TIMBER_INSTALL_DIR` set to the running executable's directory and `TIMBER_VERSION`
-set to the tag. `curl` and `sh` receive argument arrays only. A nonzero installer exit is an
+set to the tag. `curl` and `sh` receive argument arrays only, and installer output streams to the terminal. A nonzero installer exit is an
 error and leaves the existing executable as the installer left it (unchanged on
 download or checksum failure). On success it prints the version the new executable
 reports. `--check` does a fresh check, refreshes the cache, prints either
 `Update available: timber X -> Y` plus `Run: timber update` or `Timber X is up to date.`,
 and installs nothing.
 
-Hidden `__update-check` is the one-shot child the notice spawns detached and unref'd.
+Hidden `__update-check` is the one-shot child the notice spawns detached and unref'd,
+from the temporary directory rather than the caller's working directory.
 It resolves the latest stable tag, writes `$XDG_CACHE_HOME/timber/update-check.json`
 (default `~/.cache/timber/`; JSON `{"tag"?, "checkedAt"}` with epoch milliseconds)
 by temp file and rename with private modes, and exits 0 silently. It records
@@ -229,9 +231,12 @@ by temp file and rename with private modes, and exits 0 silently. It records
 After any other command finishes, when the cached stable tag is newer than the
 running version, Timber prints `Update available: timber X -> Y` and `Run: timber update`
 to stderr. A cache that is missing, corrupt or older than 24 hours spawns the child; the
-parent never waits. Release candidates are never cached as the latest tag or announced.
+parent never waits. Before spawning, the parent records the attempt time in the cache, so
+commands run while the child works start no second check; when that write fails, no child
+is started. Release candidates are never cached as the latest tag or announced.
 Both the check and the notice are skipped when stderr is not a terminal, `CI` is set,
-the command is hidden (`__*`), `update` or `completion`, an argument is `--json`
+no subcommand is given (bare `--version` or `--help`), the command is hidden (`__*`), `update`
+or `completion`, an argument is `--json`
 or `--result-file`, the run is not a standalone executable, `TIMBER_NO_UPDATE_CHECK=1`
 is set, or global config sets `update_check = false`. The request is a plain HTTPS GET
 with a generic User-Agent and no query. `TIMBER_RELEASES_URL` must be https.

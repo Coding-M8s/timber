@@ -10,6 +10,7 @@ import { refreshUpdateCache, resolveLatestTag, type FetchLike } from "../src/upd
 import { notifyUpdate, skipsUpdateCheck, type NoticeDeps } from "../src/update/notice";
 import { compareVersions, isNewerStable, isReleaseTag } from "../src/update/tag";
 import { createUpdateCheckHandler, createUpdateHandler, type UpdateDeps } from "../src/commands/update";
+import { realUpdateDeps, spawnCheck } from "../src/update/runtime";
 
 const posix = process.platform !== "win32";
 const day = checkInterval;
@@ -172,6 +173,39 @@ describe("notice", () => {
     }
   });
 
+  test("starting a check records the attempt first, so a second command starts no second check", async () => {
+    await writeUpdateCache(cachePath, { tag: "v0.1.3", checkedAt: 1_000_000_000 - day - 1 });
+    const first = notice();
+    await first.run();
+    expect(first.state.spawns).toBe(1);
+    expect(await readUpdateCache(cachePath)).toEqual({ tag: "v0.1.3", checkedAt: 1_000_000_000 });
+    const second = notice({ now: () => 1_000_000_000 + 5 });
+    await second.run();
+    expect(second.state.spawns).toBe(0);
+  });
+
+  test("an unwritable cache starts no check", async () => {
+    await writeFile(join(root, "blocker"), "x");
+    const { state, run } = notice({ cachePath: join(root, "blocker/timber/update-check.json") });
+    await run();
+    expect(state).toEqual({ stderr: "", spawns: 0 });
+  });
+
+  test("the detached check runs from the temp directory and is not waited on", () => {
+    const calls: Array<{ command: string; args: readonly string[]; options: Record<string, unknown> }> = [];
+    let unrefs = 0;
+    const fakeSpawn = ((command: string, args: readonly string[], options: Record<string, unknown>) => {
+      calls.push({ command, args, options });
+      return { on() { return this; }, unref() { unrefs++; } };
+    }) as unknown as Parameters<typeof spawnCheck>[0];
+    spawnCheck(fakeSpawn);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.command).toBe(process.execPath);
+    expect(calls[0]!.args).toEqual(["__update-check"]);
+    expect(calls[0]!.options).toMatchObject({ cwd: tmpdir(), detached: true, stdio: "ignore" });
+    expect(unrefs).toBe(1);
+  });
+
   test("a failed check recorded now suppresses another spawn until the interval passes", async () => {
     await refreshUpdateCache({ env: {}, cachePath, now: () => 1_000_000_000, fetch: async () => { throw new Error("offline"); } });
     const soon = notice({ now: () => 1_000_000_000 + day - 1 });
@@ -239,7 +273,11 @@ describe("notice", () => {
 
   test("argv classification", () => {
     expect(skipsUpdateCheck(["ls"])).toBe(false);
-    expect(skipsUpdateCheck(["--help"])).toBe(false);
+    expect(skipsUpdateCheck(["--help"])).toBe(true);
+    expect(skipsUpdateCheck(["--version"])).toBe(true);
+    expect(skipsUpdateCheck(["-V"])).toBe(true);
+    expect(skipsUpdateCheck([])).toBe(true);
+    expect(skipsUpdateCheck(["open", "--help"])).toBe(false);
     expect(skipsUpdateCheck(["__update-check"])).toBe(true);
     expect(skipsUpdateCheck(["__complete", "--bash", "x"])).toBe(true);
   });
@@ -275,14 +313,14 @@ async function harness(overrides: Partial<UpdateDeps> & { latest?: string | null
   const { latest = "v0.1.4", installer = "#!/bin/sh\nexit 0\n", ...rest } = overrides;
   const deps: UpdateDeps = {
     env: { PATH: process.env.PATH ?? "" }, version: "0.1.2", platform: "linux", standalone: true, executablePath: executable,
-    cachePath, now: () => 1, refresh: async () => { state.refreshes++; return latest; }, readCache: async () => null,
+    refresh: async () => { state.refreshes++; return latest; },
     releasesBase: () => "https://fixture.test/releases", isWritable: async () => true, hasCommand: async () => true,
     makeTempDir: () => mkdtemp(join(root, "dl-")), removeDir: directory => rm(directory, { recursive: true, force: true }),
     download: async (url, destination) => { state.downloads.push(url); await writeFile(destination, installer); },
-    runInstaller: async (file, env, io) => {
+    runInstaller: async (file, env) => {
       state.installs.push({ file, env });
       const result = await execa("sh", [file], { env, extendEnv: false, reject: false });
-      io.stdout(result.stdout); io.stderr(result.stderr);
+      state.out += result.stdout; state.err += result.stderr;
       return result.exitCode ?? 1;
     },
     reportVersion: async () => "0.1.4", ...rest,
@@ -326,6 +364,17 @@ describe.skipIf(!posix)("timber update", () => {
     expect(h.installs[0]!.env.TIMBER_VERSION).toBe("v0.1.3");
   });
 
+  test("--check and --version together are rejected before anything runs", async () => {
+    await expectRefusal(await harness(), /cannot be combined/u, { check: true, version: "v0.1.3" });
+  });
+
+  test("the real installer runner passes the exact environment and returns the exit code", async () => {
+    const dir = await mkdtemp(join(root, "runner-"));
+    const file = join(dir, "install.sh");
+    await writeFile(file, '#!/bin/sh\n[ "$TIMBER_VERSION" = v0.1.4 ] && [ -z "${HOME:-}" ] || exit 9\nexit 3\n');
+    expect(await realUpdateDeps().runInstaller(file, { PATH: process.env.PATH ?? "", TIMBER_VERSION: "v0.1.4" })).toBe(3);
+  });
+
   test("--version rejects tags outside the installer grammar before anything runs", async () => {
     const h = await harness();
     for (const bad of ["0.1.3", "v1.2", "latest", "v1.0.0; rm -rf /", "../v1.0.0"]) await expectRefusal(h, /release tag/u, { version: bad });
@@ -338,6 +387,7 @@ describe.skipIf(!posix)("timber update", () => {
     expect(h.downloads).toEqual([]);
     const same = await harness();
     expect(await update(same, { version: "v0.1.2" })).toBe(0);
+    expect(same.out).toBe("Timber 0.1.2 is already installed.\n");
     expect(same.downloads).toEqual([]);
   });
 
@@ -415,7 +465,6 @@ describe.skipIf(!posix)("timber update", () => {
 
   test("a real read-only directory is refused by the default writability check", async () => {
     if (process.getuid?.() === 0) return;
-    const { realUpdateDeps } = await import("../src/update/runtime");
     const h = await harness();
     await chmod(h.installDir, 0o555);
     try { expect(await realUpdateDeps().isWritable(h.installDir)).toBe(false); }

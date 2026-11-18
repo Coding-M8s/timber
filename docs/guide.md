@@ -804,12 +804,14 @@ Run: timber update
 ```
 
 Because the check runs in the background, the notice appears on the run after the
-check. A failed check is silent, keeps the previous result and is retried no sooner
+check. Only one check starts at a time, and none starts when the cache file cannot be
+written. A failed check is silent, keeps the previous result and is retried no sooner
 than 24 hours later. A missing or corrupt cache file is treated as not checked yet.
 Release candidates (`-rc.N`) never trigger a notice.
 
 Neither the check nor the notice happens when stderr is not a terminal, `CI` is
-set, the command is hidden (`__*`), `update`, shell completion, or produces
+set, no subcommand is given (`timber --version`, `timber --help`), the command is
+hidden (`__*`), `update`, shell completion, or produces
 machine output (`--json`, `--result-file`), or Timber runs from source instead of
 the standalone executable.
 
@@ -831,7 +833,7 @@ When you are already on the latest version it says so and downloads nothing. It
 refuses, changing nothing, when run from source, when the install directory is not
 writable, when the executable is not named `timber`, when `curl` or `sh` is
 missing, or on Windows (see [Windows](windows.md)). `timber update --check` always
-does a fresh check and refreshes the cache.
+does a fresh check and refreshes the cache; it cannot be combined with `--version`.
 
 ## Troubleshooting
 

@@ -1,6 +1,5 @@
 import { basename, dirname, join } from "node:path";
-import type { CommandHandlers, CommandIO } from "../services";
-import type { UpdateCache } from "../update/cache";
+import type { CommandHandlers } from "../services";
 import { compareVersions, isReleaseTag } from "../update/tag";
 
 export interface UpdateDeps {
@@ -11,11 +10,8 @@ export interface UpdateDeps {
   /** A compiled executable, not a source run. */
   standalone: boolean;
   executablePath: string;
-  cachePath: string;
-  now(): number;
   /** Fresh check that refreshes the cache; the stable tag found, or null on failure. */
   refresh(): Promise<string | null>;
-  readCache(): Promise<UpdateCache | null>;
   /** Releases base URL (https only), or null when TIMBER_RELEASES_URL is unusable. */
   releasesBase(): string | null;
   isWritable(directory: string): Promise<boolean>;
@@ -24,8 +20,8 @@ export interface UpdateDeps {
   removeDir(directory: string): Promise<void>;
   /** Fetch one https URL into a file; rejects on any failure. */
   download(url: string, destination: string): Promise<void>;
-  /** Run `sh <file>` with exactly this environment; the exit code. */
-  runInstaller(file: string, env: NodeJS.ProcessEnv, io: CommandIO): Promise<number>;
+  /** Run `sh <file>` with exactly this environment, its output streaming to the terminal; the exit code. */
+  runInstaller(file: string, env: NodeJS.ProcessEnv): Promise<number>;
   /** What the executable prints for --version, or null. */
   reportVersion(executable: string): Promise<string | null>;
 }
@@ -46,6 +42,9 @@ export function createUpdateHandler(deps: UpdateDeps): NonNullable<CommandHandle
     const current = deps.version;
     if (options.version !== undefined && !isReleaseTag(options.version)) {
       throw new Error("--version must be a release tag such as v0.1.0.");
+    }
+    if (options.check === true && options.version !== undefined) {
+      throw new Error("--check and --version cannot be combined.");
     }
 
     if (options.check === true) {
@@ -83,7 +82,11 @@ export function createUpdateHandler(deps: UpdateDeps): NonNullable<CommandHandle
       tag = latest;
     }
     const comparison = compareVersions(tag, current);
-    if (comparison === 0 || (options.version === undefined && comparison !== null && comparison < 0)) {
+    if (options.version !== undefined && comparison === 0) {
+      io.stdout(`Timber ${current} is already installed.\n`);
+      return 0;
+    }
+    if (options.version === undefined && comparison !== null && comparison <= 0) {
       io.stdout(`Timber ${current} is already the latest version.\n`);
       return 0;
     }
@@ -94,7 +97,7 @@ export function createUpdateHandler(deps: UpdateDeps): NonNullable<CommandHandle
       try { await deps.download(`${base}/download/${tag}/install.sh`, file); }
       catch { throw new Error(`Could not download install.sh for ${tag}. Nothing was changed.`); }
       io.stdout(`Updating Timber ${current} -> ${tag.slice(1)}\n`);
-      const code = await deps.runInstaller(file, { ...deps.env, TIMBER_INSTALL_DIR: installDir, TIMBER_VERSION: tag }, io);
+      const code = await deps.runInstaller(file, { ...deps.env, TIMBER_INSTALL_DIR: installDir, TIMBER_VERSION: tag });
       if (code !== 0) throw new Error(`The installer failed (exit ${code}). The existing Timber was left in place.`);
     } finally {
       await deps.removeDir(directory).catch(() => {});
