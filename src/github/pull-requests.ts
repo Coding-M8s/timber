@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { GithubRuntime } from "./client";
 import type { GithubRepository } from "./repository";
+import { reviewerFields, reviewers, reviewersSchema } from "./reviewers";
+import type { PullRequestReviewer } from "./reviewers";
 
 /** A branch as GitHub names it: the repository owner that holds it and its name there. */
 export interface PullRequestHead { owner: string; branch: string }
@@ -19,6 +21,10 @@ export interface PullRequestSummary {
   baseBranch: string;
   checks: { summary: ChecksSummary; runs: PullRequestCheck[] };
   review: ReviewDecision;
+  /** Requested reviewers first, then people who reviewed; see reviewers(). */
+  reviewers: PullRequestReviewer[];
+  /** False when some reviewers could not be read, such as teams the login cannot see. */
+  reviewersComplete: boolean;
   description: string;
 }
 
@@ -59,7 +65,7 @@ const pullRequestSchema = z.object({
       contexts: z.object({ nodes: z.array(z.union([checkRunSchema, statusContextSchema, z.object({ __typename: z.string() })]).nullable()) }),
     }).nullable(),
   }) }).nullable()) }),
-});
+}).extend(reviewersSchema.shape);
 type PullRequestNode = z.infer<typeof pullRequestSchema>;
 const connectionSchema = z.object({ nodes: z.array(pullRequestSchema.nullable()) });
 const responseSchema = z.object({
@@ -67,7 +73,7 @@ const responseSchema = z.object({
   errors: z.array(z.object({ type: z.string().optional() })).optional(),
 });
 
-const fragment = `fragment pr on PullRequest {
+const fragment = (teams: boolean) => `fragment pr on PullRequest {
   number url title state isDraft baseRefName body reviewDecision headRefName
   headRepositoryOwner { login }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: ${checksPerPullRequest}) { nodes {
@@ -75,15 +81,16 @@ const fragment = `fragment pr on PullRequest {
     ... on CheckRun { name status conclusion detailsUrl }
     ... on StatusContext { context state targetUrl }
   } } } } } }
+  ${reviewerFields(teams)}
 }`;
 
 /** Branch names travel as variables, never as query text. */
-function query(count: number): string {
+function query(count: number, teams: boolean): string {
   const variables = Array.from({ length: count }, (_, index) => `$h${index}: String!`).join(", ");
   const fields = Array.from({ length: count }, (_, index) =>
     `h${index}: pullRequests(headRefName: $h${index}, first: ${pullRequestsPerHead}, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { ...pr } }`)
     .join("\n    ");
-  return `query($owner: String!, $name: String!, ${variables}) {\n  repository(owner: $owner, name: $name) {\n    ${fields}\n  }\n}\n${fragment}`;
+  return `query($owner: String!, $name: String!, ${variables}) {\n  repository(owner: $owner, name: $name) {\n    ${fields}\n  }\n}\n${fragment(teams)}`;
 }
 
 function checkStatus(node: z.infer<typeof checkRunSchema> | z.infer<typeof statusContextSchema>): CheckStatus {
@@ -116,6 +123,7 @@ function summary(node: PullRequestNode): PullRequestSummary {
     review: node.reviewDecision === "APPROVED" ? "approved"
       : node.reviewDecision === "CHANGES_REQUESTED" ? "changes-requested"
         : node.reviewDecision === "REVIEW_REQUIRED" ? "review-required" : "none",
+    ...reviewers(node),
     description: node.body,
   };
 }
@@ -169,8 +177,17 @@ export async function readPullRequests(
   const answers = await Promise.all(chunks.map(async chunk => {
     const variables: Record<string, string> = { owner: repository.owner, name: repository.name };
     chunk.forEach((head, index) => { variables[`h${index}`] = head.branch; });
-    const parsed = responseSchema.safeParse(await post({ query: query(chunk.length), variables }, token, runtime, signal));
-    if (!parsed.success) throw new PullRequestLookupFailure("failed", "GitHub returned an invalid response.");
+    const ask = async (teams: boolean) => {
+      const parsed = responseSchema.safeParse(await post({ query: query(chunk.length, teams), variables }, token, runtime, signal));
+      if (!parsed.success) throw new PullRequestLookupFailure("failed", "GitHub returned an invalid response.");
+      return parsed;
+    };
+    let parsed = await ask(true);
+    // A login without read:org may be refused the whole query for naming team fields. Asking
+    // once more without them still lists every other reviewer; teams then mark the list incomplete.
+    if (!parsed.data.data?.repository && parsed.data.errors?.some(error => error.type === "INSUFFICIENT_SCOPES")) {
+      parsed = await ask(false);
+    }
     const found = parsed.data.data?.repository;
     if (found === null || found === undefined) {
       throw new PullRequestLookupFailure("failed", parsed.data.errors?.some(error => error.type === "NOT_FOUND")

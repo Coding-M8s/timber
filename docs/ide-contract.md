@@ -619,9 +619,9 @@ type ConnectionCheck = {
 
 ## Pull requests for app consumers (experimental v1)
 
-An app can show each worktree's GitHub pull request, its checks and its review
-decision with one hidden, read-only command run in any worktree of the
-repository:
+An app can show each worktree's GitHub pull request, its checks, its review
+decision and its reviewers with one hidden, read-only command run in any
+worktree of the repository:
 
 ```sh
 timber __app-pr
@@ -665,7 +665,16 @@ type PullRequest = {
     runs: { name: string; status: "passing" | "failing" | "pending" | "skipped"; url: string | null }[];
   };
   review: "approved" | "changes-requested" | "review-required" | "none";
+  reviewers: Reviewer[];      // requested reviewers first, then people who reviewed, in GitHub's order
+  reviewersComplete: boolean; // false when some reviewers could not be read
   description: string;        // the pull request body as written; may be empty
+};
+
+type Reviewer = {
+  kind: "user" | "team" | "bot";
+  name: string;               // login, or "org/team-slug" for a team
+  state: "requested" | "approved" | "changes-requested" | "commented" | "dismissed";
+  url: string | null;         // https link to the profile or team, when GitHub gives one
 };
 ```
 
@@ -688,6 +697,21 @@ type PullRequest = {
   timed out and other unsuccessful conclusions count as failing.
 - `review` is GitHub's review decision; `none` means the repository requires
   no review decision for this pull request.
+- `reviewers` lists each reviewer once. `requested` means a review was
+  requested and the reviewer has not submitted one since, including a
+  reviewer asked again after reviewing; a team can only be `requested`. For
+  everyone else `state` is their latest submitted review, except that a later
+  comment never hides an earlier approval or request for changes, which is how
+  GitHub works out the decision. Draft reviews and reviews by deleted accounts
+  are not listed. Bots that review, such as Copilot or Dependabot, have
+  `kind: "bot"`. With no requests and no reviews the list is empty and
+  `reviewersComplete` is true.
+- `reviewersComplete` is false when GitHub did not let the login read some
+  reviewers, such as a requested team it cannot see or a login without
+  `read:org`, or when a pull request has more than 100 review requests or
+  reviews. The reviewers Timber could read are still listed and the lookup
+  does not fail. If GitHub refuses the whole query for naming team fields,
+  Timber asks once more without them, within the same time limit.
 - A failure applies to every entry with a branch, since one lookup answers for
   all of them. `sign-in-needed` means no usable login or a rejected one;
   `offline` means GitHub could not be reached or did not answer within the time
@@ -698,8 +722,8 @@ type PullRequest = {
   `GITHUB_TOKEN` when set, otherwise the GitHub CLI login for github.com. The
   app needs no separate sign-in, and sign-in is not part of this interface.
   Tokens never appear in stdout, stderr or diagnostics.
-- Titles and descriptions are text from GitHub. Display them as untrusted
-  text; do not render them as trusted markup or pass them to a shell.
+- Titles, descriptions and reviewer names are text from GitHub. Display them as
+  untrusted text; do not render them as trusted markup or pass them to a shell.
 
 Other hosts, review comments and pull request actions are not part of this
 interface.
