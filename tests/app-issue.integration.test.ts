@@ -257,7 +257,9 @@ test("the CLI reports none, missing logins and offline with no prompt, no token 
     // A GitHub CLI without a login, as gh behaves when signed out.
     await writeFile(join(bin, "gh"), "#!/bin/sh\necho 'You are not logged into any GitHub hosts.' >&2\nexit 1\n");
     await chmod(join(bin, "gh"), 0o755);
-    const home = { XDG_CONFIG_HOME: join(directory, "config"), HOME: directory };
+    // Saved logins live under XDG_CONFIG_HOME. HOME stays the runner's own: Bun writes its cache there,
+    // which would show up as a change inside the snapshot.
+    const home = { XDG_CONFIG_HOME: join(directory, "config") };
     const before = await snapshot(directory, all);
     const none = await cli(primary, ["--", paths.unlinked!], home);
     const signedOut = await cli(primary, ["--", paths.github!], { ...home, PATH: `${bin}:${process.env.PATH}` });
