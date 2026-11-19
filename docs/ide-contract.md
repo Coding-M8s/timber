@@ -2,14 +2,15 @@
 
 This additive interface is experimental. It supports repository inventory,
 ordinary New/Open outcomes, Rebase, Publish and PR outcomes, reading, saving and
-checking settings for app consumers, reading each worktree's pull request, and
-reading a worktree's linked issue.
+checking settings for app consumers, reading each worktree's pull request,
+reading a worktree's linked issue, and restoring or deleting one recovery backup.
 It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
 No IDE consumer is included. Rebase, Publish and PR records, native cleanup approval,
 [settings for app consumers](#settings-for-app-consumers-experimental-v1) and
 [pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1) and
-[linked issues for app consumers](#linked-issues-for-app-consumers-experimental-v1) are described below. Linux x86_64 is the tested
+[linked issues for app consumers](#linked-issues-for-app-consumers-experimental-v1), and the
+[backup restore](#backup-restore-outcome) and [backup delete](#backup-delete-outcome) outcomes are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
 
@@ -27,6 +28,8 @@ timber open --setup --result-file /private/temp/retry.json --no-editor --no-agen
 timber rebase --result-file /private/temp/rebase.json -- '/absolute/worktree path'
 timber publish --result-file /private/temp/publish.json -- '/absolute/worktree path'
 timber pr --title 'Add login' --result-file /private/temp/pr.json -- '/absolute/worktree path'
+timber backup restore --result-file /private/temp/restore.json -- '<id>' '/absolute/new directory'
+timber __app-backup delete --id '<id>' --record-sha256 '<digest>' --result-file /private/temp/delete.json
 ```
 
 `ls --json` writes exactly one UTF-8 JSON object plus newline to stdout after
@@ -56,6 +59,11 @@ nothing. See [Publish outcome](#publish-outcome).
 `pr` accepts `--result-file <path>` under the same rules and launches nothing.
 A missing `--title` is reported in the record, not by option parsing. See
 [Pull request outcome](#pull-request-outcome).
+
+`backup restore` accepts `--result-file <path>` under the same rules and launches
+nothing. The hidden `__app-backup delete` requires it. See
+[Backup restore outcome](#backup-restore-outcome) and
+[Backup delete outcome](#backup-delete-outcome).
 
 Result-file mode keeps human stdout/stderr and chooser output unchanged. Hook
 stdout/stderr keep their ordinary channels and cannot become machine records.
@@ -91,8 +99,9 @@ content, so do not publish raw streams or result files as public logs.
 The following TypeScript notation defines the JSON values, not an importable SDK.
 All fields are required except the `worktrees` array, which exists only on `ls`,
 the `rebase` object, which exists only on `rebase`, the `publish` object, which
-exists only on `publish`, the `pr` object, which exists only on `pr`, and the `config` object, which exists only on a
-[settings apply](#saving-settings).
+exists only on `publish`, the `pr` object, which exists only on `pr`, the `config` object, which exists only on a
+[settings apply](#saving-settings), the `backupRestore` object, which exists only on `backup-restore`, and the
+`backupDelete` object, which exists only on `backup-delete`.
 There are no `undefined` values.
 
 ```ts
@@ -149,9 +158,32 @@ type PullRequestRecord = {
   published: boolean;      // this run pushed commits to the remote
 };
 
+type BackupRestoreRecord = {
+  result: "restored" | "refused" | "partial";
+  id: string | null;          // requested ID once well formed; raw input is never echoed
+  worktree: string | null;    // recovery worktree path; null unless restored
+  branch: string | null;      // recovery/<id>; null unless restored
+  commit: string | null;      // commit the recovery branch points at; null unless restored
+  remaining: { worktree: string | null; branch: string | null } | null; // partial only
+  cleanup: string[];          // manual commands for what remains; empty unless partial
+};
+
+type BackupDeleteRecord = {
+  result: "deleted" | "refused" | "partial";
+  id: string | null;          // requested ID once well formed; raw input is never echoed
+  remaining: {                // partial only, observed after the failure
+    directory: string;        // the .deleting-<id> directory
+    directoryState: "present" | "removed" | "unknown";
+    files: number | null;     // entries left; null unless present and readable
+    ref: string;              // refs/timber/backups/<id>
+    refState: "present" | "removed" | "unknown";
+  } | null;
+  cleanup: string[];          // manual commands; empty unless partial
+};
+
 type RecordV1 = {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -163,6 +195,8 @@ type RecordV1 = {
   publish?: PublishRecord;      // always present for publish, including refusals
   pr?: PullRequestRecord;       // always present for pr, including refusals
   config?: ConfigApplyRecord;   // always present for a settings apply
+  backupRestore?: BackupRestoreRecord; // always present for backup-restore, including refusals
+  backupDelete?: BackupDeleteRecord;   // always present for backup-delete, including refusals
   setupSkipped?: true;          // new/open: --no-setup skipped configured post_create hooks
 };
 ```
@@ -437,6 +471,59 @@ mention. Timber never adds a closing keyword.
 `worktree` is the selected worktree as it was before the push. It is null when
 no single target was selected. Result-file mode never opens a chooser, so
 `cancelled` does not occur. Select by exact branch or absolute path.
+
+## Backup restore outcome
+
+`timber backup restore <id> <destination> --result-file <path>` restores a
+backup with the rules of the [CLI contract](cli-contract.md#worktree-recovery-backups-119).
+Human stdout/stderr and exit codes are unchanged. The record has
+`command: "backup-restore"`, `worktree: null`, `materialized: false`, no
+`worktrees`, and a `backupRestore` object whose `result` is the value to branch on:
+
+| `result` | `outcome` | Exit | Meaning |
+| --- | --- | --- | --- |
+| `restored` | `succeeded` | 0 | The recovery worktree `worktree` on `branch` at `commit` is complete. |
+| `refused` | `failed` | 1 | Nothing was created: an invalid or unusable backup, an existing destination or recovery branch, or Git failing before it left anything. |
+| `partial` | `failed` | 1 | The restore stopped after Git created something. `remaining` and `cleanup` say what was left. |
+
+- `remaining` is observed after the failure. A path or branch whose existence
+  cannot be checked counts as remaining. A remaining recovery worktree is
+  incomplete and must not be used. The backup and the source worktree are never
+  changed, so after running the `cleanup` commands the same restore can be retried.
+  `cleanup` lists commands only for what was observed to remain, to run with the
+  repository as working directory; the human text always prints both.
+- The recovery worktree is only in `backupRestore.worktree`; the top-level
+  `worktree` stays null. Reconcile with `ls --json`.
+
+## Backup delete outcome
+
+`timber __app-backup delete --id <id> --record-sha256 <digest> --result-file <path>`
+deletes one backup the person confirmed in the app, with the rules of the
+[CLI contract](cli-contract.md#backups-for-app-consumers-168). Show the backup's ID,
+branch, creation time, size and the exact command, and pass the `recordSha256`
+from the same list entry. That list (#167) is not yet available, so the digest
+has no supported source until it lands. The record has `command: "backup-delete"`,
+`worktree: null`, `materialized: false`, no `worktrees`, and a `backupDelete`
+object:
+
+| `result` | `outcome` | Exit | Meaning |
+| --- | --- | --- | --- |
+| `deleted` | `succeeded` | 0 | The snapshot directory, private ref and record are gone. |
+| `refused` | `failed` | 1 | Timber kept the backup and changed nothing. `diagnostic` says why. |
+| `partial` | `failed` | 1 | Deletion started and did not finish. The backup is no longer listed as usable or restorable with `backup restore`. |
+
+- `refused` covers an unknown ID, an unusable, linked or substituted entry, a
+  protected backup, a record that differs from the digest, more than one entry
+  with that ID, and every change found by the rechecks during deletion. After a
+  refusal read the backup list again before offering the action.
+- After `partial`, `remaining` holds the observed state and `cleanup` the
+  manual commands: `git update-ref -d <ref>` while the private ref remains and
+  `rm -r` while the directory remains. Running the same `__app-backup delete`
+  again finishes the unfinished deletion, as `backup done` does, when its
+  contents are a state Timber's deletion order can leave. Prefer that rerun: it
+  repeats the protection and ref checks, while the `cleanup` commands are a
+  manual fallback that delete whatever remains without them. Missing options and an unknown action fail before a result
+  file is created.
 
 ## Native cleanup approval (experimental v1)
 

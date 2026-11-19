@@ -12,6 +12,7 @@ import type { RebaseReport } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
 import type { PullRequestOptions, PullRequestReport } from "./github/pull-request";
 import type { TerminalChooser, TerminalTextPrompt } from "./selection";
+import type { BackupRestoreReport } from "./backup/service";
 import type { GithubRepository } from "./github/repository";
 import type { LinearTicket } from "./linear/client";
 import type { GithubTicket } from "./github/client";
@@ -69,7 +70,9 @@ export interface CommandServices {
   /** Snapshot a verified, idle registered worktree into private Git-directory storage; never changes the source. */
   createBackup(repository: RepositoryContext, worktree: Worktree, io: CommandIO): Promise<number>;
   /** Recover a verified backup into a new worktree and recovery branch; never overwrites or runs repository code. */
-  restoreBackup(repository: RepositoryContext, id: string, destination: string, cwd: string, io: CommandIO): Promise<number>;
+  restoreBackup(
+    repository: RepositoryContext, id: string, destination: string, cwd: string, io: CommandIO, report?: BackupRestoreReport,
+  ): Promise<number>;
   /** Read-only listing of backups, unfinished deletions and unusable entries. */
   listBackups(repository: RepositoryContext, io: CommandIO): Promise<number>;
   /** Interactive deletion; requires the text prompt and `y` then Enter per decision. */

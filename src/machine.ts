@@ -4,6 +4,8 @@ import { safeDiagnostic } from "./display";
 import { readBaseAssociation, type BaseAssociationRead } from "./git/base-metadata";
 import { readIssueLink, type IssueLinkRead } from "./git/issue-link";
 import type { AppConfigReport } from "./app-config/settings";
+import type { BackupDeleteReport } from "./backup/lifecycle";
+import type { BackupRestoreReport } from "./backup/service";
 import type { RebaseReport } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
 import type { PullRequestReport } from "./github/pull-request";
@@ -26,6 +28,10 @@ export interface MachineReporter {
   pr(report: PullRequestReport): void;
   /** Attaches the live settings report; it is read once the handler has finished. */
   config(report: AppConfigReport): void;
+  /** Attaches the live backup restore report; it is read once the handler has finished. */
+  backupRestore(report: BackupRestoreReport): void;
+  /** Attaches the live backup deletion report; it is read once the handler has finished. */
+  backupDelete(report: BackupDeleteReport): void;
   /** `new` or `open` with --no-setup left configured post_create hooks for the caller to run. */
   setupSkipped(): void;
   cancelled(): void;
@@ -61,7 +67,7 @@ interface WorktreeRecord extends Worktree {
 
 export interface MachineRecord {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -78,6 +84,10 @@ export interface MachineRecord {
   pr?: PullRequestReport;
   /** Present only for a settings apply. */
   config?: AppConfigReport;
+  /** Present only for backup-restore. */
+  backupRestore?: BackupRestoreReport;
+  /** Present only for backup-delete. */
+  backupDelete?: BackupDeleteReport;
   /** Present, and true, only when --no-setup skipped configured post_create hooks. */
   setupSkipped?: true;
 }
@@ -133,6 +143,8 @@ export async function runMachineCommand(
     publish: report => { record.publish = report; },
     pr: report => { record.pr = report; },
     config: report => { record.config = report; },
+    backupRestore: report => { record.backupRestore = report; },
+    backupDelete: report => { record.backupDelete = report; },
     setupSkipped: () => { record.setupSkipped = true; },
     cancelled: () => { record.outcome = "cancelled"; },
   };

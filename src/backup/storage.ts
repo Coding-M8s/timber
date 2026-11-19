@@ -88,10 +88,15 @@ export function digest(content: string | Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-async function readPrivate(path: string): Promise<string> {
+/** Exact bytes of a private regular file; record digests are taken over these, not decoded text. */
+export async function readPrivateBytes(path: string): Promise<Buffer> {
   const info = await lstat(path);
   await assertPrivateStorage(path, info, false);
-  return readFile(path, "utf8");
+  return readFile(path);
+}
+
+async function readPrivate(path: string): Promise<string> {
+  return (await readPrivateBytes(path)).toString("utf8");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -204,9 +209,10 @@ export async function readBackupAt(directory: string, id: string): Promise<Publi
     if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new BackupRecordError("No backup with that ID exists in this repository.");
     throw new BackupRecordError("Backup storage is not a private directory; inspect it before retrying.");
   }
-  let recordText: string, manifestText: string;
+  let recordBytes: Buffer, recordText: string, manifestText: string;
   try {
-    recordText = await readPrivate(join(directory, "record.json"));
+    recordBytes = await readPrivateBytes(join(directory, "record.json"));
+    recordText = recordBytes.toString("utf8");
     manifestText = await readPrivate(join(directory, "manifest.json"));
   } catch { throw new BackupRecordError("Backup record or manifest is missing, unreadable or not private; it cannot be used."); }
   let record: BackupRecord, manifest: ManifestEntry[];
@@ -222,5 +228,5 @@ export async function readBackupAt(directory: string, id: string): Promise<Publi
   if (manifest.length !== record.entries || bytes !== record.bytes) {
     throw new BackupRecordError("Backup manifest totals do not match its record; it cannot be used.");
   }
-  return { directory, record, manifest, recordSha256: digest(recordText), device: info.dev, inode: info.ino };
+  return { directory, record, manifest, recordSha256: digest(recordBytes), device: info.dev, inode: info.ino };
 }

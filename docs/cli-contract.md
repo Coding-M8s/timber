@@ -1,8 +1,8 @@
 # Timber CLI behavioral contract
 
 The additive [experimental IDE machine interface](ide-contract.md) defines opt-in
-`ls --json` and New/Open/Rebase/Publish/PR `--result-file` records, plus hidden commands
-that let an app read, save and check settings. Ordinary human commands and
+`ls --json` and New/Open/Rebase/Publish/PR/backup restore `--result-file` records, plus hidden commands
+that let an app read, save and check settings and delete one confirmed backup. Ordinary human commands and
 release behavior retain the contracts below.
 
 Windows x64 candidate additions are specified in [Windows support](windows.md).
@@ -369,8 +369,10 @@ count and the total size, and asks once, `Delete all <n> backups (<size>)?`, wit
 the same rule; selection is not confirmation, and declining deletes nothing. Both
 forms first print protected and unusable entries as not offered. Deletion
 requires an interactive terminal (stdin and stdout are terminals and CI is off);
-otherwise both forms refuse with a nonzero exit before reading storage. There is
-no noninteractive or force option. Cancellation exits 0.
+otherwise both forms refuse with a nonzero exit before reading storage. The human
+command has no noninteractive or force option. Cancellation exits 0. An app deletes
+one backup through the separate [app form](#backups-for-app-consumers-168), whose
+approval is scoped to one confirmed backup state.
 
 Each confirmed backup is deleted as one logical bundle: snapshot directory, ref
 and record. Immediately before deletion Timber rereads the directory and record
@@ -404,6 +406,36 @@ can still contain copies of ignored files including secrets such as `.env`, and
 how to list, restore and delete them. A failure to read backups only replaces
 that report with a pointer to `timber backup list`; it never changes the cleanup
 outcome. Restore works unchanged after `timber done` removed the source worktree.
+
+## Backups for app consumers (#168)
+
+`timber backup restore <id> <destination> --result-file <path>` restores exactly
+as above and also writes one v1 record; human output and exit codes are unchanged.
+See [Backup restore outcome](ide-contract.md#backup-restore-outcome).
+
+`timber __app-backup delete --id <id> --record-sha256 <digest> --result-file <path>`
+is a hidden, noninteractive form for an app that shows one backup and asks for
+confirmation itself. All three options are required, and there is no form that
+selects more than one backup. `<digest>` is the lowercase hex SHA-256 of the exact
+`record.json` bytes of the backup the person confirmed. The JSON backup list (#167,
+not yet available) is to supply it as `recordSha256`; until then Timber offers no
+supported source for it. It needs no terminal, asks nothing, and runs every
+check of `backup done` immediately before deletion: the backup must be usable and
+unprotected, its record bytes must match the digest, and the rereads, rename,
+conditional ref deletion and named file removal above follow unchanged. Anything
+else, including an unknown ID, an unusable or substituted entry, a protected
+backup, a record that changed, or more than one storage entry with that ID, is
+refused with exit 1 and nothing is changed. The approval covers one backup state
+only; it is not a general force option.
+
+A partial failure reports the actual remaining state and the manual `rm -r`
+command, as `backup done` does, plus `git update-ref -d` for a private ref that
+still exists. Those commands are a manual fallback without Timber's checks. A later `__app-backup delete` with the same ID
+finishes an unfinished `.deleting-<id>` deletion under the `backup done` rules:
+while its `record.json` remains the digest must still match; once the record is
+gone nothing restorable remains and the ID alone identifies it. `backup done`
+can finish it too. See [Backup delete outcome](ide-contract.md#backup-delete-outcome).
+Interactive `backup done` is unchanged.
 
 ## Update notice and `update` (#146)
 
