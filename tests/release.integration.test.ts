@@ -95,7 +95,7 @@ test("release output identifies source and passes checksum validation", async ()
   expect(sums).toContain("  THIRD_PARTY_NOTICES.txt\n");
   expect(info.sourceCommit).toBe((await execa("git", ["rev-parse", "HEAD"], { cwd: root })).stdout);
   expect(info.target).toBe(`bun-${suffix}`);
-  expect(info.bunVersion).toBe("1.4.2");
+  expect(info.bunVersion).toBe("1.4.4");
   expect(info.tag).toBeNull();
   expect(typeof info.sourceDirty).toBe("boolean");
   await execa(process.platform === "darwin" ? "shasum" : "sha256sum",

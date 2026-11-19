@@ -88,14 +88,28 @@ unused code. License texts were copied from the installed versions in `bun.lock`
 
 ### Bun runtime distribution caveat
 
-Standalone executables embed Bun 1.4.2, not just Timber and its npm dependencies.
-Bun's [versioned licensing inventory](https://github.com/oven-sh/bun/blob/bun-v1.4.2/LICENSE.md)
+Standalone executables embed Bun 1.4.4, not just Timber and its npm dependencies.
+Bun's [versioned licensing inventory](https://github.com/oven-sh/bun/blob/bun-v1.4.4/LICENSE.md)
 is reproduced in `THIRD_PARTY_NOTICES.txt`. It identifies JavaScriptCore/WebKit
 under LGPL-2 and other independently licensed native libraries, including tinycc
 under LGPL-2.1. The [Bun license documentation](https://bun.sh/docs/project/license)
 describes runtime source and relinking requirements.
 
 Timber's Commons Clause does not replace or narrow those library rights.
+
+#### Runtime update to Bun 1.4.4 (2026-11-18)
+
+The pinned runtime moved from Bun 1.4.2 to 1.4.4 for upstream TLS, `fetch`,
+HTTP, and Brotli security fixes (issue #165). Bun's `LICENSE.md` was compared
+between the `bun-v1.4.2` and `bun-v1.4.4` tags. The JavaScriptCore/WebKit,
+tinycc, linked library, and polyfill sections are unchanged. The only addition
+is a block of rows crediting code ported into `bun check`, `bun lint`, and
+`bun fmt` (from typescript-go, ESLint, Prettier, oxc, Biome, and others) under
+MIT, Apache 2.0, BSD 2-Clause, BSD 3-Clause, and ISC. None of these add a
+copyleft obligation. `THIRD_PARTY_NOTICES.txt` now reproduces the 1.4.4
+inventory, and the notices file and release notes link the `bun-v1.4.4` tag.
+The LGPL obligations and approach recorded below are otherwise unchanged. The
+release owner reviews this update before the next release is tagged.
 
 #### Release-owner review for 0.1.0 (2026-11-14)
 

@@ -17,7 +17,7 @@ timber --version
 timber setup --global
 ```
 
-To try a local build, run these commands from the source checkout with Bun 1.4.2:
+To try a local build, run these commands from the source checkout with Bun 1.4.4:
 
 ```powershell
 bun install --frozen-lockfile
