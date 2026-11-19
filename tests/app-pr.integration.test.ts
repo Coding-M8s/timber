@@ -21,7 +21,8 @@ function pr(number: number, branch: string, extra: Record<string, unknown> = {},
   return {
     number, url: `https://github.com/acme/widgets/pull/${number}`, title: `Change ${number}`, state: "OPEN", isDraft: false,
     baseRefName: "trunk", body: `Body ${number}`, reviewDecision: null, headRefName: branch,
-    headRepositoryOwner: { login: owner }, commits: { nodes: [{ commit: { statusCheckRollup: null } }] }, ...extra,
+    headRepositoryOwner: { login: owner }, commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+    reviewRequests: { pageInfo: { hasNextPage: false }, nodes: [] }, reviews: { pageInfo: { hasPreviousPage: false }, nodes: [] }, ...extra,
   };
 }
 
@@ -103,7 +104,7 @@ test("open, draft, merged and closed pull requests report state, checks and revi
     expect(record.worktrees[0]).toMatchObject({ path: primary, branch: "trunk", isPrimary: true, outcome: "none", pullRequest: null, reason: null });
     expect(byBranch["feature/open"]).toEqual({ path: paths[1]!, branch: "feature/open", isPrimary: false, outcome: "found",
       reason: null, diagnostic: null, pullRequest: { number: 1, url: "https://github.com/acme/widgets/pull/1", title: "Change 1",
-        state: "open", baseBranch: "trunk", review: "approved", description: "Body 1", checks: { summary: "passing", runs: [
+        state: "open", baseBranch: "trunk", review: "approved", reviewers: [], reviewersComplete: true, description: "Body 1", checks: { summary: "passing", runs: [
           { name: "test", status: "passing", url: "https://example.invalid/1" },
           { name: "lint", status: "skipped", url: null },
           { name: "ci/legacy", status: "passing", url: "https://example.invalid/2" },
@@ -121,6 +122,112 @@ test("open, draft, merged and closed pull requests report state, checks and revi
     expect(Object.values(seen.requests[0]!.variables).sort()).toEqual(
       ["acme", "feature/closed", "feature/draft", "feature/merged", "feature/none", "feature/open", "trunk", "widgets"]);
     expect(JSON.stringify(record)).not.toContain(token);
+  });
+});
+
+const requests = (nodes: unknown[], hasNextPage = false) => ({ reviewRequests: { pageInfo: { hasNextPage }, nodes } });
+const reviews = (nodes: unknown[], hasPreviousPage = false) => ({ reviews: { pageInfo: { hasPreviousPage }, nodes } });
+const user = (login: string) => ({ __typename: "User", login, url: `https://github.com/${login}` });
+const review = (state: string, author: unknown) => ({ state, author });
+
+test("reviewers recorded from cli/cli: an unreadable team leaves the others listed and the list incomplete", async () => {
+  await withRepository(async primary => {
+    await git(primary, "remote", "add", "origin", "https://github.com/acme/widgets.git");
+    // Recorded from github.com on 2026-11-18 (cli/cli#15100) by a login outside the requested team's organization.
+    const record = await readAppPullRequests(primary, services({ requests: [], tokenReads: 0 }, {
+      trunk: [pr(1, "trunk", {
+        ...requests([{ requestedReviewer: null }, { requestedReviewer: { __typename: "User", login: "niik", url: "https://github.com/niik" } }]),
+        ...reviews([{ state: "COMMENTED", author: { __typename: "Bot", login: "copilot-pull-request-reviewer",
+          url: "https://github.com/apps/copilot-pull-request-reviewer" } }]),
+      })],
+    }));
+    expect(record.worktrees[0]).toMatchObject({ outcome: "found", reason: null });
+    expect(record.worktrees[0]!.pullRequest).toMatchObject({ reviewersComplete: false, reviewers: [
+      { kind: "user", name: "niik", state: "requested", url: "https://github.com/niik" },
+      { kind: "bot", name: "copilot-pull-request-reviewer", state: "commented", url: "https://github.com/apps/copilot-pull-request-reviewer" },
+    ] });
+  });
+});
+
+test("requests and reviews map to one state per reviewer", async () => {
+  await withRepository(async primary => {
+    await git(primary, "remote", "add", "origin", "https://github.com/acme/widgets.git");
+    const record = await readAppPullRequests(primary, services({ requests: [], tokenReads: 0 }, {
+      trunk: [pr(1, "trunk", {
+        ...requests([
+          { requestedReviewer: user("rita") },
+          { requestedReviewer: { __typename: "Team", combinedSlug: "acme/reviewers", url: "https://github.com/orgs/acme/teams/reviewers" } },
+          // Asked again after approving below.
+          { requestedReviewer: user("Frank") },
+        ]),
+        // Oldest first, as GitHub returns them.
+        ...reviews([
+          review("APPROVED", user("frank")),
+          review("APPROVED", user("alice")),
+          review("CHANGES_REQUESTED", user("bob")),
+          review("COMMENTED", user("alice")),
+          review("COMMENTED", user("carol")),
+          review("COMMENTED", user("bob")),
+          review("DISMISSED", user("dave")),
+          review("APPROVED", { __typename: "Bot", login: "dependabot", url: "https://github.com/apps/dependabot" }),
+          review("COMMENTED", user("erin")),
+          review("APPROVED", user("erin")),
+          review("PENDING", user("pat")),
+          // A deleted account has no author.
+          review("APPROVED", null),
+          review("COMMENTED", { __typename: "User", login: "mallory", url: "javascript:alert(1)" }),
+        ]),
+      })],
+    }));
+    expect(record.worktrees[0]!.pullRequest).toMatchObject({ reviewersComplete: true, reviewers: [
+      { kind: "user", name: "rita", state: "requested", url: "https://github.com/rita" },
+      { kind: "team", name: "acme/reviewers", state: "requested", url: "https://github.com/orgs/acme/teams/reviewers" },
+      { kind: "user", name: "Frank", state: "requested", url: "https://github.com/Frank" },
+      { kind: "user", name: "alice", state: "approved", url: "https://github.com/alice" },
+      { kind: "user", name: "bob", state: "changes-requested", url: "https://github.com/bob" },
+      { kind: "user", name: "carol", state: "commented", url: "https://github.com/carol" },
+      { kind: "user", name: "dave", state: "dismissed", url: "https://github.com/dave" },
+      { kind: "bot", name: "dependabot", state: "approved", url: "https://github.com/apps/dependabot" },
+      { kind: "user", name: "erin", state: "approved", url: "https://github.com/erin" },
+      { kind: "user", name: "mallory", state: "commented", url: null },
+    ] });
+  });
+});
+
+test("more reviewers than one page holds leaves the list incomplete", async () => {
+  await withRepository(async primary => {
+    await git(primary, "remote", "add", "origin", "https://github.com/acme/widgets.git");
+    const record = await readAppPullRequests(primary, services({ requests: [], tokenReads: 0 }, {
+      trunk: [pr(1, "trunk", { ...reviews([review("APPROVED", user("alice"))], true) })],
+    }));
+    expect(record.worktrees[0]!.pullRequest).toMatchObject({ reviewersComplete: false,
+      reviewers: [{ kind: "user", name: "alice", state: "approved" }] });
+  });
+});
+
+test("a login refused team fields is asked once more without them and still lists the other reviewers", async () => {
+  await withRepository(async primary => {
+    await git(primary, "remote", "add", "origin", "https://github.com/acme/widgets.git");
+    const seen: Seen = { requests: [], tokenReads: 0 };
+    const record = await readAppPullRequests(primary, services(seen, {}, {
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init.body));
+        seen.requests.push(body);
+        // Hand-written from GitHub's documented scope error for a token without read:org.
+        if (String(body.query).includes("on Team")) {
+          return Response.json({ data: null, errors: [{ type: "INSUFFICIENT_SCOPES",
+            message: "Your token has not been granted the required scopes to execute this query." }] });
+        }
+        return Response.json({ data: { repository: { h0: { nodes: [pr(1, "trunk", {
+          ...requests([{ requestedReviewer: { __typename: "Team" } }, { requestedReviewer: user("rita") }]),
+        })] } } } });
+      },
+    }));
+    expect(seen.requests).toHaveLength(2);
+    expect(seen.tokenReads).toBe(1);
+    expect(record.worktrees[0]).toMatchObject({ outcome: "found", reason: null });
+    expect(record.worktrees[0]!.pullRequest).toMatchObject({ reviewersComplete: false,
+      reviewers: [{ kind: "user", name: "rita", state: "requested" }] });
   });
 });
 
