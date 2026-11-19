@@ -109,7 +109,7 @@ MIT, Apache 2.0, BSD 2-Clause, BSD 3-Clause, and ISC. None of these add a
 copyleft obligation. `THIRD_PARTY_NOTICES.txt` now reproduces the 1.4.4
 inventory, and the notices file and release notes link the `bun-v1.4.4` tag.
 The LGPL obligations and approach recorded below are otherwise unchanged. The
-release owner reviews this update before the next release is tagged.
+release owner reviewed this update on 2026-11-18.
 
 #### Release-owner review for 0.1.0 (2026-11-14)
 
