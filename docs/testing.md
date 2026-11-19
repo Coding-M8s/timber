@@ -1,6 +1,6 @@
 # Running tests
 
-Use pinned Bun 1.4.2 and locked dependencies. Git, Python 3, and Bash are needed
+Use pinned Bun 1.4.4 and locked dependencies. Git, Python 3, and Bash are needed
 for real-repository, PTY, and Bash completion fixtures. The suite does not start
 Zsh or Fish.
 
@@ -17,7 +17,7 @@ and preload. Tests within a file stay sequential. Do not add `--concurrent` or
 `--no-isolate`: tests change environment variables and mocks.
 
 The 30-second per-test timeout exists because spawn-heavy tests can exceed Bun's
-5-second default on a loaded machine. Bun 1.4.2 ignores a `timeout` key in
+5-second default on a loaded machine. Bun 1.4.4 ignores a `timeout` key in
 `bunfig.toml`, so the flag lives in `package.json`. Subprocess hang guards in
 tests use 30 seconds for the same reason; keep short limits only where a test
 checks a deadline itself.

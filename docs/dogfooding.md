@@ -4,7 +4,7 @@ This checklist exercises the real CLI through create, setup, reopen, list, and s
 
 Use Linux x86_64 and Git. For a release exercise, set `TIMBER_BIN` to the absolute
 path of the downloaded, checksum-verified executable; Bun is not needed. For a
-source exercise, leave `TIMBER_BIN` unset and use Bun 1.4.2 and a source checkout.
+source exercise, leave `TIMBER_BIN` unset and use Bun 1.4.4 and a source checkout.
 These commands use synthetic names and data. `done` discards ignored files in the selected worktree by default, including `.setup-log`; the commands below create that file only in disposable worktrees.
 
 ## Prepare a disposable repository

@@ -128,7 +128,7 @@ isolated checks, and the maintainer release process.
 
 ## Development
 
-Use Bun 1.4.2 (pinned in `.bun-version`) and Git. Python 3 is needed for PTY tests.
+Use Bun 1.4.4 (pinned in `.bun-version`) and Git. Python 3 is needed for PTY tests.
 Docker is needed only for isolated standalone checks.
 
 ```bash
