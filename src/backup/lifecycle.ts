@@ -1,6 +1,6 @@
 import { lstat, readdir, readFile, realpath, rename, rmdir, unlink } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { safeDisplay, shellQuoteForDisplay } from "../display";
+import { FormattedError, safeDisplay, shellQuoteForDisplay } from "../display";
 import { samePath } from "../platform/paths";
 import { assertPrivateStorage } from "../platform/private-storage";
 import type { CommandIO } from "../services";
@@ -8,7 +8,7 @@ import type { TerminalTextPrompt } from "../selection";
 import type { RepositoryContext } from "../types";
 import { backupGit } from "./git";
 import {
-  BackupRecordError, backupIdPattern, backupRef, backupsRoot, digest, formatBytes, readBackupAt, validateManifest,
+  BackupRecordError, backupIdPattern, backupRef, backupsRoot, digest, formatBytes, readBackupAt, readPrivateBytes, validateManifest,
   validateRecord, type BackupRecord, type PublishedBackup,
 } from "./storage";
 
@@ -246,10 +246,21 @@ export async function listBackups(repository: RepositoryContext, io: CommandIO):
   return 0;
 }
 
+/** What a failed deletion actually left behind, observed after the failure. */
+export interface RemainingDeletion {
+  /** The `.deleting-<id>` (or, if it could not be renamed back, still that) directory. */
+  directory: string;
+  directoryState: "present" | "removed" | "unknown";
+  /** Entries left in the directory; null unless it is present and readable. */
+  files: number | null;
+  ref: string;
+  refState: "present" | "removed" | "unknown";
+}
+
 type Outcome =
   | { kind: "deleted" }
   | { kind: "kept"; reason: string }
-  | { kind: "partial"; message: string };
+  | { kind: "partial"; message: string; remaining: RemainingDeletion };
 
 async function sameDirectory(directory: string, device: number, inode: number): Promise<boolean> {
   try {
@@ -273,22 +284,35 @@ async function removeNamed(directory: string, device: number, inode: number, nam
   await rmdir(directory);
 }
 
-async function remainingState(directory: string, ref: string, gitCwd: string): Promise<string> {
-  let files = "its directory state is unknown";
-  try { files = `${(await readdir(directory)).length} files remain in ${safeDisplay(directory)}`; }
-  catch (error) { if (code(error) === "ENOENT") files = "its directory was removed"; }
+async function remainingState(directory: string, ref: string, gitCwd: string): Promise<RemainingDeletion> {
+  let directoryState: RemainingDeletion["directoryState"] = "unknown";
+  let files: number | null = null;
+  try { files = (await readdir(directory)).length; directoryState = "present"; }
+  catch (error) { if (code(error) === "ENOENT") directoryState = "removed"; }
   const pinned = await backupGit(gitCwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).catch(() => null);
-  const refState = pinned === null || (pinned.exitCode ?? 2) > 1 ? "its private ref state is unknown"
-    : pinned.exitCode === 0 ? `private ref ${ref} still exists` : "its private ref was removed";
-  return `${refState}; ${files}`;
+  const refState = pinned === null || (pinned.exitCode ?? 2) > 1 ? "unknown" : pinned.exitCode === 0 ? "present" : "removed";
+  return { directory, directoryState, files, ref, refState };
 }
 
-function partialMessage(id: string, directory: string, state: string): string {
-  return [
-    `Backup ${id} was only partly deleted: ${state}.`,
+function describeRemaining(state: RemainingDeletion): string {
+  const ref = state.refState === "unknown" ? "its private ref state is unknown"
+    : state.refState === "present" ? `private ref ${state.ref} still exists` : "its private ref was removed";
+  const files = state.directoryState === "present" ? `${state.files} files remain in ${safeDisplay(state.directory)}`
+    : state.directoryState === "removed" ? "its directory was removed" : "its directory state is unknown";
+  return `${ref}; ${files}`;
+}
+
+/** The manual command printed for a partial deletion, shared by the text and the app record. */
+function manualRemoval(directory: string): string {
+  return `rm -r -- ${shellQuoteForDisplay(directory)}`;
+}
+
+function partial(id: string, directory: string, remaining: RemainingDeletion, prefix = ""): Outcome {
+  return { kind: "partial", remaining, message: [
+    `Backup ${id} was only partly deleted: ${prefix}${describeRemaining(remaining)}.`,
     "It is no longer restorable. Run timber backup done again to finish deleting it, or remove it manually:",
-    `  rm -r -- ${shellQuoteForDisplay(directory)}`,
-  ].join("\n");
+    `  ${manualRemoval(directory)}`,
+  ].join("\n") };
 }
 
 /** Revalidate exact identity and protection, then rename, drop the ref conditionally, and remove only known files. */
@@ -316,7 +340,7 @@ async function deleteBackup(selected: EligibleBackup, inventory: BackupInventory
   catch { return { kind: "kept", reason: "its directory could not be renamed for deletion" }; }
   const restore = async (reason: string): Promise<Outcome> => {
     try { await rename(deleting, published); return { kind: "kept", reason }; }
-    catch { return { kind: "partial", message: partialMessage(id, deleting, `${reason}, and it could not be renamed back; ${await remainingState(deleting, record.ref, gitCwd)}`) }; }
+    catch { return partial(id, deleting, await remainingState(deleting, record.ref, gitCwd), `${reason}, and it could not be renamed back; `); }
   };
   let moved: PublishedBackup;
   try { moved = await readBackupAt(deleting, id); }
@@ -334,13 +358,15 @@ async function deleteBackup(selected: EligibleBackup, inventory: BackupInventory
 
   const blobs = moved.manifest.flatMap(entry => entry.type === "file" ? [entry.blob] : []);
   try { await removeNamed(deleting, moved.device, moved.inode, [...blobs, "manifest.json", "record.json"]); }
-  catch { return { kind: "partial", message: partialMessage(id, deleting, await remainingState(deleting, record.ref, gitCwd)) }; }
+  catch { return partial(id, deleting, await remainingState(deleting, record.ref, gitCwd)); }
   return { kind: "deleted" };
 }
 
 interface UnfinishedPlan {
   names: string[];
   record: BackupRecord | null;
+  /** Digest of the exact remaining record bytes; null once record.json is gone. */
+  recordSha256: string | null;
   device: number;
   inode: number;
 }
@@ -353,10 +379,12 @@ async function planUnfinished(item: UnfinishedDeletion): Promise<UnfinishedPlan>
   const names = await readdir(item.directory);
   const present = new Set(names);
   let record: BackupRecord | null = null;
+  let recordSha256: string | null = null;
   let allowed = new Set<string>();
   if (present.has("record.json")) {
-    const recordText = await readPrivateText(join(item.directory, "record.json"));
-    record = validateRecord(JSON.parse(recordText), item.id);
+    const recordBytes = await readPrivateBytes(join(item.directory, "record.json"));
+    record = validateRecord(JSON.parse(recordBytes.toString("utf8")), item.id);
+    recordSha256 = digest(recordBytes);
     allowed.add("record.json");
     if (present.has("manifest.json")) {
       const manifestText = await readPrivateText(join(item.directory, "manifest.json"));
@@ -370,7 +398,7 @@ async function planUnfinished(item: UnfinishedDeletion): Promise<UnfinishedPlan>
   if (names.some(name => !allowed.has(name) || (name !== "record.json" && name !== "manifest.json" && !blobPattern.test(name)))) throw unsafe;
   const order = [...names.filter(name => blobPattern.test(name)), ...names.filter(name => name === "manifest.json"),
     ...names.filter(name => name === "record.json")];
-  return { names: order, record, device: info.dev, inode: info.ino };
+  return { names: order, record, recordSha256, device: info.dev, inode: info.ino };
 }
 
 async function readPrivateText(path: string): Promise<string> {
@@ -383,7 +411,7 @@ async function finishUnfinished(item: UnfinishedDeletion, plan: UnfinishedPlan, 
   try { fresh = await planUnfinished(item); }
   catch { return { kind: "kept", reason: "it changed after it was selected" }; }
   if (fresh.device !== plan.device || fresh.inode !== plan.inode || fresh.names.join("/") !== plan.names.join("/")
-    || JSON.stringify(fresh.record) !== JSON.stringify(plan.record)) {
+    || fresh.recordSha256 !== plan.recordSha256 || JSON.stringify(fresh.record) !== JSON.stringify(plan.record)) {
     return { kind: "kept", reason: "it changed after it was selected" };
   }
   const ref = backupRef(item.id);
@@ -399,7 +427,7 @@ async function finishUnfinished(item: UnfinishedDeletion, plan: UnfinishedPlan, 
     if (dropped.exitCode !== 0) return { kind: "kept", reason: "its private ref changed" };
   }
   try { await removeNamed(item.directory, fresh.device, fresh.inode, fresh.names); }
-  catch { return { kind: "partial", message: partialMessage(item.id, item.directory, await remainingState(item.directory, ref, gitCwd)) }; }
+  catch { return partial(item.id, item.directory, await remainingState(item.directory, ref, gitCwd)); }
   return { kind: "deleted" };
 }
 
@@ -487,6 +515,88 @@ export async function reviewBackupDeletion(
   const failed = results.filter(result => result.outcome.kind !== "deleted").length;
   io.stdout(`Deleted ${deleted} backup${deleted === 1 ? "" : "s"}${failed ? `; ${failed} not fully deleted` : ""}.\n`);
   return failed ? 1 : 0;
+}
+
+export type BackupDeleteResult = "deleted" | "refused" | "partial";
+
+/** Observed facts for the app record of one confirmed deletion; filled in as each one is known. */
+export interface BackupDeleteReport {
+  result: BackupDeleteResult;
+  /** The requested ID once it is a well-formed backup ID; raw input is never echoed. */
+  id: string | null;
+  /** Present only for a partial deletion. */
+  remaining: RemainingDeletion | null;
+  /** Manual commands that finish a partial deletion; a later run can also finish it. */
+  cleanup: string[];
+}
+
+/** Until a deletion proves otherwise, a stop is a refusal that changed nothing. */
+export function createBackupDeleteReport(): BackupDeleteReport {
+  return { result: "refused", id: null, remaining: null, cleanup: [] };
+}
+
+const sha256Pattern = /^[0-9a-f]{64}$/u;
+
+/**
+ * `timber __app-backup delete`: delete one backup the person confirmed in an app.
+ * The confirmation is bound to the exact record bytes the app showed; every check
+ * `backup done` runs immediately before deletion still runs, and any difference keeps the backup.
+ */
+export async function deleteConfirmedBackup(
+  repository: RepositoryContext, id: string, recordSha256: string, io: CommandIO,
+  report: BackupDeleteReport = createBackupDeleteReport(),
+): Promise<number> {
+  if (!backupIdPattern.test(id)) throw new Error("Invalid backup ID; use an ID from the backup list. Nothing was deleted.");
+  report.id = id;
+  if (!sha256Pattern.test(recordSha256)) {
+    throw new Error("Invalid record digest; use the lowercase hex SHA-256 from the backup list. Nothing was deleted.");
+  }
+  const inventory = await readInventory(repository);
+  const gitCwd = repository.primaryWorktreeRoot;
+  const names = new Set([id, deletingPrefix + id, incompletePrefix + id, backupRef(id)]);
+  const related = inventory.items.filter(item => item.kind === "problem" ? names.has(item.name) : item.id === id);
+  const keep = (reason: string) => new Error(`Kept backup ${id}: ${reason}. Nothing was deleted.`);
+  if (!related.length) throw keep("no backup with that ID exists in this repository");
+  if (related.length > 1) throw keep("more than one entry in backup storage has that ID; inspect them with timber backup list");
+  const item = related[0]!;
+  let outcome: Outcome;
+  if (item.kind === "problem") throw keep(`it is not usable: ${item.reason}`);
+  if (item.kind === "backup") {
+    if (item.protection.protected) throw keep(`it is protected: ${item.protection.reason}`);
+    if (item.recordSha256 !== recordSha256) throw keep("its record differs from the one that was confirmed; review it again");
+    try { outcome = await deleteBackup(item, inventory, gitCwd); }
+    catch (error) {
+      // A throw after the rename (for example Git failing to start) must not be reported as a refusal.
+      const deleting = join(inventory.root, deletingPrefix + id);
+      const renamed = await lstat(deleting).then(() => true, failure => code(failure) !== "ENOENT");
+      if (!renamed) throw error;
+      outcome = partial(id, deleting, await remainingState(deleting, item.record.ref, gitCwd));
+    }
+  } else {
+    let plan: UnfinishedPlan;
+    try { plan = await planUnfinished(item); }
+    catch { throw keep("its unfinished deletion has unexpected contents; inspect it manually"); }
+    // Without a record nothing restorable remains, so the `.deleting-<id>` name is the identity.
+    if (plan.recordSha256 !== null && plan.recordSha256 !== recordSha256) {
+      throw keep("its record differs from the one that was confirmed; review it again");
+    }
+    // A throw here stays a refusal: finishing changes nothing before its checks pass, and the
+    // unfinished directory it leaves was already unfinished before this run.
+    outcome = await finishUnfinished(item, plan, inventory, gitCwd);
+  }
+  if (outcome.kind === "kept") throw keep(outcome.reason);
+  if (outcome.kind === "partial") {
+    report.result = "partial";
+    report.remaining = outcome.remaining;
+    report.cleanup = [
+      ...(outcome.remaining.refState === "removed" ? [] : [`git update-ref -d ${outcome.remaining.ref}`]),
+      ...(outcome.remaining.directoryState === "removed" ? [] : [manualRemoval(outcome.remaining.directory)]),
+    ];
+    throw new FormattedError(outcome.message);
+  }
+  report.result = "deleted";
+  io.stdout(`Deleted backup ${id}\n`);
+  return 0;
 }
 
 /** For `timber done`: IDs of valid backups recorded from the removed worktree. Read-only. */

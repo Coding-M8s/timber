@@ -13,7 +13,7 @@ import {
   assertStorageSpace, copySnapshot, restoreSnapshot, sameListing, SnapshotError, snapshotBytes, verifyBlobs, walkWorktree,
 } from "./snapshot";
 import {
-  BackupRecordError, backupRef, createPrivateDirectory, digest, ensureBackupsRoot, formatBytes, newBackupId, readPublishedBackup,
+  BackupRecordError, backupIdPattern, backupRef, createPrivateDirectory, digest, ensureBackupsRoot, formatBytes, newBackupId, readPublishedBackup,
   recoveryBranch, writePrivateFile, type BackupRecord,
 } from "./storage";
 
@@ -178,6 +178,44 @@ async function destinationPath(cwd: string, input: string, commonGitDir: string)
   return physical;
 }
 
+export type BackupRestoreResult = "restored" | "refused" | "partial";
+
+/** Observed facts for the app record of one restore; filled in as each one is verified. */
+export interface BackupRestoreReport {
+  result: BackupRestoreResult;
+  /** The requested ID once it is a well-formed backup ID; raw input is never echoed. */
+  id: string | null;
+  /** Recovery worktree path; null unless restored. */
+  worktree: string | null;
+  /** Recovery branch; null unless restored. */
+  branch: string | null;
+  /** Commit the recovery branch points at; null unless restored. */
+  commit: string | null;
+  /** Present only for a partial restore: what was observed to remain after the failure. */
+  remaining: { worktree: string | null; branch: string | null } | null;
+  /** Manual commands, run in the repository, that remove only what was observed to remain. */
+  cleanup: string[];
+}
+
+/** Until a restore proves otherwise, a stop is a refusal that created nothing. */
+export function createBackupRestoreReport(): BackupRestoreReport {
+  return { result: "refused", id: null, worktree: null, branch: null, commit: null, remaining: null, cleanup: [] };
+}
+
+/** Record what a failed restore actually left; an uncheckable path or branch counts as remaining. */
+async function reportLeftovers(report: BackupRestoreReport, gitCwd: string, destination: string, branch: string): Promise<void> {
+  const worktree = await exists(destination) ? destination : null;
+  const left = await git(gitCwd, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]).catch(() => null);
+  const branchLeft = left === null || left.exitCode !== 1 ? branch : null;
+  if (worktree === null && branchLeft === null) return;
+  report.result = "partial";
+  report.remaining = { worktree, branch: branchLeft };
+  report.cleanup = [
+    ...(worktree === null ? [] : [`git worktree remove --force -- ${shellQuoteForDisplay(worktree)}`]),
+    ...(branchLeft === null ? [] : [`git branch -D -- ${shellQuoteForDisplay(branchLeft)}`]),
+  ];
+}
+
 function incompleteRestore(destination: string, branch: string, id: string): FormattedError {
   return new FormattedError([
     `Restore of backup ${id} did not complete; the recovery workspace at ${safeDisplay(destination)} is incomplete and must not be used.`,
@@ -190,7 +228,9 @@ function incompleteRestore(destination: string, branch: string, id: string): For
 /** Recover into a new worktree and branch; never touches the source or the backup. */
 export async function restoreBackup(
   repository: RepositoryContext, id: string, destinationInput: string, cwd: string, io: CommandIO,
+  report: BackupRestoreReport = createBackupRestoreReport(),
 ): Promise<number> {
+  if (backupIdPattern.test(id)) report.id = id;
   const commonGitDir = await realpath(repository.commonGitDir);
   let backup;
   try { backup = await readPublishedBackup(commonGitDir, id); }
@@ -214,6 +254,7 @@ export async function restoreBackup(
   const added = await git(gitCwd, ["worktree", "add", "--no-checkout", "-b", branch,
     "--", destination, record.commit]);
   if (added.exitCode !== 0) {
+    await reportLeftovers(report, gitCwd, destination, branch);
     if (await exists(destination)) throw incompleteRestore(destination, branch, record.id);
     const leftover = await git(gitCwd, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
     if (leftover.exitCode !== 1) {
@@ -230,8 +271,13 @@ export async function restoreBackup(
     const index = await git(destination, ["read-tree", record.commit]);
     if (index.exitCode !== 0) throw new Error("read-tree failed");
   } catch {
+    await reportLeftovers(report, gitCwd, destination, branch);
     throw incompleteRestore(destination, branch, record.id);
   }
+  report.result = "restored";
+  report.worktree = destination;
+  report.branch = branch;
+  report.commit = record.commit;
   io.stdout([
     `Restored backup ${record.id}`,
     `Recovery worktree: ${safeDisplay(destination)}`,

@@ -1,3 +1,4 @@
+import { createBackupRestoreReport } from "../backup/service";
 import type { CommandHandlers, CommandServices } from "../services";
 import { selectRegisteredWorktree } from "./select-worktree";
 
@@ -21,8 +22,12 @@ export function createBackupRestoreHandler(
   services: Pick<CommandServices, "discoverRepository" | "restoreBackup">,
 ): NonNullable<CommandHandlers["backupRestore"]> {
   return async (id, destination, context) => {
+    // Result-file mode reports through the record; a stop before Git creates anything is a refusal.
+    const report = context.machine ? createBackupRestoreReport() : undefined;
+    if (report) context.machine?.backupRestore(report);
     const repository = await services.discoverRepository(context.cwd);
-    return services.restoreBackup(repository, id, destination, context.cwd, context.io);
+    await context.machine?.repository(repository);
+    return services.restoreBackup(repository, id, destination, context.cwd, context.io, report);
   };
 }
 

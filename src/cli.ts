@@ -1,3 +1,4 @@
+import { runAppBackup } from "./commands/app-backup";
 import { runAppConfig } from "./commands/app-config";
 import { runAppIssue } from "./commands/app-issue";
 import { runAppPullRequests } from "./commands/app-pr";
@@ -200,10 +201,14 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
   backup.command("restore <id> <destination>")
     .description("Recover a backup into a new directory on branch recovery/<id>")
+    .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
     .addHelpText("after", "\nThe destination must not exist. Restored changes appear as unstaged or untracked files.\nNever overwrites existing files, changes the source worktree or runs hooks, setup, editors or agents.")
-    .action(async (id: string, destination: string) => {
-      if (!handlers.backupRestore) throw new Error("Backup handler is unavailable in this embedding.");
-      onExitCode(await handlers.backupRestore(id, destination, context));
+    .action(async (id: string, destination: string, options: { resultFile?: string }) => {
+      const restore = handlers.backupRestore;
+      if (!restore) throw new Error("Backup handler is unavailable in this embedding.");
+      onExitCode(options.resultFile === undefined
+        ? await restore(id, destination, context)
+        : await runMachineCommand("backup-restore", context, machineContext => restore(id, destination, machineContext), options.resultFile));
     });
   backup.command("list")
     .description("Show this repository's backups with branch, creation time, size, protection and expiry")
@@ -337,6 +342,14 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
 
   program.command("__app-pr", { hidden: true })
     .action(async () => { onExitCode(await runAppPullRequests(context)); });
+
+  program.command("__app-backup <action>", { hidden: true })
+    .option("--id <id>")
+    .option("--record-sha256 <digest>")
+    .option("--result-file <path>")
+    .action(async (action: string, options) => {
+      onExitCode(await runAppBackup(action, options, context));
+    });
 
   program.command("__app-issue <worktree>", { hidden: true })
     .action(async (worktree: string) => { onExitCode(await runAppIssue(worktree, context)); });
