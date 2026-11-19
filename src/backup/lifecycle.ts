@@ -1,6 +1,6 @@
 import { lstat, readdir, readFile, realpath, rename, rmdir, unlink } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { FormattedError, safeDisplay, shellQuoteForDisplay } from "../display";
+import { FormattedError, safeDiagnostic, safeDisplay, shellQuoteForDisplay } from "../display";
 import { samePath } from "../platform/paths";
 import { assertPrivateStorage } from "../platform/private-storage";
 import type { CommandIO } from "../services";
@@ -217,18 +217,33 @@ function backupLines(backup: EligibleBackup): string[] {
 
 const ignoredWarning = "Backups can contain copies of ignored files, including secrets such as .env, even after their source worktree is removed.";
 
+interface BackupListing {
+  backups: EligibleBackup[];
+  unfinished: UnfinishedDeletion[];
+  problems: BackupProblem[];
+  total: number;
+}
+
+/** One partition shared by the text and JSON lists, so they can never disagree. */
+function partitionInventory(items: readonly BackupItem[]): BackupListing {
+  const backups = items.filter((item): item is EligibleBackup => item.kind === "backup");
+  return {
+    backups,
+    unfinished: items.filter((item): item is UnfinishedDeletion => item.kind === "unfinished"),
+    problems: items.filter((item): item is BackupProblem => item.kind === "problem"),
+    total: backups.reduce((sum, backup) => sum + backup.record.bytes, 0),
+  };
+}
+
 /** `timber backup list`: read-only and safe to run anywhere. */
 export async function listBackups(repository: RepositoryContext, io: CommandIO): Promise<number> {
   const { items } = await readInventory(repository);
-  const backups = items.filter((item): item is EligibleBackup => item.kind === "backup");
-  const unfinished = items.filter((item): item is UnfinishedDeletion => item.kind === "unfinished");
-  const problems = items.filter((item): item is BackupProblem => item.kind === "problem");
+  const { backups, unfinished, problems, total } = partitionInventory(items);
   if (!items.length) {
     io.stdout("No recovery backups in this repository.\n");
     return 0;
   }
   const lines: string[] = [];
-  const total = backups.reduce((sum, backup) => sum + backup.record.bytes, 0);
   lines.push(`Recovery backups: ${backups.length} (${formatBytes(total)})`);
   for (const backup of backups) lines.push(...backupLines(backup));
   if (unfinished.length) {
@@ -244,6 +259,70 @@ export async function listBackups(repository: RepositoryContext, io: CommandIO):
     "Delete with: timber backup done (one at a time) or timber backup done --all", "");
   io.stdout(lines.join("\n"));
   return 0;
+}
+
+export interface BackupListEntry {
+  id: string;
+  /** Null when the source worktree had a detached HEAD. */
+  branch: string | null;
+  commit: string;
+  createdAt: string;
+  bytes: number;
+  entries: number;
+  worktreePath: string;
+  /** Lowercase hex SHA-256 of the exact record.json bytes; pass it to `__app-backup delete`. */
+  recordSha256: string;
+  protection: { protected: false; reason: null } | { protected: true; reason: string };
+  /** Version 1 records carry no retention policy; #121 defines any non-null form. */
+  expiry: null;
+}
+
+/** `timber backup list --json`, schema version 1. Holds only record facts, never snapshot names or contents. */
+export interface BackupListRecord {
+  schemaVersion: 1;
+  outcome: "succeeded" | "failed";
+  exitCode: 0 | 1;
+  repository: { commonGitDir: string; primaryWorktreeRoot: string; currentWorktreeRoot: string } | null;
+  diagnostic: string | null;
+  backups: BackupListEntry[];
+  /** `recordSha256` is null once record.json is gone or the remains cannot be read. */
+  unfinished: { id: string; directory: string; recordSha256: string | null }[];
+  notUsable: { name: string; reason: string }[];
+  totalBytes: number;
+}
+
+/**
+ * Read-only JSON form of `timber backup list`. Discovery and storage failures
+ * become a failed record instead of a thrown error, so stdout always holds one record.
+ */
+export async function readBackupList(cwd: string, discover: (cwd: string) => Promise<RepositoryContext>): Promise<BackupListRecord> {
+  const record: BackupListRecord = { schemaVersion: 1, outcome: "succeeded", exitCode: 0, repository: null,
+    diagnostic: null, backups: [], unfinished: [], notUsable: [], totalBytes: 0 };
+  let inventory: BackupInventory;
+  try {
+    const repository = await discover(cwd);
+    record.repository = { commonGitDir: await realpath(repository.commonGitDir),
+      primaryWorktreeRoot: repository.primaryWorktreeRoot, currentWorktreeRoot: repository.currentWorktreeRoot };
+    inventory = await readInventory(repository);
+  } catch (error) {
+    record.outcome = "failed";
+    record.exitCode = 1;
+    record.diagnostic = safeDiagnostic(error instanceof Error && error.message ? error.message : "Cannot read recovery backups.");
+    return record;
+  }
+  const { backups, unfinished, problems, total } = partitionInventory(inventory.items);
+  record.backups = backups.map(({ id, record: saved, recordSha256, protection }) => ({
+    id, branch: saved.branch, commit: saved.commit, createdAt: saved.createdAt, bytes: saved.bytes,
+    entries: saved.entries, worktreePath: saved.worktreePath, recordSha256,
+    protection: protection.protected ? { protected: true, reason: protection.reason } : { protected: false, reason: null },
+    expiry: null,
+  }));
+  // The same read `__app-backup delete` repeats before finishing; it only reads.
+  record.unfinished = await Promise.all(unfinished.map(async item => ({ id: item.id, directory: item.directory,
+    recordSha256: await planUnfinished(item).then(plan => plan.recordSha256, () => null) })));
+  record.notUsable = problems.map(({ name, reason }) => ({ name, reason }));
+  record.totalBytes = total;
+  return record;
 }
 
 /** What a failed deletion actually left behind, observed after the failure. */

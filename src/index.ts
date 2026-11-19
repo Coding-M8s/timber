@@ -23,7 +23,7 @@ import { runCli } from "./cli";
 import { notifyAfterCommand, updateHandlers } from "./update/runtime";
 import { createRebaseHandler } from "./commands/rebase";
 import { createBackupCreateHandler, createBackupDoneHandler, createBackupListHandler, createBackupRestoreHandler } from "./commands/backup";
-import { listBackups, retainedBackups, reviewBackupDeletion } from "./backup/lifecycle";
+import { listBackups, readBackupList, retainedBackups, reviewBackupDeletion } from "./backup/lifecycle";
 import { createBackup, restoreBackup } from "./backup/service";
 import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
 import { createPublishHandler } from "./commands/publish";
@@ -72,6 +72,7 @@ const launchEditorTerminals = createEditorTerminalLauncher({ self: { executable:
   ...(Bun.main.startsWith("/$bunfs/") ? {} : { entry: Bun.main }) } });
 
 const machineListing = (process.argv[2] === "ls" && process.argv.slice(3).includes("--json"))
+  || (process.argv[2] === "backup" && process.argv[3] === "list" && process.argv.slice(4).includes("--json"))
   || process.argv[2] === "__app-config"
   || process.argv[2] === "__app-backup"
   || process.argv[2] === "uninstall";
@@ -136,7 +137,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
       resolveOpenTarget: (repository, input, config) => resolveRebaseTarget(repository, input, config, { inspectStatus: false }),
     }),
     backupRestore: createBackupRestoreHandler({ discoverRepository, restoreBackup }),
-    backupList: createBackupListHandler({ discoverRepository, listBackups }),
+    backupList: createBackupListHandler({ discoverRepository, listBackups, readBackupList }),
     backupDone: createBackupDoneHandler({ discoverRepository, reviewBackupDeletion }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
     // Shares rebase selection so a paused rebase's branch reports its detached worktree.

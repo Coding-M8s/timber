@@ -68,7 +68,7 @@ Run these inside the Git repository you want to work on:
 | `timber pr my-feature --title "Add login"` | Publish it and open a GitHub pull request against its saved base |
 | `timber backup create my-feature` | Privately snapshot its commit and files, including `.env`; [backups](docs/cli-contract.md#worktree-recovery-backups-119) |
 | `timber backup restore <id> ../recovered` | Recover a backup into a new worktree |
-| `timber backup list` | Show backups with branch, time, size, protection and expiry |
+| `timber backup list` | Show backups with branch, time, size, protection and expiry (`--json` for apps) |
 | `timber backup done` | Delete backups one at a time after `y` then Enter (`--all` asks once) |
 | `timber ls` | List paths, bases, and file status |
 | `timber done my-feature` | Remove a finished worktree and its local branch |
