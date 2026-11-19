@@ -33,9 +33,17 @@ export function createBackupRestoreHandler(
 
 /** Read-only; reports problems without treating them as deletion authorization. */
 export function createBackupListHandler(
-  services: Pick<CommandServices, "discoverRepository" | "listBackups">,
+  services: Pick<CommandServices, "discoverRepository" | "listBackups" | "readBackupList">,
 ): NonNullable<CommandHandlers["backupList"]> {
-  return async context => services.listBackups(await services.discoverRepository(context.cwd), context.io);
+  return async (context, options = {}) => {
+    if (options.json) {
+      // One JSON record on stdout, including discovery and storage failures; nothing on stderr.
+      const record = await services.readBackupList(context.cwd, cwd => services.discoverRepository(cwd));
+      context.io.stdout(JSON.stringify(record) + "\n");
+      return record.exitCode;
+    }
+    return services.listBackups(await services.discoverRepository(context.cwd), context.io);
+  };
 }
 
 /** Deletion needs the interactive text prompt; without a terminal it refuses before reading storage. */

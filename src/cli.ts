@@ -212,10 +212,11 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
   backup.command("list")
     .description("Show this repository's backups with branch, creation time, size, protection and expiry")
+    .option("--json", "Print experimental v1 backup list JSON")
     .addHelpText("after", "\nRead-only. Missing, malformed or unrecognized entries are reported and never deleted.")
-    .action(async () => {
+    .action(async (options: { json?: boolean }) => {
       if (!handlers.backupList) throw new Error("Backup handler is unavailable in this embedding.");
-      onExitCode(await handlers.backupList(context));
+      onExitCode(await handlers.backupList(context, { json: options.json === true }));
     });
   backup.command("done")
     .description("Review backups one at a time and delete each only after y then Enter")

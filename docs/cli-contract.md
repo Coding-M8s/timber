@@ -1,8 +1,10 @@
 # Timber CLI behavioral contract
 
 The additive [experimental IDE machine interface](ide-contract.md) defines opt-in
-`ls --json` and New/Open/Rebase/Publish/PR/backup restore `--result-file` records, plus hidden commands
-that let an app read, save and check settings and delete one confirmed backup. Ordinary human commands and
+`ls --json`, `backup list --json` and New/Open/Rebase/Publish/PR/backup restore
+`--result-file` records, plus hidden commands that let an app read settings, pull
+requests and linked issues, save and check settings, and delete one confirmed backup.
+Ordinary human commands and
 release behavior retain the contracts below.
 
 Windows x64 candidate additions are specified in [Windows support](windows.md).
@@ -339,6 +341,55 @@ unfinished. Missing storage lists no backups and creates nothing. Output never
 includes snapshot file names or contents and repeats that backups can contain
 copies of ignored files such as `.env` after their source worktree is removed.
 
+`timber backup list --json` prints the same list for app consumers as one JSON
+object plus newline on stdout, schema version 1 (`schemaVersion: 1`). It reads the
+same inventory, validation and protection as the text form, so the two never
+disagree, and it is just as read-only: it changes no files, refs or backup storage,
+creates nothing when storage is missing, and skips the first-use setup hint. It
+never includes snapshot file names or contents.
+
+```ts
+type BackupListRecord = {
+  schemaVersion: 1;
+  outcome: "succeeded" | "failed";
+  exitCode: 0 | 1;            // equals the process exit code
+  repository: RepositoryIdentity | null; // as in ls --json; null when discovery failed
+  diagnostic: string | null;  // terminal-safe failure text, not a stable code; non-null only when failed
+  backups: {                  // usable backups, ascending ID
+    id: string;
+    branch: string | null;    // recorded source branch; null for detached HEAD
+    commit: string;           // recorded commit, pinned by refs/timber/backups/<id>
+    createdAt: string;        // creation time as recorded; Timber writes ISO 8601 UTC
+    bytes: number;            // snapshot size in bytes
+    entries: number;          // snapshot entry count
+    worktreePath: string;     // recorded source worktree path; it may no longer exist
+    recordSha256: string;     // lowercase hex SHA-256 of the exact record.json bytes
+    protection: { protected: false; reason: null } | { protected: true; reason: string };
+    expiry: null;             // version 1 records carry no retention policy; kept until deleted
+  }[];
+  unfinished: {               // .deleting-<id> directories, ascending
+    id: string;
+    directory: string;
+    recordSha256: string | null; // null once record.json is gone or the remains cannot be read
+  }[];
+  notUsable: { name: string; reason: string }[];   // storage names ascending, then refs ascending
+  totalBytes: number;         // sum of bytes over usable backups
+};
+```
+
+Unusable entries, unfinished deletions and protected backups keep `outcome:
+"succeeded"` and exit 0, as in the text form; exit 0 does not mean every entry is
+usable. Storage that is not private, a ref listing Git cannot read, or a failed
+repository discovery give `outcome: "failed"`, exit 1, empty lists and
+`totalBytes: 0`, with nothing on stderr. Names, branches and paths are raw values
+(JSON-escaped on the wire), not the escaped terminal rendering; treat them as
+untrusted text. `reason` is the text form's terminal-safe wording, not a stable
+code. `expiry: null` means no recorded retention policy; #121 defines any non-null
+form, and consumers must not assume its shape. Help and option parse failures
+print ordinary help or errors and no record. Additional fields may be added within
+version 1; incompatible changes need a new schema version. See the
+[IDE machine interface](ide-contract.md#backups-for-app-consumers-experimental-v1).
+
 Expiry: version 1 records carry no retention policy, so expiry is shown as
 "none, no retention policy; kept until deleted". Timber never derives an expiry
 for a record without a recorded policy; #121 defines retention and its migration.
@@ -417,9 +468,8 @@ See [Backup restore outcome](ide-contract.md#backup-restore-outcome).
 is a hidden, noninteractive form for an app that shows one backup and asks for
 confirmation itself. All three options are required, and there is no form that
 selects more than one backup. `<digest>` is the lowercase hex SHA-256 of the exact
-`record.json` bytes of the backup the person confirmed. The JSON backup list (#167,
-not yet available) is to supply it as `recordSha256`; until then Timber offers no
-supported source for it. It needs no terminal, asks nothing, and runs every
+`record.json` bytes of the backup the person confirmed. `timber backup list --json`
+supplies it as `recordSha256` on each usable backup and unfinished deletion. It needs no terminal, asks nothing, and runs every
 check of `backup done` immediately before deletion: the backup must be usable and
 unprotected, its record bytes must match the digest, and the rereads, rename,
 conditional ref deletion and named file removal above follow unchanged. Anything

@@ -25,6 +25,7 @@ test("completion flags are specific to the actual command", async () => {
   expect(await candidates("timber new -c")).toEqual(["-c"]);
   expect(await candidates("timber setup --")).toEqual(["--global", "--help"]);
   expect(await candidates("timber ls -")).toEqual(["--help", "--json", "-h"]);
+  expect(await candidates("timber backup list -")).toEqual(["--help", "--json", "-h"]);
   expect(await candidates("timber --")).toEqual(["--help", "--version"]);
 });
 

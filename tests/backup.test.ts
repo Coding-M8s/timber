@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBackupCreateHandler, createBackupDoneHandler, createBackupRestoreHandler } from "../src/commands/backup";
+import { createBackupCreateHandler, createBackupDoneHandler, createBackupListHandler, createBackupRestoreHandler } from "../src/commands/backup";
+import type { BackupListRecord } from "../src/backup/lifecycle";
 import { assertStorageSpace, copySnapshot, sameListing, SnapshotError, walkWorktree } from "../src/backup/snapshot";
 import { newBackupId, validateManifest, validateRecord } from "../src/backup/storage";
 import type { CommandContext } from "../src/services";
@@ -129,4 +130,32 @@ test("backup done passes the terminal prompt and --all selection to the deletion
     },
   }));
   expect(await handler({ all: true }, context({ ask }))).toBe(0);
+});
+
+const failedList: BackupListRecord = { schemaVersion: 1, outcome: "failed", exitCode: 1, repository: null,
+  diagnostic: "Not a Git repository.", backups: [], unfinished: [], notUsable: [], totalBytes: 0 };
+
+test("backup list --json prints one record from the JSON service and exits with its code", async () => {
+  const cwds: string[] = [];
+  const handler = createBackupListHandler(createServiceDouble({
+    readBackupList: async (cwd, discover) => {
+      cwds.push(cwd);
+      expect(typeof discover).toBe("function");
+      return failedList;
+    },
+  }));
+  const run = context({ cwd: "/work/nested" });
+  expect(await handler(run, { json: true })).toBe(1);
+  expect(cwds).toEqual(["/work/nested"]);
+  expect(run.output).toEqual([JSON.stringify(failedList) + "\n"]);
+});
+
+test("backup list without --json keeps the text service", async () => {
+  const handler = createBackupListHandler(createServiceDouble({
+    discoverRepository: async () => repositoryFixture(),
+    listBackups: async (_repository, io) => { io.stdout("text\n"); return 0; },
+  }));
+  const run = context();
+  expect(await handler(run)).toBe(0);
+  expect(run.output).toEqual(["text\n"]);
 });

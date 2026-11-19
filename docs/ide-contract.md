@@ -3,13 +3,15 @@
 This additive interface is experimental. It supports repository inventory,
 ordinary New/Open outcomes, Rebase, Publish and PR outcomes, reading, saving and
 checking settings for app consumers, reading each worktree's pull request,
-reading a worktree's linked issue, and restoring or deleting one recovery backup.
+reading a worktree's linked issue, listing recovery backups, and restoring or
+deleting one recovery backup.
 It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
 No IDE consumer is included. Rebase, Publish and PR records, native cleanup approval,
-[settings for app consumers](#settings-for-app-consumers-experimental-v1) and
-[pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1) and
-[linked issues for app consumers](#linked-issues-for-app-consumers-experimental-v1), and the
+[settings for app consumers](#settings-for-app-consumers-experimental-v1),
+[pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1),
+[linked issues for app consumers](#linked-issues-for-app-consumers-experimental-v1),
+[backups for app consumers](#backups-for-app-consumers-experimental-v1), and the
 [backup restore](#backup-restore-outcome) and [backup delete](#backup-delete-outcome) outcomes are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
@@ -22,6 +24,7 @@ provider/branch resolution.
 
 ```sh
 timber ls --json
+timber backup list --json
 timber new 'feature name' --result-file /private/temp/new.json --no-editor --no-agent
 timber open 'GH-123' --result-file /private/temp/open.json --no-editor --no-agent
 timber open --setup --result-file /private/temp/retry.json --no-editor --no-agent -- '/absolute/worktree path'
@@ -501,8 +504,7 @@ Human stdout/stderr and exit codes are unchanged. The record has
 deletes one backup the person confirmed in the app, with the rules of the
 [CLI contract](cli-contract.md#backups-for-app-consumers-168). Show the backup's ID,
 branch, creation time, size and the exact command, and pass the `recordSha256`
-from the same list entry. That list (#167) is not yet available, so the digest
-has no supported source until it lands. The record has `command: "backup-delete"`,
+from the same entry of [`timber backup list --json`](#backups-for-app-consumers-experimental-v1). The record has `command: "backup-delete"`,
 `worktree: null`, `materialized: false`, no `worktrees`, and a `backupDelete`
 object:
 
@@ -888,3 +890,37 @@ type Issue = {
 
 Editing issues, transitions, comments and listing issues that are not linked
 are not part of this interface.
+
+## Backups for app consumers (experimental v1)
+
+An app can show a repository's recovery backups with one read-only command run
+in any worktree of the repository:
+
+```sh
+timber backup list --json
+```
+
+It prints one `BackupListRecord` (schema version 1) plus newline to stdout and
+exits with the record's `exitCode`: 0, or 1 when the repository or its backup
+storage could not be read. The record is printed in both cases and stderr stays
+empty. It never prompts, never writes files, never changes a ref or backup
+storage, and contacts nothing. The schema, ordering and failure rules are in the
+[CLI contract](cli-contract.md#backup-list-deletion-and-done-lifecycle-120).
+
+- Timber decides which backups are usable and which are protected; the app shows
+  `protection` and `notUsable` as given and does not reimplement those rules.
+  Protected and unusable entries are never offered by `timber backup done`.
+- Exit 0 with entries under `notUsable` or `unfinished` is normal; read each list.
+- To delete a usable backup or finish an unfinished deletion, pass its `id` and
+  `recordSha256` to [`__app-backup delete`](#backup-delete-outcome). When an
+  unfinished deletion's `recordSha256` is null because its record is gone, the
+  ID alone identifies it, but the command still requires a well-formed digest;
+  when it is null because the remains cannot be read, the command refuses.
+- Backups can contain copies of ignored files, including secrets such as `.env`,
+  even after their source worktree is removed. Say so where backups are shown.
+- Branches, paths and names are text recorded at backup time or found in
+  storage. Display them as untrusted text; do not pass them to a shell.
+
+Creating backups is not part of this interface. Restoring and deleting one
+backup have their own records: [backup restore](#backup-restore-outcome) and
+[backup delete](#backup-delete-outcome).

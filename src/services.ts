@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import type { BaseAssociationRead } from "./git/base-metadata";
 import type { IssueLink, IssueLinkRead, IssueLinkWrite } from "./git/issue-link";
+import type { BackupListRecord } from "./backup/lifecycle";
 import type { RebaseReport } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
 import type { PullRequestOptions, PullRequestReport } from "./github/pull-request";
@@ -75,6 +76,8 @@ export interface CommandServices {
   ): Promise<number>;
   /** Read-only listing of backups, unfinished deletions and unusable entries. */
   listBackups(repository: RepositoryContext, io: CommandIO): Promise<number>;
+  /** Read-only JSON form of the backup list; discovery and storage failures become a failed record, never a throw. */
+  readBackupList(cwd: string, discover: (cwd: string) => Promise<RepositoryContext>): Promise<BackupListRecord>;
   /** Interactive deletion; requires the text prompt and `y` then Enter per decision. */
   reviewBackupDeletion(repository: RepositoryContext, options: { all: boolean }, io: CommandIO, ask: TerminalTextPrompt | undefined): Promise<number>;
   /** IDs of valid backups recorded from a worktree path; optional so embedders without backups keep `done` unchanged. */
@@ -164,7 +167,7 @@ export interface CommandHandlers {
   /** Optional for existing embedders; production entry point wires backups. */
   backupCreate?(input: string, context: CommandContext): Promise<number>;
   backupRestore?(id: string, destination: string, context: CommandContext): Promise<number>;
-  backupList?(context: CommandContext): Promise<number>;
+  backupList?(context: CommandContext, options?: { json?: boolean }): Promise<number>;
   backupDone?(options: { all: boolean }, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires arena creation. */
   arenaNew?(name: string, options: ArenaNewOptions, context: CommandContext): Promise<number>;
