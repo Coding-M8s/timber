@@ -221,7 +221,7 @@ function fakeBitbucket(login: () => Promise<{ email: string; token: string }> = 
     const body = init.body === undefined ? undefined : JSON.parse(String(init.body));
     calls.push({ method: String(init.method), url, body, authorization: String((init.headers as Record<string, string>).Authorization) });
     if (init.method === "GET") return Response.json({ values: pulls, pagelen: 50 });
-    const created = { id: 200 + pulls.length, draft: body.draft, source: { branch: body.source.branch, repository: { full_name: "acme/widgets" } },
+    const created = { id: 200 + pulls.length, state: "OPEN", draft: body.draft, source: { branch: body.source.branch, repository: { full_name: "acme/widgets" } },
       destination: { branch: body.destination.branch, repository: { full_name: "acme/widgets" } } };
     pulls.push(created);
     return Response.json(created, { status: 201 });
