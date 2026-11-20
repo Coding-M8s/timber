@@ -24,11 +24,13 @@ interface Options {
 }
 
 const install = `Install the Timber VS Code extension (${EXTENSION_ID}) ${MIN_EXTENSION_VERSION} or newer with code --install-extension <file>.vsix, then retry.`;
+const restricted = "VS Code opened the worktree in Restricted Mode, so it cannot start Timber terminals. Trust the folder (or its parent worktrees folder) in VS Code, then retry.";
 const uncertain = "VS Code terminal handoff is uncertain. Inspect terminals in the worktree window before retrying; terminal creation was not replayed.";
 const errorMessages: Record<SpoolErrorCode, string> = {
   protocol: `The Timber VS Code extension does not speak this Timber's request protocol; update Timber and the extension together. ${install}`,
   invalid: "The Timber VS Code extension rejected the terminal request as invalid; no terminal was created.",
   "create-failed": "VS Code could not start the Timber terminal process.",
+  untrusted: restricted,
 };
 
 function tooOld(version: string): Error {
@@ -136,6 +138,8 @@ export async function createVscodeSession(editor: EditorConfig, worktree: Worktr
     if ("error" in outcome) throw new Error(errorMessages[outcome.error]);
     if (outcome.ack.protocol !== VSCODE_PROTOCOL) throw new Error(errorMessages.protocol);
     if ((compareVersions(outcome.ack.extensionVersion, MIN_EXTENSION_VERSION) ?? -1) < 0) throw tooOld(outcome.ack.extensionVersion);
+    // Older extensions omit trust; treat that as trusted for compatibility.
+    if (outcome.ack.trusted === false) throw new Error(restricted);
     window = outcome.ack.window;
   }
   const createMs = options.createMs ?? 10_000;

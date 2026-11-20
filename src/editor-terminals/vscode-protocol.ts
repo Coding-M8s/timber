@@ -22,9 +22,13 @@ export interface TerminalSpoolRequest {
   window: string; title: string; shellPath: string; shellArgs: string[];
 }
 export type SpoolRequest = HelloRequest | TerminalSpoolRequest;
-export interface SpoolAck { protocol: number; extensionVersion: string; vscodeVersion: string; window: string; processId?: number }
-export type SpoolErrorCode = "protocol" | "invalid" | "create-failed";
-export const spoolErrorCodes: readonly SpoolErrorCode[] = ["protocol", "invalid", "create-failed"];
+export interface SpoolAck {
+  protocol: number; extensionVersion: string; vscodeVersion: string; window: string; processId?: number;
+  /** Workspace Trust of the answering window. Absent (older extensions) means trusted. */
+  trusted?: boolean;
+}
+export type SpoolErrorCode = "protocol" | "invalid" | "create-failed" | "untrusted";
+export const spoolErrorCodes: readonly SpoolErrorCode[] = ["protocol", "invalid", "create-failed", "untrusted"];
 
 export const spoolNames = (id: string) => ({
   request: `${id}.json`, claimed: `${id}.claimed`, cancelled: `${id}.cancelled`,
@@ -103,8 +107,10 @@ export function parseAck(text: string): SpoolAck | null {
   if (!isObject(value) || typeof value.protocol !== "number" || !isText(value.extensionVersion)
     || !isText(value.vscodeVersion) || !isText(value.window) || !windowIdPattern.test(value.window)) return null;
   if (value.processId !== undefined && !(Number.isSafeInteger(value.processId) && (value.processId as number) > 0)) return null;
+  if (value.trusted !== undefined && typeof value.trusted !== "boolean") return null;
   return { protocol: value.protocol, extensionVersion: value.extensionVersion, vscodeVersion: value.vscodeVersion,
-    window: value.window, ...(value.processId === undefined ? {} : { processId: value.processId as number }) };
+    window: value.window, ...(value.processId === undefined ? {} : { processId: value.processId as number }),
+    ...(value.trusted === undefined ? {} : { trusted: value.trusted }) };
 }
 
 /** Numeric major.minor.patch comparison; anything else (including prerelease tags) is null. */

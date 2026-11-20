@@ -27,7 +27,7 @@ test.each([false, true])("real VS Code bridge runs setup and agent terminals wit
     const terminals: { shellPath: string; shellArgs: string[] }[] = [];
     const children: Promise<unknown>[] = [];
     const bridge = createBridge({ spool, uid: process.getuid!(), windowId: "0123456789abcdef", extensionVersion: "0.1.0",
-      vscodeVersion: "1.146.0", isLocal: () => true, folders: () => folders,
+      vscodeVersion: "1.146.0", isLocal: () => true, isTrusted: () => true, folders: () => folders,
       createTerminal: async ({ cwd, shellPath, shellArgs }) => {
         terminals.push({ shellPath, shellArgs });
         // No shell: the editor starts the runner from literal argv.
