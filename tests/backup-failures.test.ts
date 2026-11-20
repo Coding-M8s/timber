@@ -72,7 +72,7 @@ test("restore failure after creating a recovery worktree retains it and permits 
   await withRepository(async (primary, directory) => {
     const { target, indexPath, index } = await sourceFixture(primary, directory);
     const cli = (...args: string[]) => execa(process.execPath, ["--no-env-file", entry, ...args], {
-      cwd: primary, reject: false, timeout: 15_000, env: { CI: "true" },
+      cwd: primary, reject: false, timeout: 15_000, env: { CI: "true", XDG_CONFIG_HOME: "/nonexistent/timber-test-config" },
     });
     const created = await cli("backup", "create", target);
     expect(created.exitCode).toBe(0);
@@ -103,7 +103,7 @@ test("restore failure after creating a recovery worktree retains it and permits 
     const marker = join(directory, "read-tree failed");
     const failed = await execa(process.execPath, ["--no-env-file", entry, "backup", "restore", id!, destination], {
       cwd: primary, reject: false, timeout: 15_000,
-      env: { CI: "true", PATH: bin + delimiter + process.env.PATH,
+      env: { CI: "true", XDG_CONFIG_HOME: "/nonexistent/timber-test-config", PATH: bin + delimiter + process.env.PATH,
         TIMBER_REAL_GIT: (await execa("which", ["git"])).stdout, TIMBER_TEST_FAILURE_MARKER: marker },
     });
 

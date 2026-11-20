@@ -53,7 +53,8 @@ export function createAppConfigReport(scope: AppConfigScope): AppConfigReport {
 }
 
 /** Settings this interface never edits: an apply carries them over from the saved file. */
-const preserved = ["workflows", "arena"] as const;
+// Backup settings are edited only by setup; an app that does not know them must never drop them.
+const preserved = ["workflows", "arena", "backup_retention_days", "backup_storage_warning"] as const;
 
 function revisionOf(source: string | null): string | null {
   return source === null ? null : createHash("sha256").update(source, "utf8").digest("hex");

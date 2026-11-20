@@ -355,3 +355,77 @@ test("backup create runs expiry cleanup first and reports it", async () => {
     expect(out.stdout).toMatch(/^Recovery backups now: 1, /mu);
   });
 });
+
+test("timber backup cleanup runs without a terminal, deletes expired backups and refuses unreadable storage", async () => {
+  await withRepository(async (primary, directory) => {
+    const { backup, cli } = await setup(primary, directory, "backup_retention_days = 1\n");
+    const expired = await backup();
+    const fresh = await backup();
+    // Age one record past its captured retention; nothing else about the backup changes.
+    const aged = await readRecord(primary, expired.id);
+    await writeRecord(primary, expired.id, { ...aged, createdAt: new Date(Date.now() - 2 * day).toISOString() });
+
+    const run = await cli(primary, "backup", "cleanup");
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`Deleted expired backup ${expired.id}`);
+    expect(await entries(primary)).toEqual([fresh.id]);
+    expect(await timberRefs(primary)).not.toContain(expired.id);
+
+    const nothing = await cli(primary, "backup", "cleanup");
+    expect(nothing.exitCode).toBe(0);
+    expect(nothing.stdout).toBe("No expired backups; nothing was deleted.");
+
+    if (process.getuid?.() === 0) return; // Root ignores directory permissions.
+    await fs.chmod(root(primary), 0o755);
+    try {
+      const refused = await cli(primary, "backup", "cleanup");
+      expect(refused.exitCode).toBe(1);
+      expect(refused.stderr).toContain("Backup storage is not a private directory");
+    } finally { await fs.chmod(root(primary), 0o700); }
+    expect(await entries(primary)).toEqual([fresh.id]);
+  });
+});
+
+test("a partial expiry deletion is reported, exits 1, and backup create still creates its backup", async () => {
+  await withRepository(async (primary, directory) => {
+    const { backup, target } = await setup(primary, directory);
+    const first = await backup();
+    const second = await backup();
+    const repository = await discoverRepository(primary);
+    const far = new Date(createdAt(await readRecord(primary, second.id)) + 30 * day);
+    const actualUnlink = fs.unlink;
+    let failOn = first.id;
+    const failing = spyOn(fs, "unlink").mockImplementation(async path => {
+      if (String(path).includes(`.deleting-${failOn}`) && String(path).endsWith("manifest.json")) {
+        throw Object.assign(new Error("synthetic failure"), { code: "EIO" });
+      }
+      return actualUnlink(path);
+    });
+    try {
+      const result = await cleanup(primary, far);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(`Backup ${first.id} was only partly deleted: its private ref was removed; 2 files remain in`);
+      expect(result.stdout).toContain(`Deleted expired backup ${second.id}`);
+      expect(result.stdout).toContain("Deleted 1 expired backup");
+      expect(result.stdout).toContain("1 not fully deleted");
+      expect(await entries(primary)).toEqual([`.deleting-${first.id}`]);
+
+      // Creation goes ahead after a partial cleanup, but the run exits 1.
+      const third = await backup();
+      failOn = third.id;
+      const selected = (await listWorktrees(repository)).find(tree => tree.path === target)!;
+      const { out, io: capture } = io();
+      const later = new Date(far.getTime() + 30 * day);
+      expect(await createBackup(repository, selected, capture,
+        { keep: false, settings: { retentionDays: 7, warningBytes: null }, now: () => later })).toBe(1);
+      expect(out.stderr).toContain(`Backup ${third.id} was only partly deleted`);
+      expect(out.stderr).toContain("creating the new backup anyway");
+      const created = /^Backup created: (\S+)$/mu.exec(out.stdout)?.[1];
+      expect(created).toBeDefined();
+      expect(await entries(primary)).toContain(created!);
+      // The unfinished deletion is left for the confirmed `backup done` path, never finished by cleanup.
+      expect(await entries(primary)).toContain(`.deleting-${first.id}`);
+    } finally { failing.mockRestore(); }
+  });
+});

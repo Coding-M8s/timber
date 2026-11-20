@@ -111,3 +111,18 @@ test("retention descriptions name the state, time and the command that changes i
   const { origin: _o, retentionDays: _r, keep: _k, ...v1 } = record();
   expect(describeRetention({ ...v1, version: 1 } as BackupRecord, now, false)).toBe("none, no retention policy; kept until deleted");
 });
+
+test("setup-rendered config round-trips both backup keys, including false, beside tables", async () => {
+  const { renderConfig } = await import("../src/setup/render");
+  for (const values of [
+    { backup_retention_days: 14, backup_storage_warning: "2GiB", editor: { command: "code", args: [], enabled: false } },
+    { backup_retention_days: false as const, backup_storage_warning: false as const, editor: { command: "zed", args: ["--new"], enabled: true } },
+  ]) {
+    const source = renderConfig(values);
+    expect(source).toContain("# backup_retention_days = 7");
+    const parsed = parseConfigSource(source, "/c.toml");
+    expect(parsed).toEqual(values);
+    expect(backupSettings(resolveConfig({ global: { path: "/c.toml", source, values: parsed }, local: null }, "/r")))
+      .toEqual(values.backup_retention_days === false ? { retentionDays: null, warningBytes: null } : { retentionDays: 14, warningBytes: 2 * 1024 ** 3 });
+  }
+});
