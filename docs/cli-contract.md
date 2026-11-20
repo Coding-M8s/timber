@@ -757,6 +757,15 @@ No workflow association is stored. A `timber/workflow.json` file left in a workt
 
 Failures after creation retain the worktree, refs, and script files. In foreground mode, script failures stop editor and agent launch; editor startup failure stops agent launch. An ordinary reopen does not retry creation actions. Repair and deliberately rerun scripts with `timber open --setup -- '<absolute-worktree-path>'`; retry the editor with `timber open --editor -- '<absolute-worktree-path>'`; retry the agent with `timber open --agent --no-editor -- '<absolute-worktree-path>'`. When the failed invocation named a workflow, each printed retry command repeats `--workflow <name>` before `--`, because the workflow is not remembered. Scripts must tolerate explicit reruns. Timber does not promise exactly-once side effects across crashes. Keep secrets out of config, metadata, and diagnostics.
 
+## Issue list settings
+
+Optional `[github]` (`project`, `milestone`) and `[linear]` (`team`) tables, and the
+`board`, `sprint_jql` and `project` keys of `[jira]`, say where
+`timber __app-issues` finds a sprint and a project. They are strict, validated in
+both scopes like every other key, kept by `timber setup`, and used by nothing
+else; `github = false` or `linear = false` clears them. See
+[issue lists](ide-contract.md#issue-lists-for-app-consumers-experimental-v1).
+
 ## Default issue tracker
 
 Optional `default_tracker = "github"`, `"linear"`, `"jira"`, or `"none"` selects
@@ -949,7 +958,7 @@ See [Linear GraphQL documentation](https://linear.app/developers/graphql) and th
 ## Jira ticket lookup (0.2, TIM-10)
 
 Jira lookup is enabled when the resolved repository/global configuration has a
-`[jira]` table; local `jira = false` disables a global Jira integration. The strict table accepts `site_url` and optional `cloud_id` only:
+`[jira]` table; local `jira = false` disables a global Jira integration. The strict table accepts `site_url`, optional `cloud_id`, and the optional issue list settings `board`, `sprint_jql` and `project` (see [issue lists](ide-contract.md#issue-lists-for-app-consumers-experimental-v1)), which ticket lookup ignores:
 
 ```toml
 [jira]

@@ -2,6 +2,7 @@ import { runAppArena } from "./commands/app-arena";
 import { runAppBackup } from "./commands/app-backup";
 import { runAppConfig } from "./commands/app-config";
 import { runAppIssue } from "./commands/app-issue";
+import { runAppIssues } from "./commands/app-issues";
 import { runAppPullRequests } from "./commands/app-pr";
 import { runNativeCleanup } from "./machine-done";
 import { runMachineCommand } from "./machine";
@@ -376,6 +377,13 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
 
   program.command("__app-issue <worktree>", { hidden: true })
     .action(async (worktree: string) => { onExitCode(await runAppIssue(worktree, context)); });
+
+  program.command("__app-issues <query> [text]", { hidden: true })
+    .option("--tracker <tracker>")
+    .option("--limit <count>")
+    .action(async (query: string, text: string | undefined, options: { tracker?: string; limit?: string }) => {
+      onExitCode(await runAppIssues(query, text, options, context));
+    });
 
   program.command("done <branch-or-worktree>")
     .option("--base <ref>", "Verify integration against this base instead of the saved/configured/default branch")

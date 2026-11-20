@@ -206,7 +206,13 @@ export async function editJiraSettings(file: ConfigFile, target: SetupTarget, pr
       if (scoped && !cloud_id) { io.stderr("A scoped token requires a cloud UUID. Enter it or choose unscoped token mode.\n"); continue; }
       const input = { jira: { site_url, ...(cloud_id ? { cloud_id } : {}) } };
       const result = configFileSchema.safeParse(input);
-      if (result.success) { file.jira = result.data.jira; break; }
+      // Keep issue list settings (board, sprint_jql, project) that setup does not ask about.
+      if (result.success && result.data.jira) {
+        const { board, sprint_jql, project } = file.jira || {};
+        file.jira = { ...result.data.jira, ...(board === undefined ? {} : { board }),
+          ...(sprint_jql === undefined ? {} : { sprint_jql }), ...(project === undefined ? {} : { project }) };
+        break;
+      }
       io.stderr("Enter an HTTPS Jira address ending in .atlassian.net and, if needed, a valid cloud UUID.\n");
     }
   }

@@ -174,6 +174,19 @@ test("review edits only the selected section and saves the revised draft in a re
   });
 });
 
+test("changing the Jira site in a real terminal keeps the issue list board and project", async () => {
+  await withRepository(async (primary, directory) => {
+    await writeFile(join(primary, ".timber.toml"), '[jira]\nsite_url = "https://old.atlassian.net"\nboard = 2\nproject = "ENG"\n'
+      + '[github]\nproject = "acme/5"\nmilestone = "v2"\n[linear]\nteam = "LIN"\n');
+    const result = await terminal(primary, directory, [], "43https://example.atlassian.net\r\r11");
+    expect(result.code).toBe(0);
+    const saved = parseConfigSource(await readFile(join(primary, ".timber.toml"), "utf8"), "test");
+    expect(saved.jira).toEqual({ site_url: "https://example.atlassian.net", board: 2, project: "ENG" });
+    expect(saved.github).toEqual({ project: "acme/5", milestone: "v2" });
+    expect(saved.linear).toEqual({ team: "LIN" });
+  });
+});
+
 test("invalid Jira URL stays on the URL field with feedback before token scopes", async () => {
   await withRepository(async (primary, directory) => {
     const result = await terminal(primary, directory, [],

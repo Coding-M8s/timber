@@ -128,6 +128,17 @@ test("apply saves the file setup would save, hides it from Git, and returns the 
   });
 });
 
+test("apply and read keep the issue list settings for __app-issues", async () => {
+  await withFixture(async fixture => {
+    const values = { ...draft, jira: { site_url: "https://example.atlassian.net", board: 12, project: "ENG" },
+      github: { project: "acme/5", milestone: "v2" }, linear: { team: "LIN" } };
+    const { revision } = await fixture.read();
+    const { record } = await fixture.apply({ schemaVersion: 1, revision, values });
+    expect(record.config.result).toBe("saved");
+    expect((await fixture.read()).values).toMatchObject({ jira: values.jira, github: values.github, linear: values.linear });
+  });
+});
+
 test("apply to the global scope works outside a repository and creates the destination", async () => {
   await withFixture(async fixture => {
     const inputFile = join(fixture.directory, "global.json"), resultFile = join(fixture.directory, "global-result.json");

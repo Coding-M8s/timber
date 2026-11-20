@@ -920,8 +920,111 @@ type Issue = {
   them as untrusted text; do not render them as trusted markup or pass them to a
   shell.
 
-Editing issues, transitions, comments and listing issues that are not linked
-are not part of this interface.
+Editing issues, transitions and comments are not part of this interface. To
+list issues that are not linked, use [`__app-issues`](#issue-lists-for-app-consumers-experimental-v1).
+
+## Issue lists for app consumers (experimental v1)
+
+`timber __app-issues` lists issues from one tracker for an issues board or for
+suggestions while typing a worktree name. It uses Timber's own tracker login,
+so the app never holds a token.
+
+```sh
+timber __app-issues sprint   [--tracker github|jira|linear]
+timber __app-issues assigned [--tracker github|jira|linear] [--limit <1-100>]
+timber __app-issues open     [--tracker github|jira|linear] [--limit <1-100>]
+timber __app-issues search    --tracker github|jira|linear  [--limit <1-100>] -- '<text>'
+```
+
+Without `--tracker`, `sprint`, `assigned` and `open` use the repository's
+`default_tracker`. `search` always names its tracker, so it does not depend on
+the default. The search text is one argument of at most 200 characters, after
+`--`. `--limit` defaults to 50, or 10 for `search`; a sprint is listed whole, up
+to 500 issues. Timber prints one JSON object plus newline to stdout and exits 0
+when the outcome is `found` or `none`, or 1 when it is `failed`; the record is
+printed in both cases. It never prompts (run it with stdin closed), never writes
+files, never fetches or changes a ref, and never changes an issue. The network
+part, reading the login and every tracker request together, stops after 15
+seconds.
+
+```ts
+type IssueListRecord = {
+  schemaVersion: 1;
+  repository: RepositoryIdentity | null; // null when discovery failed
+  query: "sprint" | "assigned" | "open" | "search" | null; // null for an unknown query
+  tracker: "github" | "jira" | "linear" | null; // null when none was named or configured
+  outcome: "found" | "none" | "failed";
+  sprint: {                    // non-null only for a found sprint
+    name: string | null;       // the sprint, iteration, milestone or cycle; null for sprint_jql
+    source: "jira-board" | "jira-jql" | "github-iteration" | "github-milestone" | "linear-cycle";
+  } | null;
+  issues: ListedIssue[];       // empty unless found
+  truncated: boolean;          // the tracker had more matching issues than the record holds
+  reason: "offline" | "sign-in-needed" | "not-configured" | "not-found" | "forbidden" | "failed" | null;
+  diagnostic: string | null;   // terminal-safe failure text, not a stable code; non-null only when failed
+};
+
+type ListedIssue = Issue & {   // Issue as in __app-issue
+  worktree: { path: string; branch: string | null } | null; // the worktree linked to this issue, if any
+};
+```
+
+Each list reads:
+
+| Query | GitHub | Jira | Linear |
+| --- | --- | --- | --- |
+| `sprint` | The current iteration of `[github].project`, or open issues in the open milestone `[github].milestone` | The active sprints of `[jira].board`, or the issues `[jira].sprint_jql` matches | The active cycle of `[linear].team` |
+| `assigned` | Open issues in the selected remote's repository assigned to the login, recently updated first | Issues assigned to the login and not done, in `[jira].project` when set, recently updated first | Issues assigned to the login and not closed, in `[linear].team` when set, recently updated first |
+| `open` | Open issues in the selected remote's repository, newest first | Issues in `[jira].project` that are not done, newest first | Issues in `[linear].team` that are not closed, newest first |
+| `search` | Issue `12` in any state for `12` or `#12`, then open issues whose number starts with `12`, then open issues whose titles contain every word, also as part of a word | Jira's issue picker, which matches key prefixes such as `ENG-4` and title words; an exact key comes first | The exact key, then Linear's issue search |
+
+Settings live in the repository's `.timber.toml`, beside the existing `[jira]`
+site:
+
+```toml
+[jira]
+site_url = "https://example.atlassian.net"
+board = 12          # a Scrum board; or sprint_jql = "...", not both
+project = "ENG"     # needed for open; narrows assigned and search
+
+[github]
+project = "my-org/5"   # "<owner>/<number>" of a Projects board with an iteration field
+milestone = "v1.2"     # used for sprint only when project is unset
+
+[linear]
+team = "ENG"           # needed for sprint and open; narrows assigned and search
+```
+
+- `none` means the sprint is configured but nothing is current: no active Jira
+  sprint, no GitHub iteration whose dates include today, or no active Linear
+  cycle. Show it as "no current sprint".
+- `not-configured` means a setting the list needs is missing, there is no
+  tracker to use, a Jira board does not use sprints, or a GitHub project has
+  no iteration field. Timber reads no login and contacts nothing when a
+  setting is missing. Hide the list or show a quiet reason.
+- `not-found` means the configured board, project, milestone or team does not
+  exist or is hidden from this login.
+- `sign-in-needed`, `offline`, `forbidden` and `failed` mean what they mean for
+  `__app-issue`, with the same logins. A GitHub project also needs
+  the `read:project` scope; without it the reason is `forbidden`. `failed`
+  also covers invalid input, such as an unknown query or tracker, a bad
+  `--limit`, text for a list other than `search`, and a GitHub list whose
+  selected remote is not on github.com.
+- `worktree` is set when a registered worktree's saved issue link names the
+  same issue: the same repository and number for GitHub, the same site and key
+  for Jira, the same key for Linear. Invalid or stale links count as no link.
+- GitHub lists skip pull requests. A GitHub project can hold issues from
+  several repositories; each issue's `url` says which.
+- A GitHub search reads the 300 most recently updated open issues of the
+  selected remote's repository and matches them locally, so it never uses the
+  rate-limited Search API. `truncated` is true when the repository has more
+  open issues than that, since older ones were not searched.
+- Typed search text is matched as text, never as tracker query syntax. Quotes,
+  colons, brackets and `#` are ignored when matching words.
+- Linear lists are implemented against Linear's published schema but have not
+  yet been tested against a real Linear workspace; treat them as unverified.
+- Titles, status names and assignee names are untrusted text from the tracker,
+  as in `__app-issue`.
 
 ## Backups for app consumers (experimental v1)
 

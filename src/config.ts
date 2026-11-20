@@ -4,7 +4,7 @@ import { parse } from "smol-toml";
 import { z } from "zod";
 import { globalConfigPath } from "./config-paths";
 import { validateParticipant } from "./arena/participants";
-import type { RepositoryConfig, RepositoryContext } from "./types";
+import type { IssueListSettings, RepositoryConfig, RepositoryContext } from "./types";
 
 const defaults: RepositoryConfig = {
   baseBranch: null,
@@ -59,6 +59,8 @@ export const jiraSiteSchema = z.string().refine(value => {
   }
 }).transform(value => new URL(value).origin);
 
+const jiraProjectSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,254}$/u).transform(value => value.toUpperCase());
+
 export const configFileSchema = z.strictObject({
   default_tracker: z.enum(["github", "linear", "jira", "none"]).optional(),
   arena: z.union([z.literal(false), z.strictObject({
@@ -80,6 +82,17 @@ export const configFileSchema = z.strictObject({
   jira: z.union([z.literal(false), z.strictObject({
     site_url: jiraSiteSchema,
     cloud_id: z.uuid().optional(),
+    board: z.number().int().positive().optional(),
+    sprint_jql: z.string().trim().min(1).max(2000).optional(),
+    project: jiraProjectSchema.optional(),
+  }).refine(value => value.board === undefined || value.sprint_jql === undefined,
+    { message: "Use board or sprint_jql, not both", path: ["sprint_jql"] })]).optional(),
+  github: z.union([z.literal(false), z.strictObject({
+    project: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[1-9][0-9]{0,8}$/u).optional(),
+    milestone: z.string().trim().min(1).max(255).optional(),
+  })]).optional(),
+  linear: z.union([z.literal(false), z.strictObject({
+    team: z.string().regex(/^[A-Za-z][A-Za-z0-9]{0,6}$/u).transform(value => value.toUpperCase()).optional(),
   })]).optional(),
 });
 
@@ -178,6 +191,8 @@ export function effectiveConfigValues(scopes: ConfigScopes): ConfigFile {
     ...(config.editor ? { editor: config.editor } : {}),
     ...(config.agent ? { agent: config.agent } : {}),
     ...(config.jira ? { jira: config.jira } : {}),
+    ...(config.github ? { github: config.github } : {}),
+    ...(config.linear ? { linear: config.linear } : {}),
   };
 }
 
@@ -211,7 +226,27 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
       siteUrl: config.jira.site_url,
       ...(config.jira.cloud_id === undefined ? {} : { cloudId: config.jira.cloud_id }),
     } } : {}),
+    ...issueListSettings(config),
   };
+}
+
+/** Absent when no list setting is configured, so configs without them resolve as before. */
+function issueListSettings(config: ConfigFile): { issueLists?: IssueListSettings } {
+  const { jira, github, linear } = config;
+  const lists: IssueListSettings = {
+    jira: {
+      ...(jira && jira.board !== undefined ? { board: jira.board } : {}),
+      ...(jira && jira.sprint_jql !== undefined ? { sprintJql: jira.sprint_jql } : {}),
+      ...(jira && jira.project !== undefined ? { project: jira.project } : {}),
+    },
+    github: {
+      ...(github && github.project !== undefined ? { project: github.project } : {}),
+      ...(github && github.milestone !== undefined ? { milestone: github.milestone } : {}),
+    },
+    linear: linear && linear.team !== undefined ? { team: linear.team } : {},
+  };
+  const empty = Object.values(lists).every(settings => Object.keys(settings).length === 0);
+  return empty ? {} : { issueLists: lists };
 }
 
 export async function loadRepositoryConfig(repository: RepositoryContext, env: NodeJS.ProcessEnv = process.env): Promise<RepositoryConfig> {
