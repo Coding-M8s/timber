@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { APP_HANDOFF_VARIABLE, resolveAppHandoff } from "./app-handoff";
 import { resolveArenaSource, finalizeArenaSource } from "./arena/source";
 import { createArenaResumeHandler } from "./commands/arena-resume";
 import { createArenaPickHandler } from "./commands/arena-pick";
@@ -70,6 +71,16 @@ const choose = !completing && shouldEnableInteractiveSelection({
 const ask = choose ? createTerminalTextPrompt(process.stdin, process.stdout) : undefined;
 
 const ci = process.env.CI?.toLowerCase();
+const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true
+  && (!ci || ci === "0" || ci === "false");
+// Only commands that can create a worktree hand off, so others never warn about the folder.
+// A run that writes a --result-file belongs to a program, not a person, so it never moves the app.
+const appHandoff = (process.argv[2] === "new" || process.argv[2] === "open")
+  && !process.argv.slice(3).some(argument => argument === "--result-file" || argument.startsWith("--result-file=")
+    || argument === "-h" || argument === "--help")
+  ? await resolveAppHandoff({ value: process.env[APP_HANDOFF_VARIABLE], interactive, uid: process.getuid?.() },
+    { stderr: text => { process.stderr.write(text); } })
+  : null;
 const launchEditorTerminals = createEditorTerminalLauncher({ self: { executable: process.execPath,
   ...(Bun.main.startsWith("/$bunfs/") ? {} : { entry: Bun.main }) } });
 
@@ -161,14 +172,14 @@ process.exitCode = await runCli(process.argv.slice(2), {
   },
   context: {
     cwd: process.cwd(),
-    interactive: process.stdin.isTTY === true && process.stdout.isTTY === true
-      && (!ci || ci === "0" || ci === "false"),
+    interactive,
     io: {
       stdout: text => { process.stdout.write(text); },
       stderr: text => { process.stderr.write(text); },
     },
     ...(choose ? { choose } : {}),
     ...(ask ? { ask } : {}),
+    ...(appHandoff ? { appHandoff } : {}),
   },
 });
 await notifyAfterCommand(process.argv.slice(2), { stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });

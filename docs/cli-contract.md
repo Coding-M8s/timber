@@ -1217,6 +1217,33 @@ Existing editor failure behavior remains: new returns nonzero, while open
 reports failure and returns success after completed Git work. Both suppress
 agent startup.
 
+### Timber app terminals
+
+Terminals of the Timber app set `TIMBER_APP_HANDOFF` to a private folder the
+app watches. When it is set, stdin and stdout are terminals and CI is off, a
+`new` or `open` that creates a worktree hands it to the app instead of starting
+the agent in the invoking terminal, so the app opens the worktree's session:
+its own first saved agent when Timber would have started one, else a shell.
+Setup and editor startup still run first, in the invoking terminal, with
+their usual failures. Orca integration takes precedence. An `open` of a worktree
+that already existed, a run with `--result-file`, and every noninteractive run,
+behave as above.
+
+Before any Git change, Timber checks the folder: an absolute path to a
+directory, not a symlink, owned by the current user, with no group or other
+permission bits (the ownership and mode checks apply where the platform has
+user ids). An unusable folder prints one `warning:` line on stderr and the
+command runs as outside the app.
+
+The handoff writes one record, `<millis>-<pid>-<random>.json`, mode 0600,
+renamed into place after a temporary dot-file so the app never reads it half
+written. See the [record](ide-contract.md#handing-off-from-app-terminals-experimental-v1).
+Success prints `Opening <path> in the Timber app.` (with `with its agent` when
+one was wanted) and returns 0. A write failure returns 1, retains the
+worktree, never starts the agent in place, and names the retry
+`timber open --agent --no-editor -- '<absolute-worktree-path>'` when an agent
+was wanted.
+
 ## Guided configuration (TIM-18)
 
 `timber setup` guides configuration in the primary checkout from its root, a nested

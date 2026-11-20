@@ -1,3 +1,4 @@
+import { handOffToApp } from "../app-handoff";
 import { reportAgentResult } from "../agent";
 import { FormattedError, failureWithRetry, retryNamingWorkflow, safeDisplay, shellQuoteForDisplay, workflowRetryFlag } from "../display";
 import type { CommandContext, CommandHandlers, CommandServices, OpenOptions } from "../services";
@@ -245,11 +246,12 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         ...(options.setup === false ? { setup: false } : {}),
       };
       if (services.openExisting === undefined) throw new Error("Opening an existing branch is unavailable in this build; no worktree was created.");
-      await services.openExisting(remoteSelector(match.remote, selectedBranch), openOptions, context);
+      const status = await services.openExisting(remoteSelector(match.remote, selectedBranch), openOptions, context);
       if (skipIssue) {
         context.io.stdout(`Issue ${issue} was not linked: timber open links GitHub issues from the default issue repository, not the one --remote selected.\n`);
       }
-      return;
+      // A failed handoff, like a failed agent, sets the exit status.
+      return status;
     }
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
     await context.machine?.worktree(worktree, true);
@@ -295,6 +297,8 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
       const failure = retryNamingWorkflow(editor, options.workflow);
       throw new Error(failureWithRetry(failure.message, failure.retryCommand, worktree.path, `--editor${workflowRetryFlag(options.workflow)}`));
     }
+    // In the Timber app, the app opens the new worktree's session: the agent, or a shell.
+    if (context.appHandoff) return handOffToApp(context.appHandoff, "new", repository, worktree, agentCommand !== null, context.io);
     if (agentCommand === null) return;
     return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io, options.workflow);
   };

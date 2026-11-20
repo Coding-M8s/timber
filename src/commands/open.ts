@@ -1,3 +1,4 @@
+import { handOffToApp } from "../app-handoff";
 import { reportAgentResult, resolveAgentCommand } from "../agent";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
@@ -243,7 +244,10 @@ export function createOpenHandler(
     }
 
     context.io.stdout(`${created ? "Created" : "Opened existing"} worktree at ${safeDisplay(worktree.path)}\n`);
-    if (editor.kind === "failed" || agentCommand === null) return;
+    if (editor.kind === "failed") return;
+    // Only a worktree this run created moves to the Timber app; opening an existing one stays here.
+    if (created && context.appHandoff) return handOffToApp(context.appHandoff, "open", repository, worktree, agentCommand !== null, context.io);
+    if (agentCommand === null) return;
     return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io, workflowName);
   };
 }

@@ -1,4 +1,5 @@
 import type { WorktreeReadPhase } from "./git/worktree-read-phase";
+import type { AppHandoff } from "./app-handoff";
 import type { MachineReporter } from "./machine";
 import type { ArenaNewOptions, ArenaResumeOptions, ArenaPickOptions } from "./arena/types";
 import type {
@@ -130,6 +131,8 @@ export interface CommandContext {
   choose?: TerminalChooser;
   /** Present under the same conditions as `choose`; reads one line of free text. */
   ask?: TerminalTextPrompt;
+  /** Present only in an interactive terminal of the Timber app with a usable handoff folder. */
+  appHandoff?: AppHandoff;
 }
 
 export interface NewOptions {
