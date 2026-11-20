@@ -420,6 +420,9 @@ test("--reviewer requests each user and team on a created pull request with the 
   const h = harness();
   const result = await h.run({ title: "t", reviewers: ["alice", "acme/core"] });
   expect(result.error).toBeNull();
+  // A managed user's login carries an underscore and the enterprise shortcode.
+  expect((await harness().run({ title: "t", reviewers: ["mona_acme"] })).report.reviewers)
+    .toMatchObject([{ name: "mona_acme", kind: "user", result: "requested" }]);
   expect(result.report).toMatchObject({ result: "created", number: 42, reviewers: [
     { name: "alice", kind: "user", result: "requested", diagnostic: null },
     { name: "acme/core", kind: "team", result: "requested", diagnostic: null },
@@ -458,7 +461,8 @@ test("an unusable --reviewer is refused before the login is read or anything is 
     [["al ice"], "user login or org/team", undefined],
     [["acme/core/x"], "user login or org/team", undefined],
     [["acme/"], "user login or org/team", undefined],
-    [["a".repeat(40)], "user login or org/team", undefined],
+    [["a".repeat(101)], "user login or org/team", undefined],
+    [["al--ice"], "user login or org/team", undefined],
     [Array.from({ length: 16 }, (_, index) => `user${index}`), "at most 15", undefined],
     [["other/core"], "owner of the base repository", undefined],
     [["alice"], "only on github.com", bitbucketRepos],
@@ -517,4 +521,26 @@ test("a review request that times out or breaks is a failed entry and the deadli
   const malformed = await broken.run({ title: "t", reviewers: ["alice"] });
   expect(malformed.report).toMatchObject({ result: "created", reviewers: [{ name: "alice", result: "failed",
     diagnostic: "GitHub returned an invalid response to the review request; check the pull request's reviewers." }] });
+});
+
+test("each review request failure maps to its fixed diagnostic and the pull request stays created", async () => {
+  const cases: [() => Response, string][] = [
+    [() => new Response("x", { status: 401 }), "did not accept the sign-in while requesting a reviewer"],
+    [() => new Response("x", { status: 404 }), "could not find the pull request or the team"],
+    [() => new Response("x", { status: 410 }), "could not find the pull request or the team"],
+    [() => new Response("x", { status: 429 }), "rate limited"],
+    [() => new Response("x", { status: 500 }), "GitHub failed while requesting a reviewer"],
+    [() => { throw new TypeError("socket hang up ghp_leak"); }, "GitHub could not be reached to request the reviewer"],
+  ];
+  for (const [answer, message] of cases) {
+    const h = harness({ respond: (method, url) => method === "GET" ? Response.json([])
+      : url.endsWith("/requested_reviewers") ? answer() : Response.json(pull(42), { status: 201 }) });
+    const result = await h.run({ title: "t", reviewers: ["acme/core"] });
+    expect(result.code).toBe(0);
+    expect(result.report.result).toBe("created");
+    expect(result.report.reviewers).toHaveLength(1);
+    expect(result.report.reviewers[0]).toMatchObject({ name: "acme/core", kind: "team", result: "failed" });
+    expect(result.report.reviewers[0]!.diagnostic).toContain(message);
+    expect(JSON.stringify(result.report) + result.output.stderr).not.toContain("ghp_leak");
+  }
 });
