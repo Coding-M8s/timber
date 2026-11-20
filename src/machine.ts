@@ -8,6 +8,7 @@ import type { ArenaNewReport, ArenaPickReport } from "./arena/report";
 import type { BackupDeleteReport } from "./backup/lifecycle";
 import type { BackupRestoreReport } from "./backup/service";
 import type { RebaseReport } from "./git/rebase";
+import type { BaseChangeReport } from "./commands/base";
 import type { PublishReport } from "./git/publish";
 import type { PullRequestReport } from "./github/pull-request";
 import type { CommandContext } from "./services";
@@ -25,6 +26,8 @@ export interface MachineReporter {
   rebase(report: RebaseReport): void;
   /** Attaches the live publish report; it is read once the handler has finished. */
   publish(report: PublishReport): void;
+  /** Attaches the live base change report; it is read once the handler has finished. */
+  baseChange(report: BaseChangeReport): void;
   /** Attaches the live pull request report; it is read once the handler has finished. */
   pr(report: PullRequestReport): void;
   /** Attaches the live settings report; it is read once the handler has finished. */
@@ -72,7 +75,7 @@ interface WorktreeRecord extends Worktree {
 
 export interface MachineRecord {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete" | "arena-new" | "arena-pick";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "base" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete" | "arena-new" | "arena-pick";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -85,6 +88,8 @@ export interface MachineRecord {
   rebase?: RebaseReport;
   /** Present only for publish. */
   publish?: PublishReport;
+  /** Present only for base: the saved base before and after. */
+  baseChange?: BaseChangeReport;
   /** Present only for pr. */
   pr?: PullRequestReport;
   /** Present only for a settings apply. */
@@ -150,6 +155,7 @@ export async function runMachineCommand(
     inventory: async trees => { record.worktrees = await Promise.all(trees.map(worktreeRecord)); },
     rebase: report => { record.rebase = report; },
     publish: report => { record.publish = report; },
+    baseChange: report => { record.baseChange = report; },
     pr: report => { record.pr = report; },
     config: report => { record.config = report; },
     backupRestore: report => { record.backupRestore = report; },

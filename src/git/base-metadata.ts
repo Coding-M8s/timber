@@ -1,4 +1,5 @@
 import { samePath } from "../platform/paths";
+import { unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { shellQuoteForDisplay } from "../display";
@@ -91,5 +92,22 @@ export async function writeBaseAssociation(
     await replacePrivateFile(place.directory, place.file, "base", record);
   } catch {
     throw new Error(`Could not save the base association; the worktree was retained. Fix Git directory permissions, then retry with: ${assignmentRetry(worktree.path, ref)}`);
+  }
+}
+
+/** Remove only the saved base record; a stale record may be cleared, a damaged one must be repaired first. */
+export async function clearBaseAssociation(repository: RepositoryContext, worktree: Worktree): Promise<void> {
+  let place: Location;
+  try { place = await location(repository, worktree); }
+  catch { throw new Error("Cannot verify this Git worktree; the base association was not cleared."); }
+  const previous = await readAt(place);
+  if (previous.kind === "unassigned") return;
+  if (previous.kind === "invalid" && previous.reason !== "stale") {
+    throw new Error("Base metadata is malformed or unreadable; inspect the worktree's private Git metadata before clearing the base.");
+  }
+  try { await unlink(place.file); }
+  catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return;
+    throw new Error("Could not clear the base association; fix Git directory permissions, then retry.");
   }
 }
