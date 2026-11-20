@@ -1,6 +1,11 @@
 import { resolveAgentCommand } from "./agent";
 import type { AgentCommand, AgentConfig, EditorConfig, RepositoryConfig, WorkflowConfig } from "./types";
 
+/** An enabled editor with an explicit integration owns the setup and agent terminals. */
+export function editorOwnsTerminals(editor: EditorConfig | null | undefined): boolean {
+  return editor?.enabled === true && editor.integration !== undefined;
+}
+
 /** Selecting a name never guesses another workflow. */
 export function selectWorkflow(config: RepositoryConfig, name: string | null): WorkflowConfig | null {
   if (name === null) return null;

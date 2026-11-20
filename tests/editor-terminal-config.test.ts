@@ -33,7 +33,6 @@ test("local tables replace integration and dependency preferences instead of mer
 
 test.each([
   'integration = "zed"',
-  'integration = "vscode"',
   'integration = "code"',
   'integration = true',
   'wait_for_setup = "true"',
@@ -52,4 +51,12 @@ test("VS Code editor tables stay on the generic launcher without an integration 
   expect(resolved.editor).toEqual({ command: "code", args: ["--new-window"], enabled: true });
   expect(resolved.editor).not.toHaveProperty("integration");
   expect(resolved.agent).toMatchObject({ command: "claude", enabled: true, waitForSetup: true });
+});
+
+test("VS Code terminal integration survives config rendering and workflow selection", () => {
+  const source = '[editor]\ncommand = "code"\nargs = ["--new-window"]\nintegration = "vscode"\nenabled = true\n' +
+    '[workflows.review.editor]\ncommand = "code"\nintegration = "vscode"\n';
+  const resolved = config(renderConfig(parseConfigSource(source, "/config")));
+  expect(resolved.editor).toEqual({ command: "code", args: ["--new-window"], integration: "vscode", enabled: true });
+  expect(workflowEditor(resolved, resolved.workflows!.review!)).toMatchObject({ integration: "vscode", enabled: true });
 });

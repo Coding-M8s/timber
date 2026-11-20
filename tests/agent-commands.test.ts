@@ -106,7 +106,7 @@ for (const command of ["new", "open"] as const) {
     const explicit = await invoke(command, { loaded, interactive: false, flags: ["--agent"] });
     expect(explicit.exitCode).toBe(1);
     expect(explicit.calls).toEqual(["discover", "config"]);
-    expect(explicit.stderr).toContain("or enable the Orca editor integration");
+    expect(explicit.stderr).toContain("or enable an editor terminal integration (Orca or VS Code)");
     expect(explicit.stderr).toContain("--no-agent");
   });
   test(`${command} preserves editor failure behavior and suppresses agent`, async () => {

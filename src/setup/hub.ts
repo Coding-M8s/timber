@@ -54,15 +54,16 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
       const editor = resolved.editor;
       if (!editor) return `not set${note}`;
       const launch = editor.enabled ? "opens automatically" : "manual";
-      const orca = editor.integration === "orca" ? " · Orca terminals" : "";
-      return `${safeDisplay(editor.command)} · ${launch}${orca}${note}`;
+      const terminals = editor.integration === "orca" ? " · Orca terminals"
+        : editor.integration === "vscode" ? " · VS Code terminals" : "";
+      return `${safeDisplay(editor.command)} · ${launch}${terminals}${note}`;
     }
     case "agent": {
       if (file.agent === false) return "off";
       const agent = resolved.agent;
       if (!agent) return `not set${note}`;
       const launch = agent.enabled ? "starts automatically" : "manual";
-      const wait = resolved.editor?.integration === "orca"
+      const wait = resolved.editor?.integration !== undefined
         ? `; waits for setup: ${agent.waitForSetup ? "yes" : "no"}` : "";
       return `${safeDisplay(agent.command)} · ${launch}${wait}${note}`;
     }

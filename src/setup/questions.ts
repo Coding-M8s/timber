@@ -58,7 +58,7 @@ function disableIntegration(key: "editor" | "agent" | "jira", file: ConfigFile, 
   else delete file[key];
 }
 
-type LauncherPreset = { command: string; args: string[]; integration?: "orca" };
+type LauncherPreset = { command: string; args: string[]; integration?: "orca" | "vscode" };
 
 /** The editor that applies after this file: a file table wins, a repository inherits machine defaults. */
 function effectiveEditor(file: ConfigFile, target: SetupTarget) {
@@ -74,15 +74,17 @@ async function launcher(
 ): Promise<void> {
   const presets: Record<string, LauncherPreset> = key === "editor"
     ? { code: { command: "code", args: ["--new-window"] }, zed: { command: "zed", args: ["--new"] },
-      orca: { command: "orca-ide", args: [], integration: "orca" } }
+      orca: { command: "orca-ide", args: [], integration: "orca" },
+      vscodeTerminals: { command: "code", args: ["--new-window"], integration: "vscode" } }
     : { claude: { command: "claude", args: [] }, codex: { command: "codex", args: [] } };
   const labels: Record<string, string> = {
     code: "VS Code (opens the window; setup and assistant stay in this terminal)",
     zed: "Zed (opens the window; setup and assistant stay in this terminal)",
     orca: "Orca terminals (setup and assistant in the Orca window)",
+    vscodeTerminals: "VS Code terminals (setup and assistant in VS Code; needs the Timber extension)",
     claude: "Claude", codex: "Codex",
   };
-  const orca = key === "agent" && effectiveEditor(file, target)?.integration === "orca";
+  const orca = key === "agent" && effectiveEditor(file, target)?.integration !== undefined;
   const choices = integrationChoices(key, file, target, [
     ...Object.keys(presets).map(name => option(name, labels[name]!)),
     option("custom", key === "editor" ? "Another editor" : "Another coding assistant"),
@@ -105,7 +107,7 @@ async function launcher(
   while (true) {
     const selected = await choose(prompt, key === "editor"
       ? "Which editor should open your workspace?\nChoose None to open it yourself later."
-      : "Use an AI coding assistant?\nChoose one you already have installed, or None. It runs in this terminal, or in Orca when its integration is enabled.", choices);
+      : "Use an AI coding assistant?\nChoose one you already have installed, or None. It runs in this terminal, or in Orca or VS Code when that integration is enabled.", choices);
     if (selected === "keep") {
       await configureDependency();
       await diagnoseEffective();
@@ -140,8 +142,8 @@ async function launcher(
       continue;
     }
     if (key === "editor") {
-      file.editor = { ...command, enabled: await confirm(prompt, command.integration === "orca"
-        ? "Run setup scripts and the assistant in Orca terminals automatically when opening a workspace?"
+      file.editor = { ...command, enabled: await confirm(prompt, command.integration !== undefined
+        ? `Run setup scripts and the assistant in ${command.integration === "orca" ? "Orca" : "VS Code"} terminals automatically when opening a workspace?`
         : "Open this editor automatically when opening a workspace?", false) };
       return;
     }

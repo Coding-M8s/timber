@@ -79,7 +79,7 @@ export interface AgentCommand extends ExecutableCommand {
 }
 
 export interface EditorCommand extends ExecutableCommand {
-  integration?: "orca" | undefined;
+  integration?: "orca" | "vscode" | undefined;
 }
 
 /** Task handoff grammar for `timber rebase --resolve`; never inferred from the executable. */

@@ -20,7 +20,7 @@ const executableSchema = z.strictObject({
   command: z.string().refine(value => value.trim().length > 0),
   args: z.array(z.string()).default([]),
 });
-const editorCommandSchema = executableSchema.extend({ integration: z.literal("orca").optional() });
+const editorCommandSchema = executableSchema.extend({ integration: z.enum(["orca", "vscode"]).optional() });
 const agentCommandSchema = executableSchema.extend({ wait_for_setup: z.boolean().optional() });
 const editorSchema = editorCommandSchema.extend({ enabled: z.boolean().default(false) });
 

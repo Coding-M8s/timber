@@ -4,7 +4,7 @@ import type { CommandHandlers, CommandServices } from "../services";
 import type { Branch, OpenTarget, RepositoryContext, Worktree } from "../types";
 
 import { FormattedError, failureWithRetry, jsonDisplay, retryNamingWorkflow, safeDisplay, workflowRetryFlag } from "../display";
-import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
+import { editorOwnsTerminals, resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 import { reportSkippedSetup } from "../hooks";
 import { issueSelector, type IssueLink } from "../git/issue-link";
 import { linkedMessage, parseIssueOption, resolveIssueOption, type IssueOptionServices } from "./issue-option";
@@ -137,12 +137,12 @@ export function createOpenHandler(
       const requested = selectWorkflow(config, options.workflow);
       const selectedEditor = workflowEditor(config, requested, options.editor);
       const canHostAgent = context.interactive === true
-        || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
+        || editorOwnsTerminals(selectedEditor);
       resolveWorkflowAgent(config, requested, options.agent, canHostAgent, true);
     } else if (options.agent === true && config.workflows === undefined) {
       const selectedEditor = workflowEditor(config, null, options.editor);
       const canHostAgent = context.interactive === true
-        || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
+        || editorOwnsTerminals(selectedEditor);
       resolveAgentCommand(config, true, canHostAgent);
     }
     const resolution = await services.resolveOpenTarget(repository, input, config, { discoverRemote: true });
@@ -190,7 +190,7 @@ export function createOpenHandler(
     const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
     const agentChoice = !created && selectedEditor?.enabled && options.agent !== true ? false : options.agent;
     const canHostAgent = context.interactive === true
-      || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
+      || editorOwnsTerminals(selectedEditor);
     const agentCommand = resolveWorkflowAgent(config, workflow, agentChoice, canHostAgent, created);
     // Refuse a conflicting link and finish the tracker lookup before creating anything.
     const link: IssueLink | null = requestedIssue === null ? null
@@ -220,9 +220,9 @@ export function createOpenHandler(
     // --no-setup wins over creation; --setup reruns setup on a worktree that already existed.
     const runsSetup = options.setup === true || (created && options.setup !== false);
     const hasSetup = Boolean(config.hooks?.postCreate.length || workflow?.postCreate.length);
-    if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
+    if (editorOwnsTerminals(editorConfig.editor)) {
       context.io.stdout(`${created ? "Created" : "Opened existing"} worktree at ${safeDisplay(worktree.path)}\n`);
-      if (!services.launchEditorTerminals) throw new Error("Orca terminal integration is unavailable; workspace retained.");
+      if (!services.launchEditorTerminals) throw new Error("Editor terminal integration is unavailable; workspace retained.");
       reportSkippedSetup(created && hasSetup, options.setup === false, worktree.path, workflowName, context);
       await services.launchEditorTerminals({ repository, worktree, config: editorConfig, agent: agentCommand,
         setup: runsSetup,

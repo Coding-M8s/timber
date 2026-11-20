@@ -9,6 +9,8 @@ export class RunnerStartupFailure extends Error {}
 export interface TerminalRequest {
   directory: string;
   bootstrap: string;
+  /** The same invocation as literal argv, for editors that start a process without a shell. */
+  argv: readonly string[];
   waitStarted(timeoutMs: number): Promise<void>;
   waitSetup(): Promise<TaskResult>;
   fence(): Promise<boolean>;
@@ -25,7 +27,8 @@ export async function createTerminalRequest(task: TerminalTask, self: SelfComman
     if (self.entry) await symlink(self.entry, join(directory, "entry.ts"));
     await writeFile(join(directory, "request.json"), JSON.stringify(task), { flag: "wx", mode: 0o600 });
   } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
-  const bootstrap = `${directory}/runtime ${self.entry ? `--no-env-file ${directory}/entry.ts ` : ""}__editor-task ${directory}`;
+  const argv = [`${directory}/runtime`, ...self.entry ? ["--no-env-file", `${directory}/entry.ts`] : [], "__editor-task", directory];
+  const bootstrap = argv.join(" ");
   const status = () => readStatus(directory, "started.json", startedSchema);
   const result = () => readStatus(directory, "result.json", resultSchema);
   const fence = async () => {
@@ -37,7 +40,7 @@ export async function createTerminalRequest(task: TerminalTask, self: SelfComman
     }
   };
   return {
-    directory, bootstrap, fence,
+    directory, bootstrap, argv, fence,
     cleanup: () => rm(directory, { recursive: true, force: true }),
     async waitStarted(timeoutMs) {
       const deadline = Date.now() + timeoutMs;
