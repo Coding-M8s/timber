@@ -198,8 +198,9 @@ and the one more lookup after a race), request each reviewer in order with
 `POST /repos/<owner>/<repo>/pulls/<number>/requested_reviewers`, one request per
 reviewer (`reviewers` for a user, `team_reviewers` with the slug for a team),
 using the same login. Each request has the 10-second deadline, rejects
-redirects and is not retried. A reviewer already requested is requested again,
-which GitHub treats as a no-op.
+redirects and is not retried. A reviewer is requested even when already
+requested or after they reviewed; what GitHub does then, such as notifying them
+again, is GitHub's behavior.
 
 A failed request never changes the pull request result or exit code. Each
 failure maps to a fixed diagnostic (422 for a reviewer who cannot be requested,

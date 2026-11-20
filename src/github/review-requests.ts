@@ -13,8 +13,9 @@ export interface ReviewerOutcome extends ReviewerRequest {
 /** Each reviewer is its own request under the shared deadline, so the count is bounded. */
 export const maxReviewers = 15;
 
-// GitHub logins: letters, digits and single inner hyphens, at most 39 characters.
-const login = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/u;
+// GitHub logins: letters, digits and single inner hyphens. Managed users add an
+// underscore and an enterprise shortcode (mona_acme), so underscores are allowed too.
+const login = /^[A-Za-z0-9](?:[A-Za-z0-9_]|-(?=[A-Za-z0-9_])){0,99}$/u;
 // Team slugs are what GitHub derives from a team name: letters, digits, hyphens and underscores.
 const teamSlug = /^[A-Za-z0-9_](?:[A-Za-z0-9_-]){0,99}$/u;
 
