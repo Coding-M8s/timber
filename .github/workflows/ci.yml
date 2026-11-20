@@ -26,6 +26,7 @@ jobs:
       - run: bun run build
       - run: bun dist/index.js --help
       - run: bun run build:release
+      - run: bun run build:extension
       - name: Verify standalone shell completion
         run: |
           VERSION="$(bun --no-env-file -p 'require("./package.json").version')"

@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun", "vscode"]
+  },
+  "include": ["src/**/*.ts", "../src/editor-terminals/vscode-protocol.ts"]
+}

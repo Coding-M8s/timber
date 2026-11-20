@@ -1,0 +1,18 @@
+{
+  "name": "timber-terminals",
+  "displayName": "Timber Terminals",
+  "description": "Opens the setup and agent terminals that the Timber CLI requests in the exact worktree window.",
+  "version": "0.1.0",
+  "publisher": "coding-m8s",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": { "type": "git", "url": "https://github.com/Coding-M8s/timber" },
+  "engines": { "vscode": "^1.146.0" },
+  "main": "./dist/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "extensionKind": ["ui"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": true },
+    "virtualWorkspaces": false
+  }
+}

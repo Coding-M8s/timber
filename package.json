@@ -11,10 +11,12 @@
     "dev": "bun src/index.ts",
     "test": "bun test --parallel --timeout=30000",
     "test:serial": "bun test --timeout=30000",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p vscode-extension",
     "check:attribution": "bun --no-env-file scripts/check-commit-attribution.ts",
     "build": "bun build src/index.ts --target=bun --outdir dist",
-    "build:release": "bun --no-env-file scripts/release.ts"
+    "build:release": "bun --no-env-file scripts/release.ts",
+    "build:extension": "bun build vscode-extension/src/extension.ts --target=node --format=cjs --external vscode --outfile vscode-extension/dist/extension.js",
+    "package:extension": "bun run build:extension && cd vscode-extension && bunx @vscode/vsce@4.1.0 package --no-dependencies"
   },
   "dependencies": {
     "commander": "15.0.0",
@@ -25,6 +27,7 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.4",
+    "@types/vscode": "1.146.0",
     "typescript": "7.0.2"
   }
 }
