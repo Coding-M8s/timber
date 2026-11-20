@@ -5,6 +5,8 @@ build/
 coverage/
 *.tsbuildinfo
 *.log
+vscode-extension/dist/
+*.vsix
 # Secrets and local configuration
 .env
 .env.*
