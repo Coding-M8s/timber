@@ -24,7 +24,7 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 function host(overrides: Partial<BridgeHost> = {}) {
   const terminals: TerminalOptions[] = [];
   const value: BridgeHost = { spool, uid: process.getuid!(), windowId: window, extensionVersion: "0.1.0",
-    vscodeVersion: "1.146.0", isLocal: () => true, folders: () => [worktree],
+    vscodeVersion: "1.146.0", isLocal: () => true, isTrusted: () => true, folders: () => [worktree],
     createTerminal: async options => { terminals.push(options); return { processId: 4242 }; }, ...overrides };
   return { terminals, value };
 }
@@ -39,7 +39,7 @@ test("a hello from the exact worktree is claimed and acknowledged with this wind
   await write({ protocol: 1, kind: "hello", cwd: worktree, expires: Date.now() + 10_000 });
   await createBridge(h.value).scanPending();
   expect(await files()).toEqual([spoolNames(id).ack, spoolNames(id).claimed]);
-  expect(await json(spoolNames(id).ack)).toEqual({ protocol: 1, extensionVersion: "0.1.0", vscodeVersion: "1.146.0", window });
+  expect(await json(spoolNames(id).ack)).toEqual({ protocol: 1, extensionVersion: "0.1.0", vscodeVersion: "1.146.0", window, trusted: true });
   expect(h.terminals).toEqual([]);
 });
 
@@ -130,4 +130,35 @@ test("a request fenced by Timber is never claimed", async () => {
   await createBridge(h.value).scanPending();
   expect(h.terminals).toEqual([]);
   expect(await files()).toEqual([spoolNames(id).cancelled]);
+});
+
+test("a Restricted Mode window reports its trust in the hello acknowledgement", async () => {
+  const h = host({ isTrusted: () => false });
+  await write({ protocol: 1, kind: "hello", cwd: worktree, expires: Date.now() + 10_000 });
+  await createBridge(h.value).scanPending();
+  expect(await json(spoolNames(id).ack)).toMatchObject({ window, trusted: false });
+});
+
+test("a terminal request in a Restricted Mode window is rejected as untrusted without creating a terminal", async () => {
+  const h = host({ isTrusted: () => false });
+  await write(terminal());
+  await createBridge(h.value).scanPending();
+  expect(h.terminals).toEqual([]);
+  expect(await files()).toEqual([spoolNames(id).claimed, spoolNames(id).error]);
+  expect(await json(spoolNames(id).error)).toEqual({ protocol: 1, code: "untrusted" });
+});
+
+test("a later scan after trust is granted creates the terminal", async () => {
+  let trusted = false;
+  const h = host({ isTrusted: () => trusted });
+  const bridge = createBridge(h.value);
+  await write({ protocol: 1, kind: "hello", cwd: worktree, expires: Date.now() + 10_000 });
+  await bridge.scanPending();
+  expect(await json(spoolNames(id).ack)).toMatchObject({ trusted: false });
+  trusted = true;
+  const next = "00112233445566aa";
+  await write(terminal(), spoolNames(next).request);
+  await bridge.scanPending();
+  expect(h.terminals).toHaveLength(1);
+  expect(await json(spoolNames(next).ack)).toMatchObject({ trusted: true, processId: 4242 });
 });

@@ -108,6 +108,7 @@ test.each([
   ["create-failed", /could not start the Timber terminal process/],
   ["invalid", /rejected the terminal request as invalid/],
   ["protocol", /request protocol/],
+  ["untrusted", /Restricted Mode.*Trust the folder/],
 ])("an extension %s error is reported definitively", async (code, message) => {
   const fake = extension(async (request, id) => {
     await claim(id);
@@ -156,5 +157,29 @@ test("creation without runner argv is refused without writing a request", async 
     const session = await createVscodeSession(editor, worktreeFixture(), options().value);
     await expect(session.create("Timber workspace")).rejects.toThrow(/no terminal was created/);
     expect(fake.requests).toHaveLength(1);
+  } finally { await fake.stop(); }
+});
+
+test("a hello from a Restricted Mode window fails readiness before any terminal request", async () => {
+  const fake = extension(async (_request, id) => { await claim(id); await ack(id, { trusted: false }); });
+  try {
+    await expect(createVscodeSession(editor, worktreeFixture(), options().value))
+      .rejects.toThrow(/Restricted Mode, so it cannot start Timber terminals\. Trust the folder/);
+    expect(fake.requests.map(request => request.kind)).toEqual(["hello"]);
+    expect(await readdir(spool)).toEqual([]);
+  } finally { await fake.stop(); }
+});
+
+test.each([true, undefined])("a hello with trusted=%s is accepted, so older extensions stay compatible", async trusted => {
+  const fake = extension(async (_request, id) => { await claim(id); await ack(id, trusted === undefined ? {} : { trusted }); });
+  try {
+    expect((await createVscodeSession(editor, worktreeFixture(), options().value)).window).toBe(window);
+  } finally { await fake.stop(); }
+});
+
+test("a malformed trust value is not accepted as an acknowledgement", async () => {
+  const fake = extension(async (_request, id) => { await claim(id); await ack(id, { trusted: "no" }); });
+  try {
+    await expect(createVscodeSession(editor, worktreeFixture(), options({ readinessMs: 200 }).value)).rejects.toThrow(/uncertain/);
   } finally { await fake.stop(); }
 });

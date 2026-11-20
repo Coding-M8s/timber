@@ -15,6 +15,8 @@ export interface BridgeHost {
   extensionVersion: string;
   vscodeVersion: string;
   isLocal(): boolean;
+  /** Restricted Mode (an untrusted workspace) cannot start terminal processes. */
+  isTrusted(): boolean;
   /** Local file-system paths of this window's workspace folders. */
   folders(): readonly string[];
   createTerminal(options: TerminalOptions): Promise<{ processId: number | undefined }>;
@@ -50,9 +52,10 @@ export function createBridge(host: BridgeHost) {
     const fail = (code: SpoolErrorCode) => publishSpoolFile(host.spool, names.error, { protocol: VSCODE_PROTOCOL, code });
     if (!parsed.ok) { await fail(parsed.code); return; }
     const ack: SpoolAck = { protocol: VSCODE_PROTOCOL, extensionVersion: host.extensionVersion,
-      vscodeVersion: host.vscodeVersion, window: host.windowId };
+      vscodeVersion: host.vscodeVersion, window: host.windowId, trusted: host.isTrusted() };
     const request = parsed.request;
     if (request.kind === "hello") { await publishSpoolFile(host.spool, names.ack, ack); return; }
+    if (!ack.trusted) { await fail("untrusted"); return; }
     let processId: number | undefined;
     try {
       ({ processId } = await host.createTerminal({ name: request.title, cwd: request.cwd,

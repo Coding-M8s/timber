@@ -1529,7 +1529,10 @@ path and argv. The extension claims and Timber fences each request with the same
 atomic rename. The extension accepts only the runner argv and starts it with
 `createTerminal({ cwd, shellPath, shellArgs })`. Because VS Code closes a
 terminal when its process exits, the runner then holds the terminal with the
-user's shell, keeping the task exit code. The extension adds no commands, views,
+user's shell, keeping the task exit code. The hello acknowledgement reports the window's
+Workspace Trust; an untrusted (Restricted Mode) window fails readiness before any
+terminal request, and an extension rejects terminal requests while untrusted. An
+acknowledgement without the field counts as trusted. The extension adds no commands, views,
 settings or tasks and never sends keystrokes.
 
 Ordinary and workflow agent tables accept boolean `wait_for_setup`, default false.

@@ -16,9 +16,10 @@ integrations share the same lifecycle, private runner protocol, retries and
 failure rules.
 
 **Support note:** Orca terminals (`orca-ide`, Orca 1.4.224) are tested on Linux
-x86_64. VS Code terminals are implemented and covered by automated tests with a
-simulated extension host, but have not yet been smoke-tested against a real VS
-Code window; treat them as experimental. Zed uses the generic editor launcher
+x86_64. VS Code terminals are covered by automated tests with a simulated
+extension host and one manual smoke on VS Code 1.146.0, Linux x86_64 (see
+[observed behavior](#observed-on-vs-code-11460-linux-x86_64)); treat them as
+experimental. Zed uses the generic editor launcher
 (window open only); see [Zed](#zed).
 
 macOS arm64 and x86_64 now have an experimental runner path. It reads native
@@ -214,6 +215,12 @@ sends keystrokes.
   Timber never installs the extension. The extension version is independent of
   the Timber version; this Timber accepts 0.1.0 or newer speaking request
   protocol 1.
+- Workspace Trust. VS Code cannot start terminal processes in Restricted Mode,
+  and a new worktree opens untrusted unless a parent folder is trusted. Trust
+  the parent folder that holds your worktrees once (for example from the
+  Restricted Mode banner, "Trust the parent folder"), so every new worktree
+  window starts trusted. The extension reports the window's trust in its
+  answer, and Timber stops before creating any terminal when it is untrusted.
 
 ### Configuration
 
@@ -261,4 +268,18 @@ The general [failure rules](#failures-and-recovery) apply. In addition:
 | Terminal request not claimed within 10 s | Request cancelled; it can never run | Run the printed retry |
 | Extension rejected the request (protocol, invalid, or the process did not start) | Reported definitively | Update Timber and the extension together, or run the printed retry |
 | Request claimed but not acknowledged | Reported as uncertain; nothing replayed | Inspect the terminals in the worktree window before retrying |
+| Worktree window is in Restricted Mode (untrusted) | Stopped at readiness, or the terminal request is rejected; no terminal created | Trust the folder or its parent worktrees folder in VS Code, then run the printed retry |
 | Spool directory not private | Refused before any window opens | Remove `/tmp/timber-vscode-<uid>` and retry |
+
+### Observed on VS Code 1.146.0, Linux x86_64
+
+A manual smoke used an isolated `--user-data-dir` and `--extensions-dir` with
+the extension installed from the VSIX.
+
+- A fresh worktree window opened untrusted. The extension answered the hello,
+  but VS Code never spawned the terminal process, so the request ended as a
+  failed creation. Timber now detects Restricted Mode at readiness instead.
+- With the window trusted (in that smoke, `--disable-workspace-trust` in the
+  editor args), `timber new smoke-one --agent` printed
+  `Agent handed off to VS Code terminal "Timber agent" (pid ...)`, and both the
+  setup hook and the agent ran with `pwd` equal to the exact worktree path.

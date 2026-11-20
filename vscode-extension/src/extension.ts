@@ -19,6 +19,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     extensionVersion: String(context.extension.packageJSON.version),
     vscodeVersion: vscode.version,
     isLocal: () => vscode.env.remoteName === undefined,
+    isTrusted: () => vscode.workspace.isTrusted,
     folders: () => (vscode.workspace.workspaceFolders ?? [])
       .filter(folder => folder.uri.scheme === "file").map(folder => folder.uri.fsPath),
     async createTerminal({ name, cwd, shellPath, shellArgs }) {
@@ -33,7 +34,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const scan = () => { void bridge.scanPending(); };
   const watcher = watch(spool, scan);
   watcher.on("error", () => {});
-  context.subscriptions.push({ dispose: () => watcher.close() }, vscode.workspace.onDidChangeWorkspaceFolders(scan));
+  context.subscriptions.push({ dispose: () => watcher.close() }, vscode.workspace.onDidChangeWorkspaceFolders(scan),
+    vscode.workspace.onDidGrantWorkspaceTrust(scan));
   scan();
 }
 
