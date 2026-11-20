@@ -109,7 +109,7 @@ Use `timber <command> --help` for flags. To remove Timber, see [Remove Timber](d
 - [User guide](docs/guide.md): configuration, Jira, trusted shell hooks, and workflows
 - [Arena](docs/guide.md#arena-multiple-isolated-attempts): create, resume, compare, and pick isolated attempts
 - [Shell completion](docs/completion.md): Bash, Zsh, and Fish
-- [Orca editor terminals](docs/editor-terminals.md)
+- [Editor terminals (Orca and VS Code)](docs/editor-terminals.md)
 - [Building and releasing](docs/releases.md)
 - [Contributing](CONTRIBUTING.md), [development guidance](AGENTS.md), and [code map](docs/shared-contracts.md)
 - [Reporting security issues](SECURITY.md)

@@ -12,6 +12,10 @@ Bug reports, platform reports, and focused pull requests are welcome.
   a pull request.
 - Some things are out of scope: GUI or IDE work, a Rust rewrite, a database, a
   daemon, a local API, a global task registry, and a provider plugin framework.
+  The one exception is the Timber VS Code terminal bridge in `vscode-extension/`
+  (issue #75). It only opens the terminals Timber requests in the exact worktree,
+  with no views, commands, settings, `tasks.json` edits, or keystroke automation,
+  and it follows the same editor and agent launch rules as Orca.
 
 ## Licensing of contributions
 

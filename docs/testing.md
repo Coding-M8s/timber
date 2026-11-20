@@ -38,6 +38,26 @@ Before adding a test:
 The protections in `AGENTS.md` (Git mutations, local-work preservation for `done`)
 keep at least one real-repository test each.
 
+## Manual VS Code terminal smoke
+
+Automated tests cover the VS Code integration with a simulated extension host.
+Before calling it supported, run this by hand on Linux x86_64 with a local VS
+Code and record the VS Code version and results:
+
+1. `bun run package:extension`, then
+   `code --install-extension vscode-extension/timber-terminals-0.1.0.vsix`.
+2. In a scratch repository, configure `[editor]` with `command = "code"`,
+   `args = ["--new-window"]`, `enabled = true`, `integration = "vscode"`, an
+   enabled `[agent]`, and a `post_create` hook that prints and sleeps.
+3. `timber-dev new smoke-one`: a window opens on the new worktree with
+   `Timber setup` and `Timber agent` terminals, both in that worktree. Both stay
+   open at a shell prompt after their task ends.
+4. Repeat with `wait_for_setup = true` and a failing hook: no agent terminal
+   starts, and Timber prints the setup retry.
+5. Uninstall or disable the extension: Timber stops before creating terminals
+   and prints the install hint and a retry.
+6. Check `/tmp/timber-vscode-$(id -u)` is mode 0700 and empty afterwards.
+
 ## CI
 
 CI runs one `check` job on every push and pull request: typecheck, `bun run test`

@@ -25,6 +25,16 @@ bun run build:release
 
 Source tests run in isolated Bun workers; see [testing](testing.md).
 
+`bun run build:extension` bundles the Timber Terminals VS Code extension to
+`vscode-extension/dist/extension.js`, and CI runs it. `bun run package:extension`
+also packages `vscode-extension/timber-terminals-<version>.vsix` with a pinned
+`@vscode/vsce`, downloaded at packaging time. Release archives and `SHA256SUMS`
+do not include the VSIX yet; users build it from a checkout as described in
+[editor terminals](editor-terminals.md#vs-code). The extension version in
+`vscode-extension/package.json` is independent of the CLI version; raise
+`MIN_EXTENSION_VERSION` in `src/editor-terminals/vscode-protocol.ts` only when
+the CLI needs a newer extension.
+
 `build` creates a Bun JavaScript bundle. `build:release` produces:
 
 | Asset | Contents |

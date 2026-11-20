@@ -1,19 +1,25 @@
-# Orca editor terminals
+# Editor terminals
 
-With `integration = "orca"`, Timber runs post-create setup and the optional
-agent in two separate terminals of the existing local Orca window, both inside
-the exact worktree. The agent starts while setup is still running unless the
-agent table sets `wait_for_setup = true`. Timber returns once required setup
-has finished and the agent process has actually started; the agent's lifetime
-belongs to Orca. Without the integration, or with `--no-editor`, the earlier
-foreground behavior applies: setup, then the generic editor launcher, then an
-agent in the invoking terminal.
+With an editor integration, Timber runs post-create setup and the optional
+agent in two separate terminals of the editor window, both inside the exact
+worktree. Two integrations exist: `integration = "orca"` uses the existing
+local Orca window, and `integration = "vscode"` uses a VS Code window with the
+Timber Terminals extension (see [VS Code](#vs-code)). The agent starts while
+setup is still running unless the agent table sets `wait_for_setup = true`.
+Timber returns once required setup has finished and the agent process has
+actually started; the agent's lifetime belongs to the editor. Without an
+integration, or with `--no-editor`, the earlier foreground behavior applies:
+setup, then the generic editor launcher, then an agent in the invoking terminal.
 
-**Support note:** Editor-owned setup and agent terminals currently support only
-`orca-ide` (Orca 1.4.224, tested on Linux x86_64). Zed and VS Code (`code`) use
-the generic editor launcher (window open only). In-panel setup and agent
-terminals for those editors are not claimed; see [Zed](#zed) and
-[VS Code](#vs-code) below.
+Most of this page describes Orca; the VS Code section lists what differs. Both
+integrations share the same lifecycle, private runner protocol, retries and
+failure rules.
+
+**Support note:** Orca terminals (`orca-ide`, Orca 1.4.224) are tested on Linux
+x86_64. VS Code terminals are implemented and covered by automated tests with a
+simulated extension host, but have not yet been smoke-tested against a real VS
+Code window; treat them as experimental. Zed uses the generic editor launcher
+(window open only); see [Zed](#zed).
 
 macOS arm64 and x86_64 now have an experimental runner path. It reads native
 process start time at microsecond precision through the system `libproc` library
@@ -75,8 +81,9 @@ args = ["review this branch"]
 wait_for_setup = true
 ```
 
-- `integration` is accepted on ordinary and workflow editor tables. Omitting it
-  keeps the generic process launcher. Any other value is a strict config error.
+- `integration` (`"orca"` or `"vscode"`) is accepted on ordinary and workflow
+  editor tables. Omitting it keeps the generic process launcher. Any other value
+  is a strict config error.
 - `wait_for_setup` is accepted on ordinary and workflow agent tables and
   defaults to false. Tables replace whole lower-scope tables: a workflow agent
   table that omits it defaults independently, while an omitted workflow agent
@@ -182,8 +189,76 @@ In-panel terminals are tracked in [#60](https://github.com/Coding-M8s/timber/iss
 
 ## VS Code
 
-VS Code uses the generic editor launcher with `command = "code"` and, typically,
-`args = ["--new-window"]`. Setup and agents run in the invoking terminal.
-In-panel terminals require a separate bridge, tracked in
-[#75](https://github.com/Coding-M8s/timber/issues/75). Only `integration = "orca"`
-is currently accepted; Timber does not edit editor settings or task files.
+With `integration = "vscode"`, the Timber Terminals extension opens the setup
+and agent terminals in the VS Code window of the exact worktree. The extension
+is in [`vscode-extension/`](../vscode-extension) and adds no commands, views,
+settings or tasks; Timber never edits `settings.json` or `tasks.json` and never
+sends keystrokes.
+
+### Prerequisites
+
+- Linux x86_64 (macOS follows the experimental runner path above). A local
+  window only: Timber refuses editor args containing `--remote`, `--folder-uri`
+  or `--file-uri`, and the extension ignores remote, container and virtual
+  workspaces.
+- The extension `coding-m8s.timber-terminals` 0.1.0 or newer is installed in
+  the VS Code that `[editor].command` runs. Release archives do not include it
+  yet; build and install it from a Timber checkout:
+
+  ```bash
+  bun install --frozen-lockfile
+  bun run package:extension
+  code --install-extension vscode-extension/timber-terminals-0.1.0.vsix
+  ```
+
+  Timber never installs the extension. The extension version is independent of
+  the Timber version; this Timber accepts 0.1.0 or newer speaking request
+  protocol 1.
+
+### Configuration
+
+```toml
+[editor]
+command = "code"
+args = ["--new-window"]
+enabled = true
+integration = "vscode"
+```
+
+`timber setup` offers "VS Code terminals" as an editor preset with these
+values. Without `integration`, `code` keeps the generic launcher: it opens the
+window and setup and agents run in the invoking terminal.
+
+### What differs from Orca
+
+1. Timber runs `code <args> --list-extensions --show-versions` and stops if
+   the extension is missing or older than 0.1.0.
+2. Timber opens the worktree with `code <args> <worktree>`, then writes a
+   private `hello` request to `/tmp/timber-vscode-<uid>/` (mode 0700, files
+   0600, owned by you; anything else is refused on both sides). The window
+   whose local workspace folder resolves to the worktree claims it with an
+   atomic rename and answers with its version and a random window id. Timber
+   waits up to 30 seconds.
+3. Each terminal request is pinned to that window id, expires after 10
+   seconds, and carries only the generated runner path and arguments from
+   `/tmp/timber-launch-*`. The extension accepts nothing else and starts it with
+   `createTerminal({ cwd, shellPath, shellArgs })`, so no shell parses any
+   text. The acknowledgement names the terminal and its process id, for example
+   `"Timber agent" (pid 12345)`.
+4. VS Code closes a terminal when its process exits, so the runner opens your
+   `$SHELL` (or `/bin/sh`) in the worktree after the task finishes. Type `exit`
+   to close the terminal.
+5. When no setup or agent is requested, Timber only opens the window.
+
+### VS Code failures
+
+The general [failure rules](#failures-and-recovery) apply. In addition:
+
+| Situation | Behavior | Next step |
+| --- | --- | --- |
+| Extension missing or too old | No window opened, no terminal created | Install the extension, then run the printed retry |
+| No answer from the worktree window within 30 s | Hello cancelled; no terminal created | Check that the window opened locally with the extension enabled, then run the printed retry |
+| Terminal request not claimed within 10 s | Request cancelled; it can never run | Run the printed retry |
+| Extension rejected the request (protocol, invalid, or the process did not start) | Reported definitively | Update Timber and the extension together, or run the printed retry |
+| Request claimed but not acknowledged | Reported as uncertain; nothing replayed | Inspect the terminals in the worktree window before retrying |
+| Spool directory not private | Refused before any window opens | Remove `/tmp/timber-vscode-<uid>` and retry |

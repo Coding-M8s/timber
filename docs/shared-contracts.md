@@ -16,7 +16,7 @@ in source; update them and their consumers together when a shared interface chan
 | [jira](../src/jira) | Ticket lookup and private credential storage |
 | [hooks.ts](../src/hooks.ts) | Trusted shell hooks and context environment |
 | [editor.ts](../src/editor.ts), [agent.ts](../src/agent.ts) | Separate editor and foreground agent launching |
-| [editor-terminals](../src/editor-terminals) | Orca terminal handoff and private runner protocol |
+| [editor-terminals](../src/editor-terminals) | Orca and VS Code terminal handoff and private runner protocol |
 | [app-handoff.ts](../src/app-handoff.ts) | Handing a created worktree to a Timber app terminal |
 | [arena](../src/arena) | Attempt selection, planning, records, and recovery |
 | [backup](../src/backup) | Private worktree snapshots, records, verification, restore, listing, and confirmed deletion |
@@ -50,10 +50,10 @@ Choosers return an offered stable value or `null`. Validate selections and keep
 cancellation mutation-free. Agent launch eligibility and chooser eligibility are
 computed separately; use the existing helpers rather than duplicating CI rules.
 
-Foreground agents own the invoking terminal until exit. Orca handoff observes
-startup and required setup, leaving agent lifetime to Orca. Arena uses sequential
+Foreground agents own the invoking terminal until exit. Orca and VS Code handoff
+observe startup and required setup, leaving agent lifetime to the editor. Arena uses sequential
 foreground agents. See [launch behavior](cli-contract.md#interactive-agent-launching-02)
-and [Orca recovery](editor-terminals.md#failures-and-recovery).
+and [editor terminal recovery](editor-terminals.md#failures-and-recovery).
 
 The private runner's process identity keeps Linux kernel start ticks unchanged.
 The beta macOS arm64/x86_64 path reads `proc_pidinfo` through Bun FFI and

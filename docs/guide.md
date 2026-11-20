@@ -607,13 +607,13 @@ to remove all inherited names. Both config scopes are validated even when one
 overrides the other. `timber setup` preserves existing workflow values and shows
 the effective count; edit workflow definitions directly in TOML.
 
-Outside enabled Orca integration, on creation Timber runs ordinary setup scripts,
+Outside an enabled editor integration, on creation Timber runs ordinary setup scripts,
 then workflow setup scripts, opens the selected editor, then starts its optional
 initial agent in the invoking terminal. `open` creating a worktree for an
 existing branch counts as creation. The scripts receive `TIMBER_WORKFLOW` as an
 environment variable; Timber never substitutes it into shell source. A custom
 agent wrapper can supply its prompt and open a separate window if desired.
-Timber passes executable arguments literally. With [Orca integration](editor-terminals.md), setup and agents use separate editor terminals instead.
+Timber passes executable arguments literally. With an [Orca or VS Code integration](editor-terminals.md), setup and agents use separate editor terminals instead.
 
 A workflow is a one-off choice: it applies only to the command that names it, and
 Timber does not remember it for the worktree. A later `open` without `-w` follows
@@ -626,7 +626,7 @@ review` deliberately starts that workflow's agent again. `--editor` explicitly
 starts the selected editor;
 `--no-editor` and `--no-agent` suppress their
 respective launches. Explicit `--agent` requires an interactive terminal with CI
-off or an enabled, selected Orca editor integration. A normal reopen never retries
+off or an enabled, selected editor integration (Orca or VS Code). A normal reopen never retries
 a failed setup or initial prompt.
 
 Timber stores nothing about the workflow in the worktree, and `timber ls` does
@@ -832,7 +832,7 @@ timber open my-feature --agent --no-editor
 timber open my-feature --no-agent
 ```
 
-Outside enabled [Orca integration](editor-terminals.md), Timber completes required Git work and starts the editor before running the
+Outside an enabled [editor integration](editor-terminals.md), Timber completes required Git work and starts the editor before running the
 agent. An editor startup failure prevents agent launch. The agent inherits the
 invoking terminal's stdin/stdout/stderr and runs in the foreground; Timber waits
 for it to finish. Agent exit status becomes Timber's exit status, including
@@ -847,10 +847,11 @@ For foreground agents, both stdin and stdout must be terminals, and CI must be o
 `CI`, `CI=0`, and `CI=false` (case insensitive) mean CI is off; other values
 mean CI is on. In CI or with redirected stdin/stdout, config-driven launch
 skips automatically. Explicit `--agent` fails before worktree creation instead
-of waiting for interactive input. With an enabled, selected Orca integration,
-explicit and config-driven initial agents instead use Orca terminals and can
-launch from a noninteractive caller, including with CI on. A generic editor,
-disabled Orca integration or `--no-editor` retains the foreground restrictions.
+of waiting for interactive input. With an enabled, selected Orca or VS Code
+integration, explicit and config-driven initial agents instead use editor
+terminals and can launch from a noninteractive caller, including with CI on. A
+generic editor, a disabled integration or `--no-editor` retains the foreground
+restrictions.
 
 Startup failures report the retained workspace and exit 1. Fix configuration
 or `PATH`, then retry with
@@ -1102,7 +1103,7 @@ coding assistants, the default issue tracker, tracker connections, creation scri
 and workspace folders individually. Setup opens directly on the menu and returns
 there immediately after each edit. Save and exit is the default. Relevant help,
 errors, and pending credential changes appear inline; PgUp/PgDn scroll long
-details without leaving the active question. With Orca terminals selected, or inherited from machine
+details without leaving the active question. With Orca or VS Code terminals selected, or inherited from machine
 defaults, it also asks whether the assistant waits for setup scripts. Use Up/Down arrows and Enter, or press a numbered shortcut to choose
 immediately. Shortcuts cover the first nine options; use arrows for additional
 entries in long branch lists; the menu scrolls to keep your selection visible.
@@ -1182,12 +1183,14 @@ after setup's check. First-use markers live under
 To install a standalone executable built from your checkout, follow the
 [local installation and smoke-test guide](local-install.md).
 
-## Orca editor terminals
+## Editor terminals
 
 Choose Orca terminals in setup to run setup and the assistant in separate terminals
-of the existing local Orca window. Agents start alongside setup unless
+of the existing local Orca window, or VS Code terminals to run them in the VS Code
+window of the worktree (this needs the Timber Terminals extension; VS Code
+support is experimental). Agents start alongside setup unless
 `wait_for_setup = true`. `--no-editor` uses the invoking terminal instead.
-Zed and VS Code open windows through the generic launcher.
+Zed, and VS Code without the integration, open windows through the generic launcher.
 See [configuration, prerequisites, and recovery](editor-terminals.md).
 
 ## Arena: multiple isolated attempts
