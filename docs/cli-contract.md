@@ -487,7 +487,7 @@ A missing admin directory, for example after `timber done`, is not rebase
 state. Version 1 backups are created only from idle worktrees and record no
 operation origin; a future record that marks a rebase origin must stay protected
 until completion or abort is reliably observed, never inferred from a missing
-rebase directory (#121). Protected backups are listed with their reason and are
+rebase directory (#188). Protected backups are listed with their reason and are
 never offered, by either form of `backup done`.
 
 `timber backup done` reviews eligible (usable, unprotected) backups one at a time,
@@ -729,11 +729,12 @@ indefinitely`, `kept until deleted` or `no retention policy`) and the command
 
 ### Setup
 
-`timber setup` (repository and global) adds a Backups section to the settings
-menu with two choices: retention and storage warning. Each offers inherit (the
-default when unset), the built-in default, a custom value validated as above
-with inline retry, and off (`false`). Before the retention choice, setup
-explains:
+`timber setup` (repository and global) adds two entries to the settings menu,
+Backup retention and Backup size warning, each showing its effective value and
+whether it is the built-in default or inherited from machine defaults. Each
+offers keep (when this scope sets it), use machine defaults or, when nothing is
+inherited, the built-in default (removing the key), a custom value validated as
+above with inline retry, and off (`false`). The retention question explains:
 
 > Recovery backups can contain copies of ignored files, including secrets such
 > as .env. Expired backups that are not protected by a rebase may be deleted
@@ -741,7 +742,8 @@ explains:
 > runs. Nothing runs in the background, so backups stay on disk until Timber
 > runs again or you delete them. Keep one with timber backup keep <id>.
 
-Values are written with the existing setup publication rules.
+Values are written with the existing setup publication rules. The app settings
+interface carries both keys over unchanged and does not edit them.
 
 ## Backups for app consumers (#168)
 

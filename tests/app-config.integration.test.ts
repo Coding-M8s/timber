@@ -158,6 +158,7 @@ test.each([
   ["an unsupported key", { ...draft, colour: "PRIVATE-VALUE" }, "colour is not supported"],
   ["a non-Atlassian Jira site", { ...draft, jira: { site_url: "https://PRIVATE-VALUE.example.com" } }, "jira.site_url is invalid"],
   ["an edited workflow", { ...draft, workflows: { review: { post_create: ["PRIVATE-VALUE"] } } }, "workflows cannot be changed here"],
+  ["an edited backup retention", { ...draft, backup_retention_days: 3 }, "backup_retention_days cannot be changed here"],
 ])("apply with %s names the field, prints no value, and changes nothing", async (_name, values, field) => {
   await withFixture(async fixture => {
     const source = 'base_branch = "trunk"\n\n[workflows.review]\npost_create = ["bun test"]\n';
@@ -233,10 +234,12 @@ test("workflow tables, arena presets and inherited machine defaults survive an a
       '[arena.agents.fast]', 'tool = "codex"', 'command = "codex"', 'args = []', '',
       '[workflows.review]', 'description = "Review"', 'post_create = ["bun test"]', '',
       '[workflows.review.agent]', 'command = "claude"', 'args = ["--review"]', '',
-    ].join("\n"));
+    ].join("\n").replace('worktree_dir = "../trees"', 'worktree_dir = "../trees"\nbackup_retention_days = false\nbackup_storage_warning = "1GiB"'));
     const before = await fixture.read();
-    // Omitting the tables and repeating them unchanged are both accepted.
-    const { workflows, arena, ...managed } = before.values;
+    // Omitting the tables and repeating them unchanged are both accepted. Backup settings are
+    // carried over too, so an app that does not know them can never turn automatic deletion back on.
+    const { workflows, arena, backup_retention_days, backup_storage_warning, ...managed } = before.values;
+    expect({ backup_retention_days, backup_storage_warning }).toEqual({ backup_retention_days: false, backup_storage_warning: "1GiB" });
     const omitted = await fixture.apply({ schemaVersion: 1, revision: before.revision, values: { ...managed, base_branch: "main" } });
     expect(omitted.record.config.result).toBe("saved");
     const repeated = await fixture.apply({ schemaVersion: 1, revision: omitted.record.config.revision,
@@ -245,6 +248,7 @@ test("workflow tables, arena presets and inherited machine defaults survive an a
     const after = await fixture.read();
     expect(after.values.workflows).toEqual(workflows);
     expect(after.values.arena).toEqual(arena);
+    expect(after.values).toMatchObject({ backup_retention_days: false, backup_storage_warning: "1GiB" });
     expect(after.values).toMatchObject({ base_branch: "release", worktree_dir: "../trees", editor: { command: "zed" } });
     expect(after.effective).toMatchObject({ remote: "upstream", workflows: { shared: { post_create: ["bun install"] }, review: { description: "Review" } } });
     // A key left out of a complete draft is removed from this scope and inherits again.

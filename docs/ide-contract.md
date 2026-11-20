@@ -667,10 +667,11 @@ discovery succeeds. Branch on `config.result`:
 | `failed` | `failed` | 1 | Something else stopped the save, such as a held lock or a write error. |
 
 - `values` is the whole scope: a setting left out is removed from this file and
-  inherits again. The exceptions are `workflows` and `arena`, which this
-  interface does not edit. They are carried over from the saved file; a draft
-  may omit them or repeat them unchanged, and a draft that changes them is
-  `invalid`. Comments in a hand-written file are not kept, as with setup.
+  inherits again. The exceptions are `workflows`, `arena`,
+  `backup_retention_days` and `backup_storage_warning`, which this interface does
+  not edit (backup settings are changed with `timber setup`). They are carried
+  over from the saved file; a draft may omit them or repeat them unchanged, and a
+  draft that changes them is `invalid`. Comments in a hand-written file are not kept, as with setup.
 - `invalidFields` and `diagnostic` name fields and never repeat a value. With
   any result other than `saved`, the settings file, the Git exclusion file and
   the credential stores are as they were, unless `diagnostic` reports an
