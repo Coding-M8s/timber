@@ -149,7 +149,50 @@ async function launcher(
     const kept = previous ? previous.wait_for_setup : undefined;
     const enabled = await confirm(prompt, "Start this assistant automatically when opening a workspace?", false);
     const wait_for_setup = orca ? await confirm(prompt, waitQuestion, kept ?? false) : kept;
+    // Selecting a command, even the same preset, drops any --resolve handoff: its argument grammar may differ.
     file.agent = { ...command, enabled, ...(wait_for_setup === undefined ? {} : { wait_for_setup }) };
+    return;
+  }
+}
+
+/**
+ * Optional `timber rebase --resolve` handoff for an [agent] table in this file.
+ * The tool is never guessed from the executable; skipping leaves --resolve refusing.
+ */
+async function configureResolve(file: ConfigFile, target: SetupTarget, prompt: SetupPrompt, io: CommandIO): Promise<void> {
+  const agent = file.agent;
+  if (!agent) {
+    io.stderr(file.agent === undefined && target.scope === "repository" && target.scopes.global.values.agent
+      ? "The coding assistant comes from machine defaults. Set its --resolve handoff with timber setup --global.\n"
+      : "Configure a coding assistant first; --resolve uses it.\n");
+    return;
+  }
+  const current = agent.resolve_handoff;
+  const handoffs = [
+    option("codex", "Codex: task given as its first prompt"),
+    option("claude", "Claude: task given as its first prompt"),
+    option("cursor", "Cursor: task given as its first prompt"),
+    option("wrapper", "Custom wrapper that reads the TIMBER_TASK_FILE environment variable"),
+  ];
+  const selected = await choose(prompt,
+    "Use this assistant for timber rebase --resolve?\nChoose how Timber hands it the conflict task. It only runs when you pass --resolve.",
+    [...(current ? [option("keep", `Keep current (${current})`)] : []), ...handoffs, option("none", "Do not use it for --resolve")]);
+  const { resolve_handoff: _handoff, resolve_instructions: previous, ...rest } = agent;
+  if (selected === "none") { file.agent = rest; return; }
+  const handoff = selected === "keep" ? current! : selected as NonNullable<typeof current>;
+  if (previous !== undefined) {
+    const kept = await choose(prompt, "Extra instructions for --resolve are set.", [
+      option("keep", "Keep them"), option("edit", "Replace them"), option("remove", "Remove them"),
+    ]);
+    if (kept !== "edit") {
+      file.agent = { ...rest, resolve_handoff: handoff, ...(kept === "keep" ? { resolve_instructions: previous } : {}) };
+      return;
+    }
+  }
+  while (true) {
+    const extra = (await text(prompt, "Extra instructions for the assistant during --resolve (Enter for none)")).trim();
+    if (extra.length > 4000 || extra.includes("\0")) { io.stderr("Use at most 4000 characters of plain text.\n"); continue; }
+    file.agent = { ...rest, resolve_handoff: handoff, ...(extra ? { resolve_instructions: extra } : {}) };
     return;
   }
 }
@@ -266,7 +309,7 @@ async function hookSettings(stage: "post_create" | "pre_delete", file: ConfigFil
 }
 
 /** Edit only one section, using current draft values for keep/reset choices. */
-export type SetupSection = keyof ConfigFile | "pre_delete";
+export type SetupSection = keyof ConfigFile | "pre_delete" | "rebase_resolve";
 
 export async function editSetupSection(section: SetupSection, file: ConfigFile, target: SetupTarget,
   prompt: SetupPrompt, io: CommandIO, available: (command: string) => Promise<boolean>, jira?: JiraSetupSession): Promise<void> {
@@ -280,6 +323,7 @@ export async function editSetupSection(section: SetupSection, file: ConfigFile, 
     case "remote": await scalar(section, target.repository?.remotes.map(remote => remote.name) ?? [], file, current, prompt, io); break;
     case "worktree_dir": await scalar(section, [], file, current, prompt, io); break;
     case "backup_retention_days": case "backup_storage_warning": await editBackupSetting(section, file, current, prompt, io); break;
+    case "rebase_resolve": await configureResolve(file, current, prompt, io); break;
   }
 }
 

@@ -16,6 +16,11 @@ import { resolveOpenTarget } from "./open-target";
 
 const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
+export interface RebaseRunOptions {
+  /** `--resolve`: report a verified conflict pause without manual guidance; the caller continues. */
+  assisted?: boolean;
+}
+
 export type RebaseResult = "rebased" | "up-to-date" | "conflicts" | "refused" | "failed";
 
 /** Observed facts for the machine record; filled in as each one is verified. */
@@ -45,7 +50,7 @@ function operationFailure<E extends Error>(error: E): E {
   return error;
 }
 
-const environment = {
+export const rebaseGitEnvironment = {
   GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "false", SSH_ASKPASS: "false", GCM_INTERACTIVE: "Never",
   GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true", GIT_OPTIONAL_LOCKS: "0",
 };
@@ -53,7 +58,7 @@ const environment = {
 async function git(cwd: string, args: readonly string[], timeout?: number) {
   try {
     return await execa("git", [...args], {
-      cwd, stdin: "ignore", reject: false, env: environment, stripFinalNewline: false,
+      cwd, stdin: "ignore", reject: false, env: rebaseGitEnvironment, stripFinalNewline: false,
       ...(timeout === undefined ? {} : { timeout }),
     });
   } catch {
@@ -67,7 +72,44 @@ async function output(cwd: string, args: readonly string[], timeout?: number): P
   return result.stdout.replace(/\n$/, "");
 }
 
-function recovery(path: string): string {
+export interface OwnedGitResult {
+  exitCode: number | undefined;
+  signal: NodeJS.Signals | undefined;
+  /** Signal Timber received and forwarded while Git ran. */
+  requestedSignal: NodeJS.Signals | null;
+}
+
+/**
+ * Await one owned noninteractive Git process group with closed stdin and disabled
+ * editors. Cancellation signals that group, including Git hook descendants.
+ * Throws only when Git could not be started or awaited.
+ */
+export async function runOwnedGit(cwd: string, args: readonly string[]): Promise<OwnedGitResult> {
+  let requestedSignal: NodeJS.Signals | null = null;
+  const child = execa("git", [...args], {
+    cwd, stdin: "ignore", reject: false, env: rebaseGitEnvironment, detached: process.platform !== "win32",
+  });
+  // POSIX owns a process group. Windows shares the console for Ctrl-C and
+  // uses an explicitly cancelled child tree for process-directed shutdown.
+  let cancellation: Promise<void> | undefined;
+  const forward = (signal: NodeJS.Signals) => {
+    requestedSignal = signal;
+    if (process.platform === "win32" && signal === "SIGINT" && process.stdin.isTTY) return;
+    cancellation ??= cancelGitTree(child.pid, signal).catch(() => {});
+  };
+  const interrupt = () => forward("SIGINT");
+  const terminate = () => forward("SIGTERM");
+  process.on("SIGINT", interrupt); process.on("SIGTERM", terminate);
+  try {
+    const result = await child;
+    return { exitCode: result.exitCode, signal: result.signal, requestedSignal };
+  } finally {
+    process.removeListener("SIGINT", interrupt); process.removeListener("SIGTERM", terminate); await cancellation;
+  }
+}
+
+/** Native continue/abort guidance for a paused rebase in the given worktree. */
+export function recovery(path: string): string {
   const quoted = shellQuoteForDisplay(path);
   return `Inspect Git state. Resolve and stage conflicts, then run: git -C ${quoted} rebase --continue\nContinuing can reveal conflicts in later commits. To restore the original branch state explicitly: git -C ${quoted} rebase --abort`;
 }
@@ -174,9 +216,10 @@ async function localBase(cwd: string, ref: string): Promise<string> {
 export async function rebaseWorktree(
   repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
   explicitBase: string | undefined, io: CommandIO, report: RebaseReport = createRebaseReport(),
+  options: RebaseRunOptions = {},
 ): Promise<number> {
   try {
-    return await rebaseSelected(repository, selected, config, explicitBase, io, report);
+    return await rebaseSelected(repository, selected, config, explicitBase, io, report, options);
   } catch (error) {
     // A paused rebase stays "conflicts" even when saving its base failed.
     if (report.result === "refused" && error instanceof Error && operationFailures.has(error)) report.result = "failed";
@@ -186,7 +229,7 @@ export async function rebaseWorktree(
 
 async function rebaseSelected(
   repository: RepositoryContext, selected: Worktree, config: RepositoryConfig,
-  explicitBase: string | undefined, io: CommandIO, report: RebaseReport,
+  explicitBase: string | undefined, io: CommandIO, report: RebaseReport, options: RebaseRunOptions,
 ): Promise<number> {
   const phase = new WorktreeReadPhase(repository);
   await preflight(repository, selected, undefined, phase);
@@ -248,30 +291,15 @@ async function rebaseSelected(
   await preserveIgnored(tree, commit);
   await preflight(repository, selected, gitDirectory);
   await revalidateLocal();
-  let result;
-  let requestedSignal: NodeJS.Signals | null = null;
+  let result: OwnedGitResult;
   try {
-    const child = execa("git", ["-c", "rebase.autoStash=false", "-c", "rebase.updateRefs=false",
+    result = await runOwnedGit(selected.path, ["-c", "rebase.autoStash=false", "-c", "rebase.updateRefs=false",
       "-c", "rebase.autoSquash=false", "-c", "rebase.abbreviateCommands=false",
-      "rebase", "--no-autostash", "--no-update-refs", "--no-autosquash", "--merge", "--no-rebase-merges", "--empty=keep", "--no-fork-point", "--", commit], {
-      cwd: selected.path, stdin: "ignore", reject: false, env: environment, detached: process.platform !== "win32",
-    });
-    // POSIX owns a process group. Windows shares the console for Ctrl-C and
-    // uses an explicitly cancelled child tree for process-directed shutdown.
-    let cancellation: Promise<void> | undefined;
-    const forward = (signal: NodeJS.Signals) => {
-      requestedSignal = signal;
-      if (process.platform === "win32" && signal === "SIGINT" && process.stdin.isTTY) return;
-      cancellation ??= cancelGitTree(child.pid, signal).catch(() => {});
-    };
-    const interrupt = () => forward("SIGINT");
-    const terminate = () => forward("SIGTERM");
-    process.on("SIGINT", interrupt); process.on("SIGTERM", terminate);
-    try { result = await child; }
-    finally { process.removeListener("SIGINT", interrupt); process.removeListener("SIGTERM", terminate); await cancellation; }
+      "rebase", "--no-autostash", "--no-update-refs", "--no-autosquash", "--merge", "--no-rebase-merges", "--empty=keep", "--no-fork-point", "--", commit]);
   } catch {
     throw operationFailure(new FormattedError(`Git rebase could not start or finish. Original branch tip: ${selected.head}. Workspace retained; no automatic abort/reset.\n${recovery(selected.path)}`));
   }
+  const requestedSignal = result.requestedSignal;
   if (result.exitCode === 0) { await saveBase(false); report.result = "rebased"; io.stdout("Rebase completed (or already up to date).\n"); return 0; }
   let conflicts: string[] = [];
   try {
@@ -279,10 +307,18 @@ async function rebaseSelected(
     if (unmerged.exitCode === 0) conflicts = unmerged.stdout.split("\0").filter(Boolean);
   } catch { /* Recovery guidance still applies when inspection fails. */ }
   const status = childExitCode(result.exitCode, result.signal ?? (process.platform === "win32" ? requestedSignal : null));
-  io.stderr(`error: ${conflicts.length ? "Rebase paused with conflicts" : result.signal ? `Rebase interrupted by ${result.signal}` : "Git rebase failed (hook rejection or another non-conflict error)"}. Workspace retained at ${safeDisplay(selected.path)}; branch ${safeDisplay(selected.branch!)}, base ${safeDisplay(label)}, original tip ${selected.head}.\n`);
-  for (const path of conflicts) io.stderr(`  ${jsonDisplay(path)}\n`);
   let operation: string | null;
   try { operation = await gitOperation(selected.path); } catch { operation = "unknown"; }
+  if (options.assisted && conflicts.length && operation === "rebase" && !result.signal) {
+    // The caller hands a verified pause to the assistant and owns recovery guidance.
+    report.result = "conflicts";
+    report.conflicts = conflicts;
+    await saveBase(true);
+    io.stdout(`Rebase paused with conflicts:\n${conflicts.map(path => `  ${jsonDisplay(path)}\n`).join("")}`);
+    return status || 1;
+  }
+  io.stderr(`error: ${conflicts.length ? "Rebase paused with conflicts" : result.signal ? `Rebase interrupted by ${result.signal}` : "Git rebase failed (hook rejection or another non-conflict error)"}. Workspace retained at ${safeDisplay(selected.path)}; branch ${safeDisplay(selected.branch!)}, base ${safeDisplay(label)}, original tip ${selected.head}.\n`);
+  for (const path of conflicts) io.stderr(`  ${jsonDisplay(path)}\n`);
   // Only a verified pause is "conflicts"; anything else nonzero is a failure.
   report.result = "failed";
   if (conflicts.length && operation === "rebase" && !result.signal) {

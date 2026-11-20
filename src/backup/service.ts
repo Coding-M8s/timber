@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { lstat, realpath, rename, rm, stat } from "node:fs/promises";
+import { lstat, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execaSync } from "execa";
 import { backupGit as git, backupGitEnvironment as environment, disabledHooks } from "./git";
@@ -38,8 +38,24 @@ function uninspected(tree: WorktreeInventory): Worktree {
   return { ...tree, pathExists: true, status: { kind: "unknown", reason: "Not inspected" } };
 }
 
+async function assertPausedRebase(tree: WorktreeInventory, branch: string): Promise<void> {
+  const operation = await gitOperation(tree.path);
+  if (operation !== "rebase") {
+    throw new Error(`Expected a paused rebase at ${safeDisplay(tree.path)}; no backup was created.`);
+  }
+  const headName = await git(tree.path, ["rev-parse", "--git-path", "rebase-merge/head-name"]);
+  let name: string;
+  try { name = (await readFile(resolve(tree.path, headName.stdout.replace(/\n$/u, "")), "utf8")).replace(/\n$/u, ""); }
+  catch { throw new Error("Cannot identify the paused rebase's branch; no backup was created."); }
+  if (headName.exitCode !== 0 || name !== `refs/heads/${branch}`) {
+    throw new Error("The paused rebase belongs to another branch; no backup was created.");
+  }
+}
+
 /** Fresh identity and idle-state checks for the selected source worktree. */
-async function preflight(repository: RepositoryContext, selected: Pick<Worktree, "path" | "branch" | "head">): Promise<Source> {
+async function preflight(
+  repository: RepositoryContext, selected: Pick<Worktree, "path" | "branch" | "head">, pausedRebaseBranch?: string,
+): Promise<Source> {
   if (!isAbsolute(selected.path)) throw new Error("Backup requires an absolute registered worktree path.");
   const trees = await listWorktreeInventory(repository);
   const matches = trees.filter(tree => samePath(tree.path, selected.path));
@@ -49,9 +65,12 @@ async function preflight(repository: RepositoryContext, selected: Pick<Worktree,
     throw new Error("Selected worktree is missing, stale or locked; repair it explicitly before backing it up.");
   }
   await assertWorktreeIdentity(repository, uninspected(tree));
-  const operation = await gitOperation(tree.path);
-  if (operation !== null) {
-    throw new Error(`An existing ${operation} operation is in progress at ${safeDisplay(tree.path)}; finish or abort it explicitly before backing up.`);
+  if (pausedRebaseBranch !== undefined) await assertPausedRebase(tree, pausedRebaseBranch);
+  else {
+    const operation = await gitOperation(tree.path);
+    if (operation !== null) {
+      throw new Error(`An existing ${operation} operation is in progress at ${safeDisplay(tree.path)}; finish or abort it explicitly before backing up.`);
+    }
   }
   if (tree.head === null) throw new Error("Cannot back up an unborn worktree; create a first commit before retrying.");
   if (tree.branch !== selected.branch || tree.head !== selected.head) {
@@ -90,6 +109,14 @@ export interface BackupCreateOptions {
   /** Present only when interactive; without it a storage warning refuses. */
   ask?: TerminalTextPrompt | undefined;
   now?: () => Date;
+  /**
+   * Used only by `timber rebase --resolve`: accept a paused merge-backend rebase of
+   * this branch (detached HEAD) and record the branch. The index and rebase state
+   * are still not captured.
+   */
+  pausedRebaseBranch?: string;
+  /** Used only by `timber rebase --resolve`: receives the published backup ID. */
+  report?: { id: string | null };
 }
 
 const defaultCreateOptions: BackupCreateOptions = { keep: false, settings: { retentionDays: 7, warningBytes: 5 * 1024 ** 3 } };
@@ -156,7 +183,8 @@ export async function createBackup(
   repository: RepositoryContext, selected: Worktree, io: CommandIO, options: BackupCreateOptions = defaultCreateOptions,
 ): Promise<number> {
   const now = options.now ?? (() => new Date());
-  const source = await preflight(repository, selected);
+  const paused = options.pausedRebaseBranch;
+  const source = await preflight(repository, selected, paused);
   // Expired, unprotected backups go first; a partial deletion is reported and makes the run exit 1.
   let cleanup;
   try { cleanup = await cleanupExpiredBackups(repository, io, now(), { quietWhenNone: true }); }
@@ -194,14 +222,14 @@ export async function createBackup(
     if (!sameListing(before, after)) {
       throw new SnapshotError("The worktree changed while it was being backed up; no backup was created. Stop editing the worktree and retry.");
     }
-    const recheck = await preflight(repository, source.tree);
+    const recheck = await preflight(repository, source.tree, paused);
     if (!samePath(recheck.gitDirectory, source.gitDirectory)) throw new Error("Selected worktree Git identity changed; no backup was created.");
     await verifyBlobs(working, manifest);
     const manifestText = JSON.stringify(manifest) + "\n";
     record = {
       version: 2, id, createdAt: now().toISOString(), commonGitDir,
       worktreePath: resolve(source.tree.path), worktreeGitDir: await realpath(source.gitDirectory),
-      branch: source.tree.branch, commit, ref, entries: manifest.length, bytes, manifestSha256: digest(manifestText),
+      branch: paused ?? source.tree.branch, commit, ref, entries: manifest.length, bytes, manifestSha256: digest(manifestText),
       origin: "manual", retentionDays: options.settings.retentionDays, keep: options.keep,
     };
     try {
@@ -219,6 +247,7 @@ export async function createBackup(
     try { await rename(working, published); }
     catch { throw new Error("Could not publish the backup; no backup was created."); }
     summary = { entries: manifest.length, bytes };
+    if (options.report) options.report.id = id;
   } catch (error) {
     await rm(working, { recursive: true, force: true }).catch(() => {});
     if (refCreated) await git(source.tree.path, ["update-ref", "-d", ref, commit]).catch(() => {});
@@ -231,7 +260,7 @@ export async function createBackup(
   io.stdout([
     `Backup created: ${id}`,
     `Worktree: ${safeDisplay(source.tree.path)}`,
-    `Branch: ${source.tree.branch === null ? "detached HEAD" : safeDisplay(source.tree.branch)}`,
+    `Branch: ${paused !== undefined ? `${safeDisplay(paused)} (paused rebase)` : source.tree.branch === null ? "detached HEAD" : safeDisplay(source.tree.branch)}`,
     `Commit: ${commit}`,
     `Entries: ${summary.entries}, ${formatBytes(summary.bytes)}`,
     `Stored privately in: ${safeDisplay(published)}`,

@@ -150,14 +150,20 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
 
   program.command("rebase <branch-or-worktree>")
-    .description("Rebase an existing worktree onto its saved base; leave conflicts for manual resolution")
+    .description("Rebase an existing worktree onto its saved base; leave conflicts for manual resolution, or --resolve with your assistant")
     .option("--base <ref>", "Override and remember the base (remote/branch, plain remote branch, or refs/heads/local-branch)")
+    .option("--resolve", "Ask the configured [agent] to resolve conflicts; attaches to an already-paused rebase")
+    .option("--resolve-note <text>", "Extra instructions for the assistant in this run (requires --resolve)")
     .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
-    .addHelpText("after", "\nRewrites commit IDs, including published commits. No automatic stash, abort, push or tool launch.\nResolve and stage conflicts, then use native git rebase --continue or --abort in the target worktree.\nRemote bases are fetched; local bases are used as-is and must be up to date.")
-    .action(async (input: string, options: { base?: string; resultFile?: string }) => {
+    .addHelpText("after", "\nRewrites commit IDs, including published commits. No automatic stash, abort, push or tool launch.\nResolve and stage conflicts, then use native git rebase --continue or --abort in the target worktree.\nRemote bases are fetched; local bases are used as-is and must be up to date.\nWith --resolve, Timber backs up the paused worktree, then runs the assistant in this terminal.\nIt asks before continuing a staged rebase. The assistant's limits are instructed, not enforced.")
+    .action(async (input: string, options: { base?: string; resolve?: boolean; resolveNote?: string; resultFile?: string }) => {
       const rebase = handlers.rebase;
       if (!rebase) throw new Error("Rebase handler is unavailable in this embedding.");
-      const normalized = options.base === undefined ? {} : { base: options.base };
+      const normalized = {
+        ...(options.base === undefined ? {} : { base: options.base }),
+        ...(options.resolve === true ? { resolve: true } : {}),
+        ...(options.resolveNote === undefined ? {} : { resolveNote: options.resolveNote }),
+      };
       onExitCode(options.resultFile === undefined
         ? await rebase(input, normalized, context)
         : await runMachineCommand("rebase", context, machineContext => rebase(input, normalized, machineContext), options.resultFile));

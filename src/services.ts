@@ -1,4 +1,3 @@
-import type { BackupCreateOptions } from "./backup/service";
 import type { WorktreeReadPhase } from "./git/worktree-read-phase";
 import type { AppHandoff } from "./app-handoff";
 import type { MachineReporter } from "./machine";
@@ -12,11 +11,11 @@ import type { BaseAssociationRead } from "./git/base-metadata";
 import type { NewBranchInspection } from "./git/new-collision";
 import type { IssueLink, IssueLinkRead, IssueLinkWrite } from "./git/issue-link";
 import type { BackupListRecord } from "./backup/lifecycle";
-import type { RebaseReport } from "./git/rebase";
+import type { RebaseReport, RebaseRunOptions } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
 import type { PullRequestOptions, PullRequestReport } from "./github/pull-request";
 import type { TerminalChooser, TerminalTextPrompt } from "./selection";
-import type { BackupRestoreReport } from "./backup/service";
+import type { BackupCreateOptions, BackupRestoreReport } from "./backup/service";
 import type { GithubRepository } from "./github/repository";
 import type { LinearTicket } from "./linear/client";
 import type { GithubTicket } from "./github/client";
@@ -67,7 +66,7 @@ export interface CommandServices {
   writeIssueLink(repository: RepositoryContext, worktree: Worktree, link: IssueLink, options?: { replace?: boolean }): Promise<IssueLinkWrite>;
   /** Select a saved/explicit base, fetch remote bases and rebase only a verified, clean registered worktree. */
   rebaseWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
-    explicitBase: string | undefined, io: CommandIO, report?: RebaseReport): Promise<number>;
+    explicitBase: string | undefined, io: CommandIO, report?: RebaseReport, options?: RebaseRunOptions): Promise<number>;
   /** Push a verified registered worktree's branch under its own name; never forces or prompts. */
   publishWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     io: CommandIO, report?: PublishReport): Promise<number>;
@@ -141,6 +140,14 @@ export interface CommandContext {
   appHandoff?: AppHandoff;
 }
 
+export interface RebaseOptions {
+  base?: string;
+  /** Explicit per-invocation request for AI conflict assistance. */
+  resolve?: boolean;
+  /** Extra instructions for this run; requires `resolve`. */
+  resolveNote?: string;
+}
+
 export interface NewOptions {
   remote?: string;
   allowClosed?: boolean;
@@ -171,7 +178,7 @@ export interface CommandHandlers {
   /** Optional for existing embedders; production entry point wires updates. */
   update?(options: { check?: boolean; version?: string }, context: CommandContext): Promise<number>;
   updateCheck?(context: CommandContext): Promise<number>;
-  rebase?(input: string, options: { base?: string }, context: CommandContext): Promise<number>;
+  rebase?(input: string, options: RebaseOptions, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires publishing. */
   publish?(input: string, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires pull requests. */

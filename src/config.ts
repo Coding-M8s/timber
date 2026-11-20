@@ -24,6 +24,9 @@ const editorCommandSchema = executableSchema.extend({ integration: z.literal("or
 const agentCommandSchema = executableSchema.extend({ wait_for_setup: z.boolean().optional() });
 const editorSchema = editorCommandSchema.extend({ enabled: z.boolean().default(false) });
 
+/** Extra text appended to the built-in `rebase --resolve` task. */
+export const resolveInstructionsSchema = z.string().trim().min(1).max(4000).refine(value => !value.includes("\0"));
+
 const hookStepsSchema = z.array(z.string().refine(value => value.trim().length > 0 && !value.includes("\0")));
 const workflowSchema = z.strictObject({
   description: z.string().trim().min(1).optional(),
@@ -82,7 +85,12 @@ export const configFileSchema = z.strictObject({
   workflows: z.union([z.literal(false), z.record(workflowNameSchema,
     z.union([z.literal(false), workflowSchema]))]).optional(),
   editor: z.union([z.literal(false), editorSchema]).optional(),
-  agent: z.union([z.literal(false), agentCommandSchema.extend({ enabled: z.boolean().default(false) })]).optional(),
+  agent: z.union([z.literal(false), agentCommandSchema.extend({
+    enabled: z.boolean().default(false),
+    // How `timber rebase --resolve` hands its task to this command; never guessed.
+    resolve_handoff: z.enum(["codex", "claude", "cursor", "wrapper"]).optional(),
+    resolve_instructions: resolveInstructionsSchema.optional(),
+  })]).optional(),
   jira: z.union([z.literal(false), z.strictObject({
     site_url: jiraSiteSchema,
     cloud_id: z.uuid().optional(),
@@ -163,6 +171,15 @@ function normalizedAgent<T extends { wait_for_setup?: boolean | undefined }>(val
   return { ...command, ...(wait_for_setup === undefined ? {} : { waitForSetup: wait_for_setup }) };
 }
 
+function normalizedTopLevelAgent(value: Exclude<NonNullable<ConfigFile["agent"]>, false>) {
+  const { resolve_handoff, resolve_instructions, ...command } = value;
+  return {
+    ...normalizedAgent(command),
+    ...(resolve_handoff === undefined ? {} : { resolveHandoff: resolve_handoff }),
+    ...(resolve_instructions === undefined ? {} : { resolveInstructions: resolve_instructions }),
+  };
+}
+
 /**
  * File-shaped settings after inheritance. Repository keys replace machine defaults,
  * workflow and arena tables merge by name, and everything switched off is dropped.
@@ -230,7 +247,7 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
     remote: config.remote ?? null,
     worktreeDir: config.worktree_dir === undefined ? null : resolve(primaryRoot, config.worktree_dir),
     editor: config.editor || null,
-    agent: config.agent ? normalizedAgent(config.agent) : null,
+    agent: config.agent ? normalizedTopLevelAgent(config.agent) : null,
     ...(config.workflows === undefined ? {} : { workflows }),
     ...(config.hooks ? { hooks: { postCreate: config.hooks.post_create,
       ...(config.hooks.pre_delete === undefined ? {} : { preDelete: config.hooks.pre_delete }) } } : {}),

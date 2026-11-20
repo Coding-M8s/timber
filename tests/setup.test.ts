@@ -506,3 +506,31 @@ test("keeping an inherited setup dependency leaves future global agent changes i
   await editSetupSection("agent", file, scoped, scripted(["inherit", true]), io().io, async () => true);
   expect(file).not.toHaveProperty("agent");
 });
+
+test("rebase --resolve section sets, keeps and clears the handoff on this scope's assistant", async () => {
+  const file: ConfigFile = { agent: { command: "claude", args: ["--flag"], enabled: false } };
+  await editSetupSection("rebase_resolve", file, target(file), scripted(["claude", "  Run tests first.  "]), io().io, async () => true);
+  expect(file.agent).toEqual({ command: "claude", args: ["--flag"], enabled: false, resolve_handoff: "claude", resolve_instructions: "Run tests first." });
+  expect(parseConfigSource(renderConfig(file), "saved.toml").agent).toEqual(file.agent);
+  await editSetupSection("rebase_resolve", file, target(file), scripted(["keep", "remove"]), io().io, async () => true);
+  expect(file.agent).toEqual({ command: "claude", args: ["--flag"], enabled: false, resolve_handoff: "claude" });
+  await editSetupSection("rebase_resolve", file, target(file), scripted(["codex", "Kept? no"]), io().io, async () => true);
+  expect(file.agent).toEqual({ command: "claude", args: ["--flag"], enabled: false, resolve_handoff: "codex", resolve_instructions: "Kept? no" });
+  await editSetupSection("rebase_resolve", file, target(file), scripted(["keep", "edit", ""]), io().io, async () => true);
+  expect(file.agent).toEqual({ command: "claude", args: ["--flag"], enabled: false, resolve_handoff: "codex" });
+  await editSetupSection("rebase_resolve", file, target(file), scripted(["none"]), io().io, async () => true);
+  expect(file.agent).toEqual({ command: "claude", args: ["--flag"], enabled: false });
+});
+
+test("rebase --resolve section needs an assistant in the edited scope and reselecting the assistant drops the handoff", async () => {
+  const capture = io();
+  const inherited: ConfigFile = {};
+  const scoped = target(inherited);
+  scoped.scopes.global.values = { agent: { command: "codex", args: [], enabled: false } };
+  await editSetupSection("rebase_resolve", inherited, scoped, scripted([]), capture.io, async () => true);
+  expect(inherited).toEqual({});
+  expect(capture.output()).toContain("timber setup --global");
+  const file: ConfigFile = { agent: { command: "claude", args: [], enabled: false, resolve_handoff: "claude" } };
+  await editSetupSection("agent", file, target(file), scripted(["codex", false]), io().io, async () => true);
+  expect(file.agent).toEqual({ command: "codex", args: [], enabled: false });
+});

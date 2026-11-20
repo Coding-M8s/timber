@@ -82,8 +82,15 @@ export interface EditorCommand extends ExecutableCommand {
   integration?: "orca" | undefined;
 }
 
+/** Task handoff grammar for `timber rebase --resolve`; never inferred from the executable. */
+export type ResolveHandoff = "codex" | "claude" | "cursor" | "wrapper";
+
 export interface AgentConfig extends AgentCommand {
   enabled: boolean;
+  /** Absent means `rebase --resolve` refuses before any Git change. */
+  resolveHandoff?: ResolveHandoff;
+  /** Appended after the built-in resolve task. */
+  resolveInstructions?: string;
 }
 
 export interface EditorConfig extends EditorCommand {
