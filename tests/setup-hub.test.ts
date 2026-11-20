@@ -183,3 +183,11 @@ test("backup sections can turn retention and the warning off, keep values and in
   const inherited = await runSetupHub(destination, scripted(["backup_retention_days", "inherit", "save"]), io().io, async () => true);
   expect(inherited).toEqual({});
 });
+
+test("hub labels name the VS Code terminal integration and its setup dependency", () => {
+  const file = { editor: { command: "code", args: ["--new-window"], enabled: true, integration: "vscode" as const },
+    agent: { command: "claude", args: [], enabled: true, wait_for_setup: true } };
+  const destination = target(file);
+  expect(sectionStatus("editor", file, destination)).toContain("VS Code terminals");
+  expect(sectionStatus("agent", file, destination)).toContain("waits for setup: yes");
+});

@@ -11,41 +11,50 @@ function deferred<T>() {
   const promise = new Promise<T>(yes => { resolve = yes; });
   return { promise, resolve };
 }
-const input = (waitForSetup = false): EditorTerminalLaunch => ({
+const editors = {
+  orca: { command: "orca-ide", args: [], enabled: true, integration: "orca" },
+  vscode: { command: "code", args: ["--new-window"], enabled: true, integration: "vscode" },
+} as const;
+const input = (waitForSetup = false, integration: keyof typeof editors = "orca"): EditorTerminalLaunch => ({
   repository: repositoryFixture(), worktree: worktreeFixture(),
   config: { baseBranch: null, remote: null, worktreeDir: null,
-    editor: { command: "orca-ide", args: [], enabled: true, integration: "orca" }, agent: null,
+    editor: { ...editors[integration], args: [...editors[integration].args] }, agent: null,
     hooks: { postCreate: ["ordinary"] } },
   agent: { command: "claude", args: ["literal prompt"], waitForSetup }, setup: true,
   workflowName: "review", workflowScripts: ["workflow"],
 });
 const io = { stdout: () => {}, stderr: () => {} };
 
-function harness(waitForSetup = false, agentFailure = false) {
+function harness(waitForSetup = false, agentFailure = false, integration: keyof typeof editors = "orca") {
   const completed = deferred<TaskResult>();
   const started = deferred<void>();
   const events: string[] = [];
   const payloads: TerminalTask[] = [];
+  const argvs: (readonly string[] | undefined)[] = [];
+  const output: string[] = [];
   let count = 0;
   const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
     ready: async () => {
       events.push("ready");
-      return { create: async (title: string) => {
+      return { create: async (title: string, _bootstrap?: string, argv?: readonly string[]) => {
         events.push(title);
+        argvs.push(argv);
         if (agentFailure && title === "Timber agent") throw new Error("handoff uncertain");
         return `term_${++count}`;
       }, select: async () => { events.push("select"); } };
     },
     request: async (task): Promise<TerminalRequest> => {
       payloads.push(task);
-      return { directory: "/tmp/generated", bootstrap: "/tmp/generated/runtime", fence: async () => true,
+      return { directory: "/tmp/generated", bootstrap: "/tmp/generated/runtime __editor-task /tmp/generated",
+        argv: ["/tmp/generated/runtime", "__editor-task", "/tmp/generated"], fence: async () => true,
         waitStarted: async () => { events.push(`${task.kind}-started`); started.resolve(); },
         waitSetup: async () => completed.promise,
         cleanup: async () => { events.push(`${task.kind}-cleaned`); } };
     } });
   let finished = false;
-  const run = launch(input(waitForSetup), io).finally(() => { finished = true; });
-  return { run, events, payloads, completed, started, finished: () => finished };
+  const run = launch(input(waitForSetup, integration), { stdout: text => { output.push(text); }, stderr: () => {} })
+    .finally(() => { finished = true; });
+  return { run, events, payloads, argvs, output, completed, started, finished: () => finished };
 }
 
 test("parallel mode hands off agent before required setup completes and passes exact context", async () => {
@@ -102,7 +111,7 @@ test("explicit agent-only launch with setup dependency does not require setup", 
   const events: string[] = [];
   const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
     ready: async () => ({ create: async title => { events.push(title); return "term_agent"; }, select: async () => {} }),
-    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed", fence: async () => true,
+    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed", argv: ["fixed"], fence: async () => true,
       waitStarted: async () => { events.push(task.kind); },
       waitSetup: async () => { throw new Error("must not run setup"); }, cleanup: async () => {} }) });
   await launch({ ...input(true), setup: false }, io);
@@ -112,7 +121,7 @@ test("explicit agent-only launch with setup dependency does not require setup", 
 test("lost setup observation never suggests replay while its hook may still be running", async () => {
   const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
     ready: async () => ({ create: async () => "term_setup", select: async () => {} }),
-    request: async () => ({ directory: "/tmp/generated", bootstrap: "fixed", fence: async () => false,
+    request: async () => ({ directory: "/tmp/generated", bootstrap: "fixed", argv: ["fixed"], fence: async () => false,
       waitStarted: async () => {}, waitSetup: async () => { throw new Error("Setup runner exited without completion"); },
       cleanup: async () => { throw new Error("uncertain request must be retained"); } }) });
   const error = await launch({ ...input(true), agent: null }, io).catch(e => e);
@@ -142,7 +151,7 @@ test("a refused terminal creation fences the request and reports a definitive re
   const events: string[] = [];
   const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
     ready: async () => ({ create: async () => { throw new Error("Orca refused permission."); }, select: async () => {} }),
-    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed",
+    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed", argv: ["fixed"],
       fence: async () => { events.push(`${task.kind}-fenced`); return true; },
       waitStarted: async () => { throw new Error("must not wait"); }, waitSetup: async () => { throw new Error("must not run"); },
       cleanup: async () => { events.push(`${task.kind}-cleaned`); } }) });
@@ -164,7 +173,7 @@ test.each(["setup", "agent"])("selection failure retains the known %s terminal a
       if (title === `Timber ${failed}`) { attempted.resolve(); throw new OrcaSelectionFailure(`term_${failed}`); }
       return "term_setup";
     }, select: async () => {} }),
-    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed",
+    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed", argv: ["fixed"],
       fence: async () => { events.push("fenced"); return true; },
       waitStarted: async () => { events.push(`${task.kind}-started`); },
       waitSetup: async () => setupDone.promise,
@@ -184,4 +193,35 @@ test.each(["setup", "agent"])("selection failure retains the known %s terminal a
   expect(error.message).not.toContain("timber open");
   expect(events).toContain("setup-cleaned");
   expect(events.filter(e => e === "Timber agent")).toHaveLength(failed === "agent" ? 1 : 0);
+});
+
+test("VS Code integration reuses the same lifecycle, passes literal argv and names VS Code", async () => {
+  const h = harness(true, false, "vscode");
+  await h.started.promise;
+  expect(h.events).not.toContain("Timber agent");
+  h.completed.resolve({ kind: "setup-complete" });
+  await h.run;
+  expect(h.events.filter(event => event.startsWith("Timber "))).toEqual(["Timber setup", "Timber agent"]);
+  expect(h.argvs).toEqual([
+    ["/tmp/generated/runtime", "__editor-task", "/tmp/generated"],
+    ["/tmp/generated/runtime", "__editor-task", "/tmp/generated"],
+  ]);
+  expect(h.output.join("")).toContain("Agent handed off to VS Code terminal term_2.");
+});
+
+test("VS Code readiness failure names VS Code and retries everything that was requested", async () => {
+  const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
+    ready: async () => { throw new Error("The Timber VS Code extension is not installed."); },
+    request: async () => { throw new Error("must not allocate"); } });
+  const error = await launch(input(false, "vscode"), io).catch(e => e);
+  expect(error.message).toContain("The Timber VS Code extension is not installed.");
+  expect(error.message).toContain("Retry with: timber open --editor --setup --agent --workflow review -- '/repo'");
+});
+
+test("an editor without an integration is refused before any session starts", async () => {
+  const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
+    ready: async () => { throw new Error("must not start"); } });
+  const plain = input();
+  plain.config = { ...plain.config, editor: { command: "code", args: [], enabled: true } };
+  await expect(launch(plain, io)).rejects.toThrow(/Orca or VS Code integration/);
 });

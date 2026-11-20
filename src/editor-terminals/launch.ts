@@ -1,12 +1,18 @@
 import { retryForDisplay, safeDisplay, workflowRetryFlag } from "../display";
 import type { CommandIO, EditorTerminalLaunch } from "../services";
 import { createOrcaSession, OrcaSelectionFailure } from "./orca";
+import { createVscodeSession } from "./vscode";
 import { createTerminalRequest, RunnerStartupFailure } from "./request";
 import type { SelfCommand, TerminalRequest } from "./request";
 import type { TerminalTask } from "./protocol";
 import type { EditorConfig, Worktree } from "../types";
 
-type Session = Pick<Awaited<ReturnType<typeof createOrcaSession>>, "create" | "select">;
+interface Session {
+  /** `argv` carries the bootstrap as literal arguments for editors that start a process without a shell. */
+  create(title: string, bootstrap?: string, argv?: readonly string[]): Promise<string>;
+  select(): Promise<void>;
+}
+const labels = { orca: "Orca", vscode: "VS Code" } as const;
 interface Dependencies {
   self: SelfCommand;
   ready?: (editor: EditorConfig, worktree: Worktree) => Promise<Session>;
@@ -17,23 +23,26 @@ function retryCommand(path: string, flags: string) {
   return retryForDisplay(path, `timber open ${flags} -- '${path.replaceAll("'", "'\\''")}'`, flags);
 }
 
-/** Agent lifetime belongs to Orca; await only setup and startup. */
+/** Agent lifetime belongs to the editor; await only setup and startup. */
 export function createEditorTerminalLauncher(dependencies: Dependencies) {
   return async (launch: EditorTerminalLaunch, io: CommandIO): Promise<void> => {
     const { config, worktree, repository, agent } = launch;
-    if (config.editor?.enabled !== true || config.editor.integration !== "orca") {
-      throw new Error("Editor terminal launch requires an enabled Orca integration.");
+    const integration = config.editor?.enabled === true ? config.editor.integration : undefined;
+    if (integration === undefined) {
+      throw new Error("Editor terminal launch requires an enabled Orca or VS Code integration.");
     }
+    const label = labels[integration];
     const needsSetup = launch.setup && ((config.hooks?.postCreate.length ?? 0) + (launch.workflowScripts?.length ?? 0) > 0);
     // The workflow is not remembered, so every retry names it again.
     const retry = (path: string, flags: string) => retryCommand(path, flags + workflowRetryFlag(launch.workflowName));
     const retained = `Workspace retained at ${safeDisplay(worktree.path)}.`;
     const definitive = (flags: string) => `${retained} Retry with: ${retry(worktree.path, flags)}`;
     let session: Session;
-    try { session = await (dependencies.ready ?? createOrcaSession)(config.editor, worktree); }
+    const ready = dependencies.ready ?? (integration === "vscode" ? createVscodeSession : createOrcaSession);
+    try { session = await ready(config.editor!, worktree); }
     catch (error) {
       // Nothing has started, so one command repeats everything that was requested.
-      throw new Error(`${error instanceof Error ? error.message : "Orca is not ready."} ${definitive(
+      throw new Error(`${error instanceof Error ? error.message : `${label} is not ready.`} ${definitive(
         `--editor${needsSetup ? " --setup" : ""}${agent ? " --agent" : needsSetup ? " --no-agent" : ""}`)}`);
     }
     const context = { cwd: worktree.path, repositoryRoot: repository.primaryWorktreeRoot, branch: worktree.branch,
@@ -47,14 +56,14 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
       let handle: string | undefined;
       let creationError: unknown;
       let selectionError: OrcaSelectionFailure | undefined;
-      try { handle = await session.create(`Timber ${task.kind}`, request.bootstrap); }
+      try { handle = await session.create(`Timber ${task.kind}`, request.bootstrap, request.argv); }
       catch (error) {
         if (error instanceof OrcaSelectionFailure) {
           handle = error.handle;
           selectionError = error; // Terminal exists: observe its runner, never fence or recreate it.
         } else if (await request.fence()) {
-          await request.cleanup(); // A fenced request can never run, even from a terminal Orca queued late.
-          throw new Error(`${error instanceof Error ? error.message : "Orca terminal creation failed."} ${definitive(flags)}`);
+          await request.cleanup(); // A fenced request can never run, even from a terminal the editor queued late.
+          throw new Error(`${error instanceof Error ? error.message : `${label} terminal creation failed.`} ${definitive(flags)}`);
         } else creationError = error; // Runner already claimed it: observe, never replay.
       }
       if (handle) handles.set(request, handle);
@@ -65,9 +74,9 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
         const diagnostic = error instanceof Error ? error.message : "Editor runner startup failed.";
         throw new Error(`${diagnostic}${handle ? ` Terminal: ${handle}.` : ""} ${settled ? definitive(flags) : retained}`);
       }
-      if (creationError) errors.push("Orca terminal creation acknowledgement was uncertain; inspect the selected worktree terminals before retrying.");
+      if (creationError) errors.push(`${label} terminal creation acknowledgement was uncertain; inspect the selected worktree terminals before retrying.`);
       if (selectionError) errors.push(`${selectionError.message} ${retained}`);
-      if (task.kind === "agent" && !selectionError && !creationError) io.stdout(`Agent handed off to Orca${handle ? ` terminal ${handle}` : ""}.\n`);
+      if (task.kind === "agent" && !selectionError && !creationError) io.stdout(`Agent handed off to ${label}${handle ? ` terminal ${handle}` : ""}.\n`);
       return request;
     }
     let setup: TerminalRequest | undefined;
@@ -101,12 +110,12 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
       try {
         const request = await start({ ...context, kind: "agent", command: agent.command, args: [...agent.args] });
         await request.cleanup();
-      } catch (error) { errors.push(error instanceof Error ? error.message : "Agent handoff failed; inspect Orca before retrying."); }
+      } catch (error) { errors.push(error instanceof Error ? error.message : `Agent handoff failed; inspect ${label} before retrying.`); }
     }
     await finishSetup(); // Required even after an independent agent launch fails.
     if (!needsSetup && !agent) {
       try { await session.select(); }
-      catch (error) { errors.push(`${error instanceof Error ? error.message : "Could not select the Orca worktree."} ${retained}`); }
+      catch (error) { errors.push(`${error instanceof Error ? error.message : `Could not select the ${label} worktree.`} ${retained}`); }
     }
     if (errors.length) throw new Error(errors.join(" "));
   };

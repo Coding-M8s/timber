@@ -453,6 +453,26 @@ test("setup offers Orca terminals as an editor and asks whether the assistant wa
     editor: { integration: "orca" }, agent: { wait_for_setup: true } });
 });
 
+test("setup offers VS Code terminals with the Timber extension and asks whether the assistant waits for setup", async () => {
+  const confirms: string[] = [];
+  const labels: string[] = [];
+  const prompt = scripted(["vscodeTerminals", true, "claude", true, false, "none", false]);
+  const confirm = prompt.confirm;
+  prompt.confirm = async (message, current) => { confirms.push(message); return confirm(message, current); };
+  const select = prompt.select;
+  prompt.select = async (message, choices, defaultValue) => {
+    labels.push(...choices.map(choice => choice.label));
+    return select(message, choices, defaultValue);
+  };
+  const file = await questionnaire(target(), prompt, io().io, async () => true);
+  expect(file?.editor).toEqual({ command: "code", args: ["--new-window"], enabled: true, integration: "vscode" });
+  expect(file?.agent).toEqual({ command: "claude", args: [], enabled: true, wait_for_setup: false });
+  expect(labels).toContain("VS Code terminals (setup and assistant in VS Code; needs the Timber extension)");
+  expect(confirms[0]).toMatch(/VS Code terminals/);
+  expect(confirms[2]).toMatch(/wait for setup/i);
+  expect(parseConfigSource(renderConfig(file!), "saved.toml")).toMatchObject({ editor: { integration: "vscode" } });
+});
+
 test("the wait-for-setup question follows the effective Orca editor, including machine defaults and kept assistants", async () => {
   const inheritedOrca = target();
   inheritedOrca.scopes.global.values = { editor: { command: "orca-ide", args: [], enabled: true, integration: "orca" } };

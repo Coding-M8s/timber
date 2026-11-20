@@ -170,6 +170,36 @@ test.each(["new", "open"] as const)(
 );
 
 
+const vscodeTerminals: RepositoryConfig = { ...ordinaryConfig,
+  editor: { command: "code", args: ["--new-window"], enabled: true, integration: "vscode" } };
+
+test.each(["new", "open"] as const)("%s with the VS Code integration hands setup and agent to editor terminals", async command => {
+  const h = harness(false, vscodeTerminals);
+  const handler = command === "new" ? createNewHandler(h.services) : createOpenHandler(h.services);
+  await handler("feature", {}, ctx);
+  expect(h.calls).toEqual(["create", "editor-terminals"]);
+  expect(h.launches[0]).toMatchObject({ setup: true, config: { editor: { integration: "vscode" } },
+    agent: { command: "claude", waitForSetup: true } });
+});
+
+test.each(["new", "open"] as const)("%s noninteractive VS Code integration hosts the agent without foreground fallback", async command => {
+  const h = harness(false, vscodeTerminals);
+  h.services.launchEditorTerminals = async launch => {
+    expect(launch.agent?.command).toBe("claude");
+    throw new Error("handoff failed; workspace retained");
+  };
+  const handler = command === "new" ? createNewHandler(h.services) : createOpenHandler(h.services);
+  await expect(handler("feature", { agent: true }, { ...ctx, interactive: false })).rejects.toThrow(/workspace retained/);
+  expect(h.calls).toEqual(["create"]);
+});
+
+test("--no-editor with the VS Code integration keeps sequential foreground behavior", async () => {
+  const h = harness(false, vscodeTerminals);
+  await createNewHandler(h.services)("feature", { editor: false }, ctx);
+  expect(h.calls).toEqual(["create", "foreground-setup", "generic-editor", "foreground-agent"]);
+  expect(h.launches).toHaveLength(0);
+});
+
 test("noninteractive open uses the named workflow editor and agent for that invocation only", async () => {
   const loaded: RepositoryConfig = { ...config, editor: { command: "zed", args: [], enabled: true },
     workflows: { review: { postCreate: [], editor: { command: "orca-ide", args: [], integration: "orca" },

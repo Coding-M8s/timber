@@ -14,7 +14,7 @@ export function resolveAgentCommand(
     throw new Error("Configure an agent before using --agent. Run timber setup in this repository or timber setup --global for machine defaults.");
   }
   if (!canHostAgent) {
-    if (enabled === true) throw new Error("Use an interactive stdin/stdout terminal with CI disabled for --agent, or enable the Orca editor integration. Use --no-agent for unattended commands.");
+    if (enabled === true) throw new Error("Use an interactive stdin/stdout terminal with CI disabled for --agent, or enable an editor terminal integration (Orca or VS Code). Use --no-agent for unattended commands.");
     return null;
   }
   return config.agent;

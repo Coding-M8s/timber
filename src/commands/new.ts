@@ -10,7 +10,7 @@ import { generateTicketBranch } from "../jira/branch";
 import { LinearLookupFailure } from "../linear/client";
 import { GithubLookupFailure } from "../github/client";
 import { resolveIssueInput } from "../issue-input";
-import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
+import { editorOwnsTerminals, resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 import { reportSkippedSetup } from "../hooks";
 import { issueSelector, type IssueLink } from "../git/issue-link";
 
@@ -137,7 +137,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const selectedEditor = workflowEditor(config, workflow, options.editor);
     const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
     const canHostAgent = context.interactive === true
-      || (selectedEditor?.enabled === true && selectedEditor.integration === "orca");
+      || editorOwnsTerminals(selectedEditor);
     const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, canHostAgent, true);
     const base = await services.resolveBase(repository, config, options.base);
     const jiraConfig = config.jira;
@@ -244,8 +244,8 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     }
 
     const hasSetup = Boolean(config.hooks?.postCreate.length || workflow?.postCreate.length);
-    if (editorConfig.editor?.enabled && editorConfig.editor.integration === "orca") {
-      if (!services.launchEditorTerminals) throw new Error("Orca terminal integration is unavailable; workspace retained.");
+    if (editorOwnsTerminals(editorConfig.editor)) {
+      if (!services.launchEditorTerminals) throw new Error("Editor terminal integration is unavailable; workspace retained.");
       reportSkippedSetup(hasSetup, options.setup === false, worktree.path, options.workflow, context);
       await services.launchEditorTerminals({ repository, worktree, config: editorConfig, agent: agentCommand, setup: options.setup !== false,
         ...(options.workflow === undefined ? {} : { workflowName: options.workflow }),
