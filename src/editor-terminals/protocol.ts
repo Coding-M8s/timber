@@ -5,7 +5,9 @@ import { processIdentity as readProcessIdentity } from "./process-identity";
 
 const literal = z.string().refine(value => !value.includes("\0"));
 const context = { cwd: literal.refine(isAbsolute), repositoryRoot: literal.refine(isAbsolute),
-  branch: literal.nullable(), workflow: literal.optional() };
+  branch: literal.nullable(), workflow: literal.optional(),
+  /** The editor closes the terminal when the runner exits, so keep a shell open afterwards. */
+  hold: z.literal(true).optional() };
 export const taskSchema = z.discriminatedUnion("kind", [
   z.strictObject({ ...context, kind: z.literal("setup"), hooks: z.array(literal), workflowHooks: z.array(literal) }),
   z.strictObject({ ...context, kind: z.literal("agent"), command: literal.refine(s => s.trim().length > 0), args: z.array(literal) }),
