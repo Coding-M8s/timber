@@ -130,6 +130,16 @@ export interface RepositoryConfig {
   hooks?: { postCreate: readonly string[]; preDelete?: readonly string[] };
   /** Absent means Jira ticket lookup is disabled for this repository. */
   jira?: JiraConfig;
+  /** Where `__app-issues` finds a sprint and a project; absent before any setting is read. */
+  issueLists?: IssueListSettings;
+}
+
+/** Optional sources for issue lists. A missing source makes that list not-configured. */
+export interface IssueListSettings {
+  jira: { board?: number; sprintJql?: string; project?: string };
+  /** `project` is "<owner>/<number>" of a Projects board with an iteration field. */
+  github: { project?: string; milestone?: string };
+  linear: { team?: string };
 }
 
 export type OpenTarget =

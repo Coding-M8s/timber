@@ -39,11 +39,11 @@ export interface IssueTrackerRuntime {
   secret: (value: string) => void;
 }
 
-const names: Record<LinkedTracker, string> = { github: "GitHub", jira: "Jira", linear: "Linear" };
-const unusable = (tracker: LinkedTracker) => new IssueReadFailure("failed", `${names[tracker]} returned an issue Timber could not read; try again later.`);
+export const names: Record<LinkedTracker, string> = { github: "GitHub", jira: "Jira", linear: "Linear" };
+export const unusable = (tracker: LinkedTracker) => new IssueReadFailure("failed", `${names[tracker]} returned an issue Timber could not read; try again later.`);
 const text = z.string().refine(value => value.trim().length > 0);
 
-async function send(tracker: LinkedTracker, runtime: IssueTrackerRuntime, url: string, init: RequestInit,
+export async function send(tracker: LinkedTracker, runtime: IssueTrackerRuntime, url: string, init: RequestInit,
   signal: AbortSignal): Promise<Response> {
   try {
     return await runtime.fetch(url, { ...init, redirect: "manual", signal });
@@ -53,17 +53,21 @@ async function send(tracker: LinkedTracker, runtime: IssueTrackerRuntime, url: s
   }
 }
 
+/** Wording for a 403 and a 404, which depend on what was asked for. */
+export interface MissingWording { forbidden: string; notFound: string }
+
 /** Reads the body as JSON after mapping every non-success status to a reason; error bodies are discarded unread. */
-async function json(tracker: LinkedTracker, response: Response, allowStatus: (status: number) => boolean = () => false): Promise<unknown> {
+export async function json(tracker: LinkedTracker, response: Response, allowStatus: (status: number) => boolean = () => false,
+  wording?: MissingWording): Promise<unknown> {
   const name = names[tracker];
   if (!response.ok && !allowStatus(response.status)) {
     void response.body?.cancel().catch(() => {});
     if (response.status === 401) throw new IssueReadFailure("sign-in-needed", `${name} rejected the login; run timber setup to check or replace it.`);
     if (response.status === 403 && response.headers.get("x-ratelimit-remaining") !== "0") {
-      throw new IssueReadFailure("forbidden", `The ${name} login cannot read this issue; check its access to the project or repository.`);
+      throw new IssueReadFailure("forbidden", wording?.forbidden ?? `The ${name} login cannot read this issue; check its access to the project or repository.`);
     }
     if (response.status === 404 || response.status === 410) {
-      throw new IssueReadFailure("not-found", `${name} has no issue at the linked address, or it is hidden from this login.`);
+      throw new IssueReadFailure("not-found", wording?.notFound ?? `${name} has no issue at the linked address, or it is hidden from this login.`);
     }
     if (response.status === 403 || response.status === 429) throw new IssueReadFailure("failed", `${name} is rate limiting requests; try again later.`);
     if (response.status >= 300 && response.status < 400) {
@@ -80,20 +84,26 @@ const githubIssue = z.object({
   assignee: z.object({ login: text }).nullable().optional(),
 });
 
-async function readGithub(link: IssueLink, runtime: IssueTrackerRuntime, signal: AbortSignal): Promise<IssueSummary> {
-  // The saved URL was validated as https://github.com/<owner>/<repo>/issues/<key>.
-  const [, owner, name] = new URL(link.url).pathname.split("/");
+/** Reads the GitHub login and registers it as a secret. */
+export async function githubLogin(runtime: IssueTrackerRuntime, signal: AbortSignal): Promise<string> {
   let token: string;
   try { token = await runtime.githubToken(signal); } catch {
     signal.throwIfAborted();
     throw new IssueReadFailure("sign-in-needed", "No usable GitHub login. Sign in with gh auth login, or set GH_TOKEN or GITHUB_TOKEN to a valid token.");
   }
   runtime.secret(token);
+  return token;
+}
+
+export const githubHeaders = (token: string): Record<string, string> => ({ Accept: "application/vnd.github+json",
+  Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "timber" });
+
+async function readGithub(link: IssueLink, runtime: IssueTrackerRuntime, signal: AbortSignal): Promise<IssueSummary> {
+  // The saved URL was validated as https://github.com/<owner>/<repo>/issues/<key>.
+  const [, owner, name] = new URL(link.url).pathname.split("/");
+  const token = await githubLogin(runtime, signal);
   const response = await send("github", runtime, `https://api.github.com/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(name!)}/issues/${link.key}`, {
-    method: "GET",
-    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`,
-      "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "timber" },
-  }, signal);
+    method: "GET", headers: githubHeaders(token) }, signal);
   const parsed = githubIssue.safeParse(await json("github", response));
   if (!parsed.success) throw unusable("github");
   const issue = parsed.data;
@@ -101,7 +111,7 @@ async function readGithub(link: IssueLink, runtime: IssueTrackerRuntime, signal:
     status: issue.state === "open" ? { name: "Open", category: "open" } : { name: "Closed", category: "closed" } };
 }
 
-const jiraCategories = { new: "open", indeterminate: "in-progress", done: "closed" } as const;
+export const jiraCategories = { new: "open", indeterminate: "in-progress", done: "closed" } as const;
 const jiraIssue = z.object({
   fields: z.object({
     summary: text,
@@ -110,13 +120,11 @@ const jiraIssue = z.object({
   }),
 });
 
-async function readJira(link: IssueLink, config: JiraConfig | undefined, runtime: IssueTrackerRuntime,
-  signal: AbortSignal): Promise<IssueSummary> {
+/** Prepares the Jira site and login, registering every login value as a secret. */
+export async function jiraLogin(config: JiraConfig | undefined, runtime: IssueTrackerRuntime,
+  signal: AbortSignal): Promise<{ apiRoot: string; siteOrigin: string; authorization: string }> {
   if (config === undefined) {
     throw new IssueReadFailure("sign-in-needed", "Jira is not set up for this repository. Run timber setup to choose a Jira site and save a login.");
-  }
-  if (new URL(link.url).origin !== new URL(config.siteUrl).origin) {
-    throw new IssueReadFailure("failed", "The linked issue is on a different Jira site from the configured one; the configured login is not used for it.");
   }
   let request;
   try {
@@ -133,6 +141,15 @@ async function readJira(link: IssueLink, config: JiraConfig | undefined, runtime
       : "No usable Jira login. Run timber setup, or set JIRA_EMAIL and JIRA_API_TOKEN.");
   }
   runtime.secret(request.authorization);
+  return request;
+}
+
+async function readJira(link: IssueLink, config: JiraConfig | undefined, runtime: IssueTrackerRuntime,
+  signal: AbortSignal): Promise<IssueSummary> {
+  if (config !== undefined && new URL(link.url).origin !== new URL(config.siteUrl).origin) {
+    throw new IssueReadFailure("failed", "The linked issue is on a different Jira site from the configured one; the configured login is not used for it.");
+  }
+  const request = await jiraLogin(config, runtime, signal);
   const url = new URL(`${request.apiRoot}/rest/api/3/issue/${encodeURIComponent(link.key)}`);
   url.searchParams.set("fields", "summary,status,assignee");
   const response = await send("jira", runtime, url.href, { method: "GET",
@@ -144,7 +161,7 @@ async function readJira(link: IssueLink, config: JiraConfig | undefined, runtime
     status: { name: fields.status.name, category: jiraCategories[fields.status.statusCategory.key] } };
 }
 
-const linearCategories: Record<string, IssueStatus["category"]> = { triage: "open", backlog: "open", unstarted: "open",
+export const linearCategories: Record<string, IssueStatus["category"]> = { triage: "open", backlog: "open", unstarted: "open",
   started: "in-progress", completed: "closed", canceled: "closed", duplicate: "closed" };
 const linearIssue = z.object({
   trashed: z.boolean().nullable().optional(),
@@ -154,7 +171,8 @@ const linearIssue = z.object({
 });
 const linearError = z.object({ errors: z.array(z.object({ extensions: z.object({ code: z.string() }).optional() })).min(1) });
 
-async function readLinear(link: IssueLink, runtime: IssueTrackerRuntime, signal: AbortSignal): Promise<IssueSummary> {
+/** Reads the Linear key and registers it as a secret. */
+export async function linearLogin(runtime: IssueTrackerRuntime, signal: AbortSignal): Promise<string> {
   let token: string;
   try { token = await runtime.linearToken(signal); } catch (error) {
     signal.throwIfAborted();
@@ -162,6 +180,22 @@ async function readLinear(link: IssueLink, runtime: IssueTrackerRuntime, signal:
       : "No usable Linear login. Run timber setup, or set LINEAR_API_KEY.");
   }
   runtime.secret(token);
+  return token;
+}
+
+/** Maps GraphQL error codes in a Linear body to a reason; returns quietly when the body has no errors. */
+export function throwLinearErrors(body: unknown, forbidden: string): void {
+  const errors = linearError.safeParse(body);
+  if (!errors.success) return;
+  const codes = errors.data.errors.map(error => error.extensions?.code);
+  if (codes.includes("AUTHENTICATION_ERROR")) throw new IssueReadFailure("sign-in-needed", "Linear rejected the saved login; run timber setup to check or replace it.");
+  if (codes.includes("FORBIDDEN")) throw new IssueReadFailure("forbidden", forbidden);
+  if (codes.includes("RATELIMITED")) throw new IssueReadFailure("failed", "Linear is rate limiting requests; try again later.");
+  throw new IssueReadFailure("failed", "Linear could not answer the issue query; try again later.");
+}
+
+async function readLinear(link: IssueLink, runtime: IssueTrackerRuntime, signal: AbortSignal): Promise<IssueSummary> {
+  const token = await linearLogin(runtime, signal);
   const response = await send("linear", runtime, "https://api.linear.app/graphql", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: token },
@@ -173,14 +207,7 @@ async function readLinear(link: IssueLink, runtime: IssueTrackerRuntime, signal:
   // Linear reports a missing issue and some login problems as GraphQL errors with HTTP 400.
   const body = await json("linear", response, status => status === 400);
   if (missingIssue(body)) throw new IssueReadFailure("not-found", "Linear has no issue with the linked key, or it is hidden from this login.");
-  const errors = linearError.safeParse(body);
-  if (errors.success) {
-    const codes = errors.data.errors.map(error => error.extensions?.code);
-    if (codes.includes("AUTHENTICATION_ERROR")) throw new IssueReadFailure("sign-in-needed", "Linear rejected the saved login; run timber setup to check or replace it.");
-    if (codes.includes("FORBIDDEN")) throw new IssueReadFailure("forbidden", "The Linear login cannot read this issue; check its team access.");
-    if (codes.includes("RATELIMITED")) throw new IssueReadFailure("failed", "Linear is rate limiting requests; try again later.");
-    throw new IssueReadFailure("failed", "Linear could not answer the issue query; try again later.");
-  }
+  throwLinearErrors(body, "The Linear login cannot read this issue; check its team access.");
   if (!response.ok) throw unusable("linear");
   const data = z.object({ data: z.object({ issue: z.unknown() }) }).safeParse(body);
   if (!data.success) throw unusable("linear");
