@@ -340,7 +340,8 @@ reciprocal worktree identity, and published atomically with private permissions.
 the created worktree and reports recovery guidance. `open` never prompts for,
 resolves, reads or writes a base association. Opening an unassigned branch leaves
 its base unset; existing saved or invalid associations
-remain unchanged. Use `rebase --base <ref>` to assign a base later.
+remain unchanged. Use `base --set <ref>` to assign or correct a base later without
+rebasing, or `rebase --base <ref>` to assign one while rebasing.
 Arena creation is unchanged.
 
 `ls` shows a BASE column after BRANCH: remote bases display `remote/branch`, local
@@ -359,6 +360,29 @@ previous association. Metadata publication failure after rebase reports the actu
 Git outcome and recovery guidance; it never resets or aborts Git. Conflicts retain
 native Git continuation/abort behavior. A later native abort does not restore the
 previous saved association. Cleanup uses the same saved-base precedence, with invocation-local overrides that never save a new association.
+
+## Set or clear a saved base (#186)
+
+`timber base <branch-or-worktree> --set <ref>` saves a worktree's base, and
+`--clear` removes it. Exactly one of the two is required. Selection matches
+`rebase`: exact branch, absolute path, or delimiter-boundary ticket matching,
+filtered to registered worktrees. It never opens a chooser: ambiguous input is
+refused with exact-selection guidance. Detached, dirty and paused worktrees are
+eligible, since nothing but Timber's metadata changes.
+
+`--set` accepts the forms of `rebase --base` and applies the same checks:
+`refs/heads/<branch>` must be a direct, existing local branch other than the
+worktree's own; other forms (plain name, `remote/branch`, `refs/remotes/...`)
+must name a branch the live remote advertises. Remote bases are checked with
+`git ls-remote` and never fetched, so they need network access; local bases are
+checked offline. Save the canonical ref, replacing any assigned or stale record.
+`--clear` removes the record; an unassigned base is a successful no-op.
+Malformed or unreadable metadata refuses both until repaired.
+
+Never change refs, `FETCH_HEAD`, the index, tracked or untracked files, TOML or
+the issue link. Never run hooks, editors or agents. Report the previous and new
+base on stdout. Refusals exit 1 with a reason and leave the saved base as it was.
+`--result-file` writes a v1 record; see the [app interface](ide-contract.md#base-change-outcome).
 
 ## Worktree issue links (#153)
 

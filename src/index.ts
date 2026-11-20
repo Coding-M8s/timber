@@ -29,8 +29,9 @@ import {
 } from "./commands/backup";
 import { cleanupBackups, listBackups, readBackupList, retainedBackups, reviewBackupDeletion, setBackupKeep } from "./backup/lifecycle";
 import { createBackup, restoreBackup } from "./backup/service";
-import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
+import { rebaseWorktree, resolveRebaseTarget, selectBaseRef } from "./git/rebase";
 import { createPublishHandler } from "./commands/publish";
+import { createBaseHandler } from "./commands/base";
 import { publishWorktree } from "./git/publish";
 import { createPullRequestHandler } from "./commands/pr";
 import { openPullRequest } from "./github/pull-request";
@@ -48,7 +49,7 @@ import { inspectNewBranchCollision } from "./git/new-collision";
 import { resolveOpenTarget } from "./git/open-target";
 import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
-import { readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
+import { clearBaseAssociation, readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
 import { readIssueLink, writeIssueLink } from "./git/issue-link";
 import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
 import { resolveGithubRepository } from "./github/repository";
@@ -165,6 +166,10 @@ process.exitCode = await runCli(process.argv.slice(2), {
     backupKeep: createBackupKeepHandler({ discoverRepository, setBackupKeep: (repository, id, keep, io) => setBackupKeep(repository, id, keep, io) }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree, createBackup, launchAgent }),
     // Shares rebase selection so a paused rebase's branch reports its detached worktree.
+    base: createBaseHandler({
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget,
+      readBaseAssociation, writeBaseAssociation, clearBaseAssociation, selectBaseRef,
+    }),
     publish: createPublishHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, publishWorktree, resolveOpenTarget: resolveRebaseTarget,
     }),

@@ -147,15 +147,51 @@ async function preflight(
   return tree;
 }
 
-async function remoteBase(repository: RepositoryContext, config: RepositoryConfig, explicit: string | undefined, cwd: string) {
+/** Command wording for base diagnostics shared by `rebase --base` and `base --set`. */
+export interface BaseWording {
+  /** Option that selects a replacement, such as "--base". */
+  flag: string;
+  /** What did not happen when discovery fails, such as "Rebase was not started." */
+  stopped: string;
+}
+const rebaseWording: BaseWording = { flag: "--base", stopped: "Rebase was not started." };
+
+/** True when a rebase or base check broke (network, Git, metadata) rather than refused. */
+export function isOperationFailure(error: unknown): boolean {
+  return error instanceof Error && operationFailures.has(error);
+}
+
+/**
+ * Validate an explicit base with the same forms and checks as `rebase --base`, without fetching:
+ * refs/heads/<branch> must be a direct existing local branch other than `targetBranch`;
+ * other forms must name a live branch on the configured, sole or named remote.
+ */
+export async function selectBaseRef(
+  repository: RepositoryContext, config: RepositoryConfig, input: string, cwd: string,
+  targetBranch: string | null, wording: BaseWording,
+): Promise<{ ref: string; commit: string; local: boolean }> {
+  if (input.startsWith("refs/heads/")) {
+    if (targetBranch !== null && input === `refs/heads/${targetBranch}`) {
+      throw new Error(`Cannot use the worktree's own branch as its base; select another branch with ${wording.flag}.`);
+    }
+    return { ref: input, commit: await localBase(cwd, input, wording), local: true };
+  }
+  const base = await remoteBase(repository, config, input, cwd, wording);
+  return { ref: base.ref, commit: base.advertisedCommit, local: false };
+}
+
+async function remoteBase(
+  repository: RepositoryContext, config: RepositoryConfig, explicit: string | undefined, cwd: string,
+  wording: BaseWording = rebaseWording,
+) {
   const input = explicit ?? config.baseBranch;
   const canonical = input?.startsWith("refs/remotes/") === true;
   const qualified = input === null ? undefined : [...repository.remotes].sort((a, b) => b.name.length - a.name.length)
     .find(remote => input.startsWith((canonical ? "refs/remotes/" : "") + remote.name + "/"));
-  if (canonical && !qualified) throw new Error("Saved remote base no longer exists; choose a replacement with --base <ref>.");
+  if (canonical && !qualified) throw new Error(`Saved remote base no longer exists; choose a replacement with ${wording.flag} <ref>.`);
   const remoteName = qualified?.name ?? config.remote ?? (repository.remotes.length === 1 ? repository.remotes[0]!.name : null);
   const remote = repository.remotes.find(candidate => candidate.name === remoteName);
-  if (!remote) throw new Error("Remote is missing or ambiguous; configure remote, use --base <remote/branch>, or use --base refs/heads/<branch> for a local base.");
+  if (!remote) throw new Error(`Remote is missing or ambiguous; configure remote, use ${wording.flag} <remote/branch>, or use ${wording.flag} refs/heads/<branch> for a local base.`);
   const requested = qualified ? input!.slice(qualified.name.length + 1 + (canonical ? "refs/remotes/".length : 0)) : input;
   if (requested !== null) {
     const checked = await git(cwd, ["check-ref-format", `refs/heads/${requested}`]);
@@ -163,7 +199,7 @@ async function remoteBase(repository: RepositoryContext, config: RepositoryConfi
   }
   let advertisement: string;
   try { advertisement = await output(cwd, ["ls-remote", "--symref", "--", remote.name, "HEAD", "refs/heads/*"], 10_000); }
-  catch { throw operationFailure(new Error("Could not discover the live remote base; check authentication/network access. Rebase was not started.")); }
+  catch { throw operationFailure(new Error(`Could not discover the live remote base; check authentication/network access. ${wording.stopped}`)); }
   const heads = new Map<string, string>();
   let defaultName: string | null = null;
   for (const line of advertisement.split("\n").filter(Boolean)) {
@@ -177,7 +213,7 @@ async function remoteBase(repository: RepositoryContext, config: RepositoryConfi
     ? remote.defaultBranchRef.slice(`refs/remotes/${remote.name}/`.length) : null;
   const fallback = ["main", "master"].filter(name => heads.has(name));
   const name = requested ?? defaultName ?? cachedDefault ?? (fallback.length === 1 ? fallback[0]! : null);
-  if (!name || !heads.has(name)) throw new Error("Remote base is missing or ambiguous; use --base <remote/branch>.");
+  if (!name || !heads.has(name)) throw new Error(`Remote base is missing or ambiguous; use ${wording.flag} <remote/branch>.`);
   return { remote: remote.name, name, advertisedCommit: heads.get(name)!, ref: `refs/remotes/${remote.name}/${name}` };
 }
 
@@ -198,16 +234,16 @@ async function preserveIgnored(tree: Worktree, base: string): Promise<void> {
   }
 }
 
-async function localBase(cwd: string, ref: string): Promise<string> {
+async function localBase(cwd: string, ref: string, wording: BaseWording = rebaseWording): Promise<string> {
   const valid = await git(cwd, ["check-ref-format", ref]);
   const symbolic = await git(cwd, ["symbolic-ref", "--quiet", ref]);
   if (valid.exitCode !== 0 || symbolic.exitCode !== 1) {
-    throw new Error("Local base must be a valid direct branch ref; select refs/heads/<branch> with --base.");
+    throw new Error(`Local base must be a valid direct branch ref; select refs/heads/<branch> with ${wording.flag}.`);
   }
   const result = await git(cwd, ["rev-parse", "--verify", `${ref}^{commit}`]);
   const commit = result.stdout.trim();
   if (result.exitCode !== 0 || !oid.test(commit)) {
-    throw new Error("Local base is missing or invalid; choose a replacement with --base refs/heads/<branch>.");
+    throw new Error(`Local base is missing or invalid; choose a replacement with ${wording.flag} refs/heads/<branch>.`);
   }
   return commit;
 }

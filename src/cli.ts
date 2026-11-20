@@ -169,6 +169,25 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
         : await runMachineCommand("rebase", context, machineContext => rebase(input, normalized, machineContext), options.resultFile));
     });
 
+  program.command("base <branch-or-worktree>")
+    .description("Set or clear a worktree's saved base without rebasing; changes only Timber's metadata")
+    .option("--set <ref>", "Save this base (remote/branch, plain remote branch, or refs/heads/local-branch)")
+    .option("--clear", "Remove the saved base")
+    .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
+    .addHelpText("after", "\nAccepts the same base forms and checks as rebase --base. Remote bases are checked against the\nlive remote without fetching, so they need network access; refs/heads/... bases are checked offline.\nNever touches the branch, the index or files, and never prompts. Ambiguous input is refused.")
+    .hook("preAction", command => {
+      const chosen = command.opts<{ set?: string; clear?: boolean }>();
+      if ((chosen.set === undefined) === (chosen.clear !== true)) command.error("Use exactly one of --set <ref> or --clear.");
+    })
+    .action(async (input: string, options: { set?: string; clear?: boolean; resultFile?: string }) => {
+      const base = handlers.base;
+      if (!base) throw new Error("Base handler is unavailable in this embedding.");
+      const normalized = options.clear === true ? { clear: true as const } : { set: options.set! };
+      onExitCode(options.resultFile === undefined
+        ? await base(input, normalized, context)
+        : await runMachineCommand("base", context, machineContext => base(input, normalized, machineContext), options.resultFile));
+    });
+
   program.command("publish <branch-or-worktree>")
     .description("Push an existing worktree's branch to its remote and set its upstream")
     .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")

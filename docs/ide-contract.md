@@ -30,6 +30,7 @@ timber new 'feature name' --result-file /private/temp/new.json --no-editor --no-
 timber open 'GH-123' --result-file /private/temp/open.json --no-editor --no-agent
 timber open --setup --result-file /private/temp/retry.json --no-editor --no-agent -- '/absolute/worktree path'
 timber rebase --result-file /private/temp/rebase.json -- '/absolute/worktree path'
+timber base --set origin/main --result-file /private/temp/base.json -- '/absolute/worktree path'
 timber publish --result-file /private/temp/publish.json -- '/absolute/worktree path'
 timber pr --title 'Add login' --result-file /private/temp/pr.json -- '/absolute/worktree path'
 timber backup restore --result-file /private/temp/restore.json -- '<id>' '/absolute/new directory'
@@ -65,6 +66,9 @@ does not save it, so it is not part of any record.
 `rebase` accepts `--result-file <path>` with the same reservation, write and
 failure rules. Rebase launches no editor or agent, so it has no launch flags to
 require. See [Rebase outcome](#rebase-outcome).
+
+`base` accepts `--result-file <path>` under the same rules and launches nothing.
+See [Base change outcome](#base-change-outcome).
 
 `publish` accepts `--result-file <path>` under the same rules and also launches
 nothing. See [Publish outcome](#publish-outcome).
@@ -157,6 +161,13 @@ type RebaseRecord = {
   baseSaved: boolean;         // this run wrote the saved base association
 };
 
+type BaseChangeRecord = {
+  action: "set" | "clear";
+  result: "set" | "cleared" | "refused" | "failed";
+  previous: WorktreeRecord["base"] | null; // saved base before; null when the run stopped before reading it
+  current: WorktreeRecord["base"] | null;  // saved base read back after; equals previous unless changed
+};
+
 type PublishRecord = {
   result: "published" | "up-to-date" | "refused" | "failed";
   remote: string | null;       // remote the branch is published to
@@ -206,7 +217,7 @@ type BackupDeleteRecord = {
 
 type RecordV1 = {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete" | "arena-new" | "arena-pick";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "base" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete" | "arena-new" | "arena-pick";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -215,6 +226,7 @@ type RecordV1 = {
   diagnostic: string | null;
   worktrees?: WorktreeRecord[]; // always present for ls, including failed ls
   rebase?: RebaseRecord;        // always present for rebase, including refusals
+  baseChange?: BaseChangeRecord; // always present for base, including refusals
   publish?: PublishRecord;      // always present for publish, including refusals
   pr?: PullRequestRecord;       // always present for pr, including refusals
   config?: ConfigApplyRecord;   // always present for a settings apply
@@ -284,7 +296,9 @@ human table.
   `unreadable` means it could not be read. The row stays listed and the matching
   warning still goes to stderr. Show the value as unknown, not as unassigned.
 
-Reading this field never fetches, writes files, or changes refs. Ahead or
+Reading this field never fetches, writes files, or changes refs. To add, replace
+or remove a saved base without rebasing, use
+[`timber base`](#base-change-outcome). Ahead or
 behind counts against the base and upstream sync state are not part of this
 interface; read them from Git.
 
@@ -424,7 +438,28 @@ After any outcome, refresh `ls --json` and read Git state before acting on the
 worktree. Never retry automatically after `conflicts` or `failed`. Progress
 streaming and automatic conflict resolution are not part of this interface.
 
-## Publish outcome
+## Base change outcome
+
+`timber base <branch-or-worktree> (--set <ref> | --clear) --result-file <path>`
+changes only the saved base. Selection, base checks, human output and exit codes
+are the same as without the flag; see the [CLI contract](cli-contract.md#set-or-clear-a-saved-base-186).
+It never touches the branch, the index or files, and never fetches.
+
+The record has `command: "base"`, `materialized: false`, no `worktrees`, and a
+`baseChange` object. `worktree.base` holds the saved base after the command, the
+same value `ls --json` reports from then on.
+
+| `result` | `outcome` | Exit | Meaning |
+| --- | --- | --- | --- |
+| `set` | `succeeded` | 0 | `--set` saved the base in `current`. |
+| `cleared` | `succeeded` | 0 | `--clear` removed the saved base, or none was saved. |
+| `refused` | `failed` | 1 | Timber declined: no single matching worktree, an unknown or invalid base, the worktree's own branch, or malformed or unreadable saved metadata. Nothing changed. |
+| `failed` | `failed` | 1 | The remote could not be checked, or the metadata could not be written or removed. |
+
+`previous` and `current` use the `WorktreeRecord.base` shape. Both are null when
+the run stopped before the worktree was selected. On `refused` and `failed`,
+`current` is read back from disk, so it shows what is saved now.
+
 
 `timber publish <branch-or-worktree> --result-file <path>` pushes a worktree's
 branch, so an app never pushes on its own. Target selection, the push, human

@@ -24,6 +24,8 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     inspectNewBranchCollision: async (_repository, name) => ({ name, local: null, remotes: [] }),
     readBaseAssociation: async () => ({ kind: "unassigned" }),
     writeBaseAssociation: async () => {},
+    clearBaseAssociation: async () => {},
+    selectBaseRef: unexpected("selectBaseRef"),
     readIssueLink: async () => ({ kind: "none" }),
     writeIssueLink: async () => "saved",
     rebaseWorktree: unexpected("rebaseWorktree"),

@@ -52,7 +52,20 @@ fetch, pull, or advance the local base branch. `ls` shows local bases as
 
 `open` proceeds directly without a base prompt or base metadata lookup. It leaves
 unassigned bases unset and preserves existing saved or invalid associations.
-Use `timber rebase my-feature --base <ref>` to assign a base when needed.
+
+To add, correct or remove a base without rebasing, use `timber base`. It accepts
+the same forms as `rebase --base` and changes only Timber's metadata, never the
+branch, the index or your files:
+
+```sh
+timber base my-feature --set origin/main
+timber base my-feature --set refs/heads/epic
+timber base my-feature --clear
+```
+
+Remote bases are checked against the live remote without fetching, so they need
+network access. Use `--result-file <path>` for a JSON record of the old and new
+base. `timber rebase my-feature --base <ref>` also saves its base while rebasing.
 
 Missing saved branches require an explicit replacement; Timber does not silently
 switch to a configured default.

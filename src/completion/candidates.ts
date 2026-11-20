@@ -110,7 +110,7 @@ export async function completionCandidates(program: Command, request: Completion
   if (command.name() === "help") return filtered(commands.map(command => command.name()), prefix);
   if (command.name() === "create" && command.parent?.name() === "backup") return filtered(await repositoryCandidates(cwd, "rebase"), prefix);
   if (command.parent?.name() === "backup") return [];
-  if (command.name() === "publish" || command.name() === "pr") return filtered(await repositoryCandidates(cwd, "rebase"), prefix);
+  if (command.name() === "publish" || command.name() === "pr" || command.name() === "base") return filtered(await repositoryCandidates(cwd, "rebase"), prefix);
   if (command.name() === "open" || command.name() === "done" || command.name() === "rebase") {
     return filtered(await repositoryCandidates(cwd, command.name() as "open" | "done" | "rebase"), prefix);
   }

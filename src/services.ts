@@ -11,7 +11,7 @@ import type { BaseAssociationRead } from "./git/base-metadata";
 import type { NewBranchInspection } from "./git/new-collision";
 import type { IssueLink, IssueLinkRead, IssueLinkWrite } from "./git/issue-link";
 import type { BackupListRecord } from "./backup/lifecycle";
-import type { RebaseReport, RebaseRunOptions } from "./git/rebase";
+import type { BaseWording, RebaseReport, RebaseRunOptions } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
 import type { PullRequestOptions, PullRequestReport } from "./github/pull-request";
 import type { TerminalChooser, TerminalTextPrompt } from "./selection";
@@ -60,6 +60,11 @@ export interface CommandServices {
   inspectNewBranchCollision(repository: RepositoryContext, name: string, config: RepositoryConfig): Promise<NewBranchInspection>;
   readBaseAssociation(repository: RepositoryContext, worktree: Worktree, phase?: WorktreeReadPhase): Promise<BaseAssociationRead>;
   writeBaseAssociation(repository: RepositoryContext, worktree: Worktree, ref: string): Promise<void>;
+  /** Remove a saved base; unassigned is a no-op, malformed or unreadable records refuse. */
+  clearBaseAssociation(repository: RepositoryContext, worktree: Worktree): Promise<void>;
+  /** Validate an explicit base with `rebase --base` forms and checks, without fetching. */
+  selectBaseRef(repository: RepositoryContext, config: RepositoryConfig, input: string, cwd: string,
+    targetBranch: string | null, wording: BaseWording): Promise<{ ref: string; commit: string; local: boolean }>;
   /** Offline; reports damaged metadata as a value and never throws. */
   readIssueLink(repository: RepositoryContext, worktree: Worktree, phase?: WorktreeReadPhase): Promise<IssueLinkRead>;
   /** Offline; refuses a different existing link unless `replace` is set. */
@@ -140,6 +145,9 @@ export interface CommandContext {
   appHandoff?: AppHandoff;
 }
 
+/** Exactly one of `set` or `clear`. */
+export type BaseOptions = { set: string; clear?: undefined } | { clear: true; set?: undefined };
+
 export interface RebaseOptions {
   base?: string;
   /** Explicit per-invocation request for AI conflict assistance. */
@@ -181,6 +189,8 @@ export interface CommandHandlers {
   rebase?(input: string, options: RebaseOptions, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires publishing. */
   publish?(input: string, context: CommandContext): Promise<number>;
+  /** Optional for existing embedders; production entry point wires base changes. */
+  base?(input: string, options: BaseOptions, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires pull requests. */
   pr?(input: string, options: PullRequestOptions, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires backups. */
