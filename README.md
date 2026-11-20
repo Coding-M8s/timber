@@ -66,7 +66,7 @@ Run these inside the Git repository you want to work on:
 | `timber open my-feature --agent` | Start your configured assistant |
 | `timber rebase my-feature` | Rebase onto its saved base; [bases and recovery](docs/worktree-bases.md) |
 | `timber publish my-feature` | Push its branch and set the upstream; never force-pushes |
-| `timber pr my-feature --title "Add login"` | Publish it and open a GitHub pull request against its saved base |
+| `timber pr my-feature --title "Add login"` | Publish it and open a GitHub or Bitbucket pull request against its saved base |
 | `timber backup create my-feature` | Privately snapshot its commit and files, including `.env`; [backups](docs/cli-contract.md#worktree-recovery-backups-119) |
 | `timber backup restore <id> ../recovered` | Recover a backup into a new worktree |
 | `timber backup list` | Show backups with branch, time, size, protection and expiry (`--json` for apps) |

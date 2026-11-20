@@ -485,7 +485,11 @@ of this command. Apps can read the outcome from a
 
 `timber pr my-feature --title "Add the feature"` publishes the branch exactly as
 `timber publish` does, then opens a pull request on GitHub with your GitHub CLI
-login, or `GH_TOKEN`/`GITHUB_TOKEN` when set. Add `--body <text>` for a
+login, or `GH_TOKEN`/`GITHUB_TOKEN` when set. On a bitbucket.org remote it opens
+the pull request on Bitbucket Cloud with the login saved under **Connections** in
+`timber setup` (an Atlassian email and an API token with the
+`read:pullrequest:bitbucket` and `write:pullrequest:bitbucket` scopes), or
+`BITBUCKET_EMAIL` and `BITBUCKET_API_TOKEN` when set. Add `--body <text>` for a
 description and `--draft` for a draft.
 
 The pull request targets the worktree's saved base, such as `origin/main`
@@ -498,8 +502,9 @@ If the branch already has an open pull request into that base, Timber reports it
 and creates nothing. The worktree's linked issue, or an issue named at the start
 of the branch such as `GH-123-fix-login` or `ENG-42-fix-login`, is mentioned in
 the body (`Refs #123` or `Refs ENG-42`) so the two are connected; Timber never
-adds a closing keyword. Only github.com remotes are
-supported, and Timber never prompts for a sign-in: run `gh auth login` first.
+adds a closing keyword. Only github.com and bitbucket.org remotes are
+supported, and Timber never prompts for a sign-in: run `gh auth login` or
+`timber setup` first.
 Apps can read the outcome from a [result file](ide-contract.md#pull-request-outcome).
 
 ## Remove Timber
@@ -531,6 +536,7 @@ running `.exe` cannot delete itself. Defaults shown; `XDG_CONFIG_HOME` and
 | Machine settings | `~/.config/timber/config.toml` | `%USERPROFILE%\.config\timber\config.toml` |
 | Jira credentials | `~/.config/timber/credentials/jira.json` | `%USERPROFILE%\.config\timber\credentials\jira.json` |
 | Linear credentials | `~/.config/timber/credentials/linear.json` | `%USERPROFILE%\.config\timber\credentials\linear.json` |
+| Bitbucket login | `~/.config/timber/credentials/bitbucket.json` | `%USERPROFILE%\.config\timber\credentials\bitbucket.json` |
 | Setup hint marker | `~/.local/state/timber/setup-hint-shown` | `%USERPROFILE%\.local\state\timber\setup-hint-shown` |
 | Update check cache | `~/.cache/timber/update-check.json` | `%USERPROFILE%\.cache\timber\update-check.json` |
 | Repository settings | `.timber.toml` in each primary worktree (optional) | same |
@@ -952,8 +958,8 @@ removed and branch retained; inspect the reported state before retrying.
 
 In the guided walkthrough, question 3 chooses GitHub, Linear, Jira, or None and
 opens only the selected provider's setup. The settings menu also has **Default
-issue tracker** and **Issue tracker connections**. Use connections to configure
-other providers without changing the default.
+issue tracker** and **Connections**. Use connections to configure other
+providers, and the Bitbucket pull request login, without changing the default.
 
 ```toml
 # Machine default or repository .timber.toml:
@@ -993,7 +999,7 @@ remains GitHub-only; issue-only flags cannot turn a literal input into a lookup.
 ## GitHub issues
 
 Use `timber setup` or `timber setup --global` and select **GitHub** under
-**Issue tracker connections** to check your GitHub CLI login. If gh is missing, install it from [cli.github.com](https://cli.github.com/).
+**Connections** to check your GitHub CLI login. If gh is missing, install it from [cli.github.com](https://cli.github.com/).
 Setup can help run `gh auth login --hostname github.com` after confirmation.
 GitHub CLI owns the login and credential storage; Timber does not copy the token
 to a file. A successful login remains even if you later cancel Timber setup.
@@ -1037,7 +1043,7 @@ fork. HTTP doubles alone do not establish live GitHub access.
 
 ## Linear issues
 
-Run `timber setup` or `timber setup --global`, select **Linear** under **Issue tracker connections**, and
+Run `timber setup` or `timber setup --global`, select **Linear** under **Connections**, and
 enter a personal API key. Create one under Account > Security & Access following
 [Linear's instructions](https://linear.app/docs/api-and-webhooks). Give it **Read**
 permission and access to the teams whose issues you use; write permission is not

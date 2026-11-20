@@ -8,7 +8,9 @@ import { taskIdOf } from "../task-id";
 import type { RepositoryConfig, RepositoryContext, Worktree } from "../types";
 import { defaultGithubRuntime, type GithubRuntime } from "./client";
 import { createPullRequest, findOpenPullRequest, PullRequestFailure, type PullRequest } from "./pulls";
-import { githubRepositoryOfRemote, resolveGithubRepository, type GithubRepository } from "./repository";
+import { pullRequestRepositoryOfRemote, resolveGithubRepository, type GithubRepository, type PullRequestRepository } from "./repository";
+import { defaultBitbucketRuntime, type BitbucketRuntime } from "../bitbucket/client";
+import { createBitbucketPullRequest, findOpenBitbucketPullRequest } from "../bitbucket/pulls";
 
 export type PullRequestResult = "created" | "exists" | "refused" | "failed";
 
@@ -18,7 +20,7 @@ export interface PullRequestReport {
   number: number | null;
   /** Browse URL built from the validated repository and number. */
   url: string | null;
-  /** Base branch name as GitHub uses it, such as "main". */
+  /** Base branch name as the host uses it, such as "main". */
   base: string | null;
   /** True only when this run pushed commits to the remote. */
   published: boolean;
@@ -36,7 +38,7 @@ export interface PullRequestOptions {
   draft?: boolean;
 }
 
-/** Seams for tests; production uses Git, the saved base and the GitHub login. */
+/** Seams for tests; production uses Git, the saved base and the GitHub or Bitbucket login. */
 export interface PullRequestDependencies {
   readBase(repository: RepositoryContext, worktree: Worktree): Promise<BaseAssociationRead>;
   /** The saved issue link; offline, and damaged metadata is a value, never a throw. */
@@ -44,19 +46,21 @@ export interface PullRequestDependencies {
   planPublish: typeof planPublish;
   publishWorktree: typeof publishWorktree;
   /** With push, the repository Git pushes to; otherwise the one it fetches from. */
-  githubRepository(repository: RepositoryContext, remote: string, role: string, push: boolean): Promise<GithubRepository>;
+  remoteRepository(repository: RepositoryContext, remote: string, role: string, push: boolean): Promise<PullRequestRepository>;
   /** The repository GH-<number> branches take their issue from. */
   issueRepository(repository: RepositoryContext, config: RepositoryConfig): Promise<GithubRepository>;
   runtime: GithubRuntime;
+  bitbucket: BitbucketRuntime;
 }
 
 const defaults: PullRequestDependencies = {
   readBase: (repository, worktree) => readBaseAssociation(repository, worktree),
   readIssue: (repository, worktree) => readIssueLink(repository, worktree),
   planPublish, publishWorktree,
-  githubRepository: (repository, remote, role, push) => githubRepositoryOfRemote(repository, remote, role, push),
+  remoteRepository: (repository, remote, role, push) => pullRequestRepositoryOfRemote(repository, remote, role, push),
   issueRepository: (repository, config) => resolveGithubRepository(repository, config),
   runtime: defaultGithubRuntime,
+  bitbucket: defaultBitbucketRuntime,
 };
 
 const maxTitle = 256;
@@ -87,13 +91,13 @@ function splitRemote(repository: RepositoryContext, value: string): { remote: st
   return remote ? { remote: remote.name, branch: value.slice(remote.name.length + 1) } : null;
 }
 
-/** The base as a remote and the branch name GitHub expects; never fetches or saves it. */
+/** The base as a remote and the branch name the host expects; never fetches or saves it. */
 async function resolveBase(repository: RepositoryContext, config: RepositoryConfig,
   explicit: string | undefined, saved: BaseAssociationRead | null): Promise<{ remote: string; branch: string }> {
   let resolved: { remote: string; branch: string } | null;
   if (explicit !== undefined) {
     if (explicit === "HEAD" || explicit.startsWith("refs/heads/")) {
-      throw new Error(`A pull request base must be a branch on GitHub, not a local branch; ${baseHint}.`);
+      throw new Error(`A pull request base must be a branch on the remote, not a local branch; ${baseHint}.`);
     }
     if (explicit.startsWith("refs/remotes/")) {
       resolved = splitRemote(repository, explicit.slice("refs/remotes/".length));
@@ -113,7 +117,7 @@ async function resolveBase(repository: RepositoryContext, config: RepositoryConf
   } else if (saved.kind === "invalid") {
     throw new Error(`The saved base cannot be used (${saved.reason}); ${baseHint}.`);
   } else if (saved.ref.startsWith("refs/heads/")) {
-    throw new Error(`The saved base is the local branch ${safeDisplay(saved.ref.slice("refs/heads/".length))}, which GitHub cannot use as a pull request base; ${baseHint}.`);
+    throw new Error(`The saved base is the local branch ${safeDisplay(saved.ref.slice("refs/heads/".length))}, which cannot be a pull request base; ${baseHint}.`);
   } else {
     resolved = splitRemote(repository, saved.ref.slice("refs/remotes/".length));
     if (!resolved) throw new Error(`The saved base ${safeDisplay(saved.ref)} names a remote that is no longer configured; ${baseHint}.`);
@@ -124,6 +128,7 @@ async function resolveBase(repository: RepositoryContext, config: RepositoryConf
 
 const sameRepository = (a: GithubRepository, b: GithubRepository) =>
   a.owner.toLowerCase() === b.owner.toLowerCase() && a.name.toLowerCase() === b.name.toLowerCase();
+const sameHostedRepository = (a: PullRequestRepository, b: PullRequestRepository) => a.host === b.host && sameRepository(a, b);
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
 /** The issue to mention: a GitHub number with its repository when known, or a Jira/Linear key. */
@@ -149,10 +154,18 @@ async function linkedIssue(saved: IssueLinkRead, branch: string,
 }
 
 /** Append a reference to the linked issue unless the body already mentions it. Never a closing keyword. */
-function withIssueMention(body: string, issue: LinkedIssue | null, base: GithubRepository): string {
+function withIssueMention(body: string, issue: LinkedIssue | null, base: PullRequestRepository): string {
   if (issue === null) return body;
   let mention: string;
-  if (issue.kind === "github") {
+  if (issue.kind === "github" && base.host === "bitbucket") {
+    // On Bitbucket a bare #n names a Bitbucket issue, so only the GitHub link or owner/repo#n counts.
+    const issues = issue.repository;
+    if (issues === null) return body;
+    const url = `https://github.com/${issues.owner}/${issues.name}/issues/${issue.number}`;
+    const mentioned = new RegExp(`(?:${escape(url)}|${escape(`${issues.owner}/${issues.name}`)}#${issue.number})(?!\\d)`, "iu");
+    if (mentioned.test(body)) return body;
+    mention = `Refs ${url}`;
+  } else if (issue.kind === "github") {
     const number = issue.number;
     const issues = issue.repository;
     const qualified = issues !== null && !sameRepository(issues, base);
@@ -169,9 +182,33 @@ function withIssueMention(body: string, issue: LinkedIssue | null, base: GithubR
   return body ? `${body}\n\n${mention}` : mention;
 }
 
+const hostName = { github: "github.com", bitbucket: "bitbucket.org" } as const;
+
+type CreateInput = { branch: string; baseBranch: string; title: string; body: string; draft: boolean };
+
+/** The login and the two calls for the base repository's host; the login is read once. */
+function pullRequestHost(base: PullRequestRepository, head: PullRequestRepository, dependencies: PullRequestDependencies) {
+  if (base.host === "bitbucket") {
+    let login: ReturnType<BitbucketRuntime["login"]> | null = null;
+    const runtime: BitbucketRuntime = { ...dependencies.bitbucket, login: signal => login ??= dependencies.bitbucket.login(signal) };
+    return {
+      login: async (signal: AbortSignal) => { await runtime.login(signal); },
+      find: (branch: string, baseBranch: string) => findOpenBitbucketPullRequest(base, head, branch, baseBranch, runtime),
+      create: (input: CreateInput) => createBitbucketPullRequest(base, head, input, runtime),
+    };
+  }
+  let token: Promise<string> | null = null;
+  const runtime: GithubRuntime = { ...dependencies.runtime, token: signal => token ??= dependencies.runtime.token(signal) };
+  return {
+    login: async (signal: AbortSignal) => { await runtime.token(signal); },
+    find: (branch: string, baseBranch: string) => findOpenPullRequest(base, head, branch, baseBranch, runtime),
+    create: (input: CreateInput) => createPullRequest(base, head, input, runtime),
+  };
+}
+
 /**
  * Publish a worktree's branch under the rules of timber publish, then open one
- * pull request for it on GitHub. Every refusal happens before the push.
+ * pull request for it on GitHub or Bitbucket Cloud. Every refusal happens before the push.
  */
 export async function openPullRequest(
   repository: RepositoryContext, selected: Worktree, config: RepositoryConfig, options: PullRequestOptions,
@@ -185,9 +222,12 @@ export async function openPullRequest(
   report.base = base.branch;
   // The same read-only preflight and remote choice as the push that follows.
   const plan = await dependencies.planPublish(repository, selected, config);
-  const baseRepository = await dependencies.githubRepository(repository, base.remote, "base", false);
-  const headRepository = await dependencies.githubRepository(repository, plan.remote, "publish", true);
-  if (sameRepository(baseRepository, headRepository) && base.branch === plan.branch) {
+  const baseRepository = await dependencies.remoteRepository(repository, base.remote, "base", false);
+  const headRepository = await dependencies.remoteRepository(repository, plan.remote, "publish", true);
+  if (baseRepository.host !== headRepository.host) {
+    throw new Error(`The base remote is on ${hostName[baseRepository.host]} but the publish remote is on ${hostName[headRepository.host]}; a pull request needs both on the same host.`);
+  }
+  if (sameHostedRepository(baseRepository, headRepository) && base.branch === plan.branch) {
     throw new Error(`The base is the branch itself; ${baseHint} for the branch it should merge into.`);
   }
   const savedIssue = await dependencies.readIssue(repository, selected);
@@ -200,10 +240,9 @@ export async function openPullRequest(
 
   // From here a stop is an operation that broke, unless publish itself refuses.
   report.result = "failed";
-  let token: Promise<string> | null = null;
-  const runtime: GithubRuntime = { ...dependencies.runtime, token: signal => token ??= dependencies.runtime.token(signal) };
+  const host = pullRequestHost(baseRepository, headRepository, dependencies);
   // A missing login stops the run before anything is pushed.
-  await runtime.token(new AbortController().signal);
+  await host.login(new AbortController().signal);
 
   const published = createPublishReport();
   try {
@@ -221,7 +260,7 @@ export async function openPullRequest(
     report.url = pull.url;
     report.base = pull.base;
   };
-  const existing = await findOpenPullRequest(baseRepository, headRepository, plan.branch, base.branch, runtime);
+  const existing = await host.find(plan.branch, base.branch);
   if (existing) {
     found(existing, "exists");
     io.stdout(`Pull request #${existing.number} is already open: ${existing.url}\n`);
@@ -229,12 +268,11 @@ export async function openPullRequest(
   }
   let created: PullRequest;
   try {
-    created = await createPullRequest(baseRepository, headRepository,
-      { branch: plan.branch, baseBranch: base.branch, title, body, draft: options.draft === true }, runtime);
+    created = await host.create({ branch: plan.branch, baseBranch: base.branch, title, body, draft: options.draft === true });
   } catch (error) {
     // Another client may have opened it since the lookup; report that one.
     if (!(error instanceof PullRequestFailure && error.reason === "already-exists")) throw error;
-    const raced = await findOpenPullRequest(baseRepository, headRepository, plan.branch, base.branch, runtime);
+    const raced = await host.find(plan.branch, base.branch);
     if (!raced) throw error;
     found(raced, "exists");
     io.stdout(`Pull request #${raced.number} is already open: ${raced.url}\n`);

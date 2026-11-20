@@ -10,7 +10,8 @@ import { readIssueLink, writeIssueLink } from "../src/git/issue-link";
 import { resolveRebaseTarget } from "../src/git/rebase";
 import { discoverRepository } from "../src/git/repository";
 import { openPullRequest, type PullRequestDependencies } from "../src/github/pull-request";
-import { githubRepositoryOfRemote, resolveGithubRepository } from "../src/github/repository";
+import { pullRequestRepositoryOfRemote, resolveGithubRepository } from "../src/github/repository";
+import type { BitbucketRuntime } from "../src/bitbucket/client";
 import { planPublish, publishWorktree } from "../src/git/publish";
 import { git, withRepository } from "./helpers/git";
 import { commit, fixture } from "./helpers/rebase";
@@ -61,13 +62,18 @@ async function setup(primary: string, directory: string) {
 const readRemote = (local: string, stands: string) => async (cwd: string, args: string[]) =>
   (await execa("git", args, { cwd, stdin: "ignore" })).stdout.split("\n").map(url => url === local ? stands : url);
 
-function command(primary: string, runtime: PullRequestDependencies["runtime"], stands = github) {
+/** A Bitbucket double that must never be called; GitHub runs use it. */
+const noBitbucket: BitbucketRuntime = { timeoutMs: 2_000,
+  login: async () => { throw new Error("Bitbucket must not be used"); },
+  fetch: async () => { throw new Error("Bitbucket must not be used"); } };
+
+function command(primary: string, runtime: PullRequestDependencies["runtime"], stands = github, bitbucket = noBitbucket) {
   const local = join(primary, "..", "remote.git");
   const dependencies: PullRequestDependencies = {
     readBase: (repository, worktree) => readBaseAssociation(repository, worktree),
     readIssue: (repository, worktree) => readIssueLink(repository, worktree), planPublish, publishWorktree,
-    githubRepository: (repository, remote, role, push) => githubRepositoryOfRemote(repository, remote, role, push, readRemote(local, stands)),
-    issueRepository: (repository, config) => resolveGithubRepository(repository, config), runtime,
+    remoteRepository: (repository, remote, role, push) => pullRequestRepositoryOfRemote(repository, remote, role, push, readRemote(local, stands)),
+    issueRepository: (repository, config) => resolveGithubRepository(repository, config), runtime, bitbucket,
   };
   let stdout = "", stderr = "";
   const handler = createPullRequestHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget,
@@ -204,5 +210,72 @@ test("a failed publish ends as failed without contacting GitHub's pull request A
     expect(await record(output)).toMatchObject({ outcome: "failed", pr: { result: "failed", published: false, number: null } });
     expect(fake.calls).toEqual([]);
     expect(await remoteHas(remote)).toBe(false);
+  });
+});
+
+/** A Bitbucket Cloud double that keeps open pull requests in memory; nothing leaves the machine. */
+function fakeBitbucket(login: () => Promise<{ email: string; token: string }> = async () => ({ email: "dev@example.com", token: "test-token" })) {
+  const pulls: Record<string, unknown>[] = [];
+  const calls: { method: string; url: string; body: Record<string, unknown> | undefined; authorization: string }[] = [];
+  const runtime: BitbucketRuntime = { timeoutMs: 2_000, login, fetch: async (url, init) => {
+    const body = init.body === undefined ? undefined : JSON.parse(String(init.body));
+    calls.push({ method: String(init.method), url, body, authorization: String((init.headers as Record<string, string>).Authorization) });
+    if (init.method === "GET") return Response.json({ values: pulls, pagelen: 50 });
+    const created = { id: 200 + pulls.length, draft: body.draft, source: { branch: body.source.branch, repository: { full_name: "acme/widgets" } },
+      destination: { branch: body.destination.branch, repository: { full_name: "acme/widgets" } } };
+    pulls.push(created);
+    return Response.json(created, { status: 201 });
+  } };
+  return { runtime, calls };
+}
+
+test("a bitbucket.org remote is published and its pull request created on Bitbucket, then reported as existing", async () => {
+  await withRepository(async (primary, directory) => {
+    const bitbucket = "https://dev@bitbucket.org/acme/widgets.git";
+    const { remote, target, tip } = await setup(primary, directory);
+    await git(primary, "remote", "set-url", "origin", bitbucket);
+    await git(primary, "config", `url.${remote}.pushInsteadOf`, bitbucket);
+    const fake = fakeBitbucket();
+    const github = fakeGithub(async () => { throw new Error("GitHub must not be used"); });
+    const run = command(primary, github.runtime, bitbucket, fake.runtime);
+    const output = join(directory, "bitbucket.json");
+    const result = await run(target, "--title", "Add the feature", "--result-file", output);
+    expect(result.stderr).toBe("");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Created pull request #200: https://bitbucket.org/acme/widgets/pull-requests/200");
+    expect(await record(output)).toMatchObject({ command: "pr", outcome: "succeeded", exitCode: 0,
+      pr: { result: "created", number: 200, url: "https://bitbucket.org/acme/widgets/pull-requests/200", base: "main", published: true } });
+    expect(await git(remote, "rev-parse", `refs/heads/${branch}`)).toBe(tip);
+    expect(fake.calls.map(call => `${call.method} ${new URL(call.url).pathname}`))
+      .toEqual(["GET /2.0/repositories/acme/widgets/pullrequests", "POST /2.0/repositories/acme/widgets/pullrequests"]);
+    expect(fake.calls[0]!.authorization).toBe(`Basic ${Buffer.from("dev@example.com:test-token").toString("base64")}`);
+    expect(fake.calls[1]!.body).toEqual({ title: "Add the feature", description: "Refs TIM-28", draft: false,
+      source: { branch: { name: branch } }, destination: { branch: { name: "main" } } });
+    expect(github.calls).toEqual([]);
+
+    const again = join(directory, "again.json");
+    expect((await run(branch, "--title", "Other", "--result-file", again)).code).toBe(0);
+    expect(await record(again)).toMatchObject({ pr: { result: "exists", number: 200,
+      url: "https://bitbucket.org/acme/widgets/pull-requests/200", published: false } });
+    expect(fake.calls.filter(call => call.method === "POST")).toHaveLength(1);
+  });
+});
+
+test("a missing Bitbucket login fails before any push and leaves local refs unchanged", async () => {
+  await withRepository(async (primary, directory) => {
+    const bitbucket = "git@bitbucket.org:acme/widgets.git";
+    const { remote, target } = await setup(primary, directory);
+    await git(primary, "remote", "set-url", "origin", bitbucket);
+    await git(primary, "config", `url.${remote}.pushInsteadOf`, bitbucket);
+    const before = await localState(primary);
+    const fake = fakeBitbucket(async () => { throw new Error("Bitbucket login is missing. Run timber setup to save an Atlassian email and Bitbucket API token, or supply BITBUCKET_EMAIL and BITBUCKET_API_TOKEN."); });
+    const output = join(directory, "login.json");
+    expect((await command(primary, fakeGithub().runtime, bitbucket, fake.runtime)(target, "--title", "t", "--result-file", output)).code).toBe(1);
+    const data = await record(output);
+    expect(data).toMatchObject({ outcome: "failed", exitCode: 1, pr: { result: "failed", number: null, url: null, base: "main", published: false } });
+    expect(data.diagnostic).toContain("Bitbucket login is missing");
+    expect(fake.calls).toEqual([]);
+    expect(await remoteHas(remote)).toBe(false);
+    expect(await localState(primary)).toBe(before);
   });
 });

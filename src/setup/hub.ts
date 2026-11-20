@@ -11,6 +11,7 @@ import { SetupCancelled } from "./types";
 import type { SetupPrompt, SetupTarget } from "./types";
 import type { JiraSetupSession } from "./jira";
 import type { GithubSetupSession } from "./github";
+import type { BitbucketSetupSession } from "./bitbucket";
 
 const sections: readonly { value: SetupSection; title: string }[] = [
   { value: "editor", title: "Editor" },
@@ -95,7 +96,7 @@ function hubChoices(file: ConfigFile, target: SetupTarget): ChoiceOption[] {
     ...sections.flatMap(section => [{
       value: section.value,
       label: `${section.title.padEnd(width)}${sectionStatus(section.value, file, target)}`,
-    }, ...(section.value === "default_tracker" ? [{ value: "connections", label: "Issue tracker connections    Configure Jira, GitHub, or Linear" }] : [])]),
+    }, ...(section.value === "default_tracker" ? [{ value: "connections", label: "Connections                  Configure Jira, GitHub, Linear, or Bitbucket" }] : [])]),
     { value: "guide", label: "Guided walkthrough (editor, assistant, issue tracker...)" },
     { value: "cancel", label: "Cancel without saving" },
   ];
@@ -113,12 +114,14 @@ export async function runSetupHub(
   jira?: JiraSetupSession,
   github?: GithubSetupSession,
   linear?: LinearSetupSession,
+  bitbucket?: BitbucketSetupSession,
 ): Promise<ConfigFile | null> {
   let file: ConfigFile = structuredClone(target.file.values);
   try {
     while (true) {
       jira?.review(io);
       linear?.review(io);
+      bitbucket?.review(io);
       const scopeLabel = target.scope === "global" ? "machine defaults" : "this repository";
       const workflows = Object.keys(effectiveConfig(file, target).workflows ?? {}).length;
       const choice = await prompt.select(
@@ -127,7 +130,7 @@ export async function runSetupHub(
         "save",
       );
       if (choice === null || choice === "cancel") return null;
-      const connections = { github, linear, editJira: (configure: boolean) => editJiraSettings(file, target, prompt, io, jira, configure) };
+      const connections = { github, linear, bitbucket, editJira: (configure: boolean) => editJiraSettings(file, target, prompt, io, jira, configure) };
       if (choice === "default_tracker") { await editDefaultTracker(file, target, prompt, io, connections); continue; }
       if (choice === "connections") { await editTrackerConnections(prompt, io, connections); continue; }
       if (choice === "save") {

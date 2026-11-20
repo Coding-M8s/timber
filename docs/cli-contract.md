@@ -128,7 +128,7 @@ go to stderr with control characters escaped.
 
 `timber pr <branch-or-worktree> --title <text> [--body <text>] [--base <ref>]
 [--draft]` publishes a registered worktree's branch and opens one pull request
-for it on github.com. Selection matches `publish`. The title is required, one
+for it on github.com or Bitbucket Cloud (bitbucket.org, #175). Selection matches `publish`. The title is required, one
 line and at most 256 characters; the body is at most 65536 characters.
 
 The base is `--base` when given, otherwise the saved base. `--base` accepts
@@ -138,16 +138,23 @@ saved. Refuse `HEAD`, `refs/heads/...`, an unassigned or invalid saved base, a
 saved local-branch base, a remote that is no longer configured, an invalid branch
 name, and a base equal to the branch itself in the same repository. The base
 remote's fetch URL and the publish remote's push URL must each name one
-github.com repository; they may differ, so a fork's branch opens against its
-upstream repository. Do not fetch
-or verify that the base exists; GitHub's rejection reports that.
+github.com or bitbucket.org repository, both on the same host; they may differ,
+so a fork's branch opens against its upstream repository. A remote on any other
+host, including Bitbucket Server/Data Center, is refused. Do not fetch or verify
+that the base exists; the host's rejection reports that.
 
-Every Timber preflight refusal happens before reading the GitHub login and before
+Bitbucket remotes are `https://bitbucket.org/<workspace>/<repo>`, the same with
+a `<user>@` (Bitbucket's default HTTPS clone URL), `git@bitbucket.org:<workspace>/<repo>`,
+`ssh://git@bitbucket.org/<workspace>/<repo>`, the `ssh.bitbucket.org` SSH host,
+and `ssh://git@altssh.bitbucket.org:443/...`, each with an optional `.git`. A URL
+carrying a password is refused, and the refusal names only the remote.
+
+Every Timber preflight refusal happens before reading the login and before
 any push, so no local ref, branch setting or remote ref changes. A remote branch
 that has moved on is refused by the push itself, which also changes nothing.
 After preflight, read the login once
-(`GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`, with prompts disabled); a
-missing login fails before the push. Publish with exactly the rules of
+(on GitHub: `GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`, with prompts
+disabled; on Bitbucket: the login below); a missing login fails before the push. Publish with exactly the rules of
 `timber publish`, even when a pull request already exists, so the pull request
 gets the latest commits.
 
@@ -174,7 +181,47 @@ repositories.
 
 Created and exists return zero and print the number and URL. Every refusal and
 failure returns exit 1. Editing, merging, reviewers, labels and hosts other than
-github.com are out of scope.
+github.com and bitbucket.org are out of scope.
+
+### Bitbucket Cloud (#175)
+
+On a bitbucket.org base, Timber never prompts for the login. If either
+`BITBUCKET_EMAIL` or `BITBUCKET_API_TOKEN` is supplied, both must form a
+complete pair of an Atlassian account email and a nonblank API token without
+whitespace; that pair overrides the saved login, and an incomplete or invalid
+pair fails without fallback. Otherwise use the single private pair saved by
+`timber setup` at `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/bitbucket.json`
+(`{ "version": 1, "email", "token" }`), under the same private-storage rules as
+`linear.json`. A missing login points to `timber setup` and the variables. The
+pair is sent as HTTP Basic credentials to the fixed `https://api.bitbucket.org/2.0`
+origin. The token is an Atlassian API token with the scopes
+`read:pullrequest:bitbucket` and `write:pullrequest:bitbucket`; pushing still
+uses the user's own Git login.
+
+After the push, list `GET /repositories/<workspace>/<repo>/pullrequests` with
+`state=OPEN`, `pagelen=50` and a `q` filter on the source and destination branch
+names (quoted, with `"` and `\` escaped), then check each result's source
+branch, source repository (`full_name`, case-insensitive) and destination branch,
+since the filter is not trusted. A result whose source repository is null (a
+deleted fork) does not count. The lowest matching id is reported. Otherwise POST
+the title, `description`, `draft`, the source branch (with its repository only
+when it differs from the base repository) and the destination branch. The
+reported `number` is the pull request id and the URL is
+`https://bitbucket.org/<workspace>/<repo>/pull-requests/<id>`, built from the
+validated parts. Map 400, 401, 403/429, 404/410 and other statuses to fixed
+diagnostics that never echo Bitbucket's text. Requests use the same 10-second
+deadline, reject redirects and are not retried. Bitbucket's answer to creating a
+second pull request for an already open source and destination is not
+documented, so a creation rejected with 400 is followed by one more lookup, as
+on GitHub: an open pull request found then is reported as `exists`, otherwise
+the rejection stands.
+
+Issue mentions follow the rules above, except for GitHub issues: on Bitbucket a
+bare `#<n>` names a Bitbucket issue, so a GitHub issue is mentioned as
+`Refs https://github.com/<owner>/<repo>/issues/<n>` when its repository is
+known, and its link or `owner/repo#<n>` count as an existing mention. Without a
+known GitHub repository, no GitHub mention is added. Jira and Linear keys are
+mentioned as `Refs <KEY>`. `__app-pr` still reads only GitHub.
 
 ## Saved worktree bases (#79)
 
@@ -728,8 +775,8 @@ metadata-save and failure-retention rules remain binding.
 Guided setup question 3 is "Which issue tracker do you use?". Selecting GitHub,
 Linear or Jira sets the preference and opens only that provider's connection setup.
 None stores `"none"`; Inherit machine default removes only the preference. The hub
-has a Default issue tracker section and an independent Issue tracker connections
-menu for all providers; connection edits do not change the default. Saving an
+has a Default issue tracker section and an independent Connections
+menu for all providers and the Bitbucket pull request login; connection edits do not change the default. Saving an
 unconfigured preference is allowed, but runtime authentication/configuration failures
 remain errors. Existing credential Save/cancel/rollback and immediate external
 GitHub login behavior are unchanged. Selecting another tracker never logs out or
@@ -1261,7 +1308,7 @@ timber uninstall --yes              # confirm without a prompt
   removes nothing unless `--yes` is given. `--yes` covers only the items of the
   chosen mode.
 - `--remove-settings` also removes `config.toml`, `credentials/jira.json`,
-  `credentials/linear.json`, the `setup-hint-shown` marker and the
+  `credentials/linear.json`, `credentials/bitbucket.json`, the `setup-hint-shown` marker and the
   `update-check.json` cache, using the same XDG resolution as
   `src/config-paths.ts`. The `timber/` config, credentials, state and cache
   directories are then removed only if empty. Unknown files are never deleted;

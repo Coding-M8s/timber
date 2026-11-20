@@ -1,6 +1,7 @@
 import { execa } from "execa";
 import { jsonDisplay } from "../display";
 import type { RepositoryConfig, RepositoryContext } from "../types";
+import { parseBitbucketRemoteUrl } from "../bitbucket/repository";
 
 export interface GithubRepository { owner: string; name: string }
 const invalid = () => new Error("Selected issue remote must identify one github.com repository. Check its fetch URL or select --remote <name>.");
@@ -39,18 +40,24 @@ export async function readGithubRemote(repository: RepositoryContext, name: stri
   return parseGithubRemoteUrl(urls[0]!);
 }
 
+/** The repository a pull request is opened in or from, with the host it lives on. */
+export type PullRequestRepository = { host: "github" | "bitbucket"; owner: string; name: string };
+
 /**
- * The github.com repository behind one named remote. Read-only; the message
- * names the remote's role so it fits any command. With push, read the URL Git
- * pushes to, which pushurl or pushInsteadOf can point at another repository.
+ * The github.com or bitbucket.org repository behind one named remote. Read-only;
+ * the message names the remote's role so it fits any command. With push, read
+ * the URL Git pushes to, which pushurl or pushInsteadOf can point at another repository.
  */
-export async function githubRepositoryOfRemote(repository: RepositoryContext, remote: string, role: string,
-  push = false, read: RemoteReader = readRemote): Promise<GithubRepository> {
-  const unusable = () => new Error(`The ${role} remote ${jsonDisplay(remote)} does not identify one github.com repository; Timber creates pull requests only on github.com.`);
+export async function pullRequestRepositoryOfRemote(repository: RepositoryContext, remote: string, role: string,
+  push = false, read: RemoteReader = readRemote): Promise<PullRequestRepository> {
+  const unusable = () => new Error(`The ${role} remote ${jsonDisplay(remote)} does not identify one github.com or bitbucket.org repository; Timber creates pull requests only on github.com and bitbucket.org.`);
   if (!repository.remotes.some(value => value.name === remote)) throw unusable();
   let urls: readonly string[];
   try { urls = await read(repository.currentWorktreeRoot, ["remote", "get-url", ...(push ? ["--push"] : []), "--all", "--", remote]); }
   catch { throw unusable(); }
   if (urls.length !== 1) throw unusable();
-  try { return parseGithubRemoteUrl(urls[0]!); } catch { throw unusable(); }
+  try { return { host: "github", ...parseGithubRemoteUrl(urls[0]!) }; } catch { /* not a github.com URL */ }
+  const bitbucket = parseBitbucketRemoteUrl(urls[0]!);
+  if (bitbucket) return { host: "bitbucket", ...bitbucket };
+  throw unusable();
 }

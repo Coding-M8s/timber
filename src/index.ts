@@ -51,6 +51,7 @@ import { resolveGithubRepository } from "./github/repository";
 import { resolveLinearTicket } from "./linear/client";
 import { resolveGithubTicket } from "./github/client";
 import { createLinearSetupSession } from "./setup/linear";
+import { createBitbucketSetupSession } from "./setup/bitbucket";
 import { createGithubSetupSession } from "./setup/github";
 import { createTerminalChooser, createTerminalTextPrompt, shouldEnableInteractiveSelection } from "./selection";
 
@@ -124,6 +125,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
       jira: createJiraSetupSession,
       github: createGithubSetupSession,
       linear: createLinearSetupSession,
+      bitbucket: createBitbucketSetupSession,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, findJiraSuggestions,
