@@ -139,3 +139,47 @@ test("guided walkthrough selects Linear as default", async () => {
     undefined, undefined, { edit: async () => { edits++; }, review() {}, save: async publish => publish() });
   expect(edits).toBe(1); expect(file).toEqual({ default_tracker: "linear" });
 });
+
+test("backup sections explain automatic expiry and save retention and warning values", async () => {
+  const destination = target();
+  expect(sectionStatus("backup_retention_days", {}, destination)).toBe("7 days (default)");
+  expect(sectionStatus("backup_storage_warning", {}, destination)).toBe("5GiB (default)");
+  const messages: string[] = [];
+  const prompt = scripted(["backup_retention_days", "custom", "0", "14", "backup_storage_warning", "custom", "5 GB", "2GiB", "save"]);
+  const select = prompt.select;
+  prompt.select = async (message, choices, defaultValue) => {
+    messages.push(message);
+    if (message.includes("Settings -")) {
+      expect(choices.find(choice => choice.value === "backup_retention_days")?.label).toContain("Backup retention");
+      expect(choices.find(choice => choice.value === "backup_storage_warning")?.label).toContain("Backup size warning");
+    }
+    return select(message, choices, defaultValue);
+  };
+  const output = io();
+  const file = await runSetupHub(destination, prompt, output.io, async () => true);
+  expect(file).toEqual({ backup_retention_days: 14, backup_storage_warning: "2GiB" });
+  const retention = messages.find(message => message.includes("How long should recovery backups be kept"))!;
+  expect(retention).toContain("secrets such as .env");
+  expect(retention).toContain("may be deleted automatically the next time timber backup create or timber backup cleanup runs");
+  expect(retention).toContain("Nothing runs in the background");
+  expect(output.output()).toContain("Enter a whole number of days from 1 to 36500.");
+  expect(output.output()).toContain("Enter a size such as 5GiB");
+  expect(sectionStatus("backup_retention_days", file!, destination)).toBe("14 days");
+  expect(sectionStatus("backup_storage_warning", file!, destination)).toBe("2GiB");
+});
+
+test("backup sections can turn retention and the warning off, keep values and inherit machine defaults", async () => {
+  const off = await runSetupHub(target(), scripted(["backup_retention_days", "off", "backup_storage_warning", "off", "save"]),
+    io().io, async () => true);
+  expect(off).toEqual({ backup_retention_days: false, backup_storage_warning: false });
+  expect(sectionStatus("backup_retention_days", off!, target())).toBe("kept until deleted");
+  expect(sectionStatus("backup_storage_warning", off!, target())).toBe("off");
+
+  const destination = target({ backup_retention_days: 3 });
+  destination.scopes.global.values = { backup_retention_days: 30, backup_storage_warning: "1GiB" };
+  expect(sectionStatus("backup_storage_warning", {}, destination)).toBe("1GiB · from machine defaults");
+  const kept = await runSetupHub(destination, scripted(["backup_retention_days", "keep", "save"]), io().io, async () => true);
+  expect(kept).toEqual({ backup_retention_days: 3 });
+  const inherited = await runSetupHub(destination, scripted(["backup_retention_days", "inherit", "save"]), io().io, async () => true);
+  expect(inherited).toEqual({});
+});
