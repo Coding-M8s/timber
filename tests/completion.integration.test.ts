@@ -36,7 +36,7 @@ test("completion reads fresh Git targets from primary, nested and linked checkou
       expect(await candidates("timber rebase ", cwd)).toEqual(["TIM-23-one", detached, linked, primary, "trunk"].sort());
       expect(await candidates("timber rebase --base ", cwd)).toEqual(["origin/shared", "other/shared", "refs/heads/TIM-23-one", "refs/heads/TIM-23-two", "refs/heads/trunk"]);
       expect(await candidates("timber rebase --base=ori", cwd)).toEqual(["--base=origin/shared"]);
-      expect(await candidates("timber backup ", cwd)).toEqual(["create", "done", "help", "list", "restore"]);
+      expect(await candidates("timber backup ", cwd)).toEqual(["cleanup", "create", "done", "help", "keep", "list", "restore", "unkeep"]);
       expect(await candidates("timber backup create ", cwd)).toEqual(["TIM-23-one", detached, linked, primary, "trunk"].sort());
       expect(await candidates("timber backup restore ", cwd)).toEqual([]);
       expect(await candidates("timber backup done ", cwd)).toEqual([]);

@@ -15,7 +15,9 @@ export function renderConfig(file: ConfigFile): string {
     + "# Relative worktree_dir paths resolve from the primary repository checkout.\n"
     + '# Automatic/inherited examples: base_branch = "main", remote = "origin"\n'
     + '# default_tracker = "github" # github, linear, jira, or none; absent inherits\n'
-    + '# worktree_dir = "../my-repository-worktrees"\n\n';
+    + '# worktree_dir = "../my-repository-worktrees"\n'
+    + '# backup_retention_days = 7 # days before an unprotected backup may be deleted; false keeps until deleted\n'
+    + '# backup_storage_warning = "5GiB" # ask before backups grow past this; false turns it off\n\n';
   const source = header + stringify(file) + Object.entries(examples).flatMap(([key, example]) =>
     key in file && file[key as keyof ConfigFile] !== false ? [] : [
       `\n# Optional ${key}: uncomment this example to configure it; remove ${key} = false first.\n`

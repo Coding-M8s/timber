@@ -11,6 +11,7 @@ import type { SetupPrompt, SetupTarget } from "./types";
 import type { JiraSetupSession } from "./jira";
 import type { GithubSetupSession } from "./github";
 import { editDefaultTracker } from "./trackers";
+import { editBackupSetting } from "./backups";
 
 async function choose(prompt: SetupPrompt, message: string, choices: readonly ChoiceOption[], defaultValue = choices[0]!.value): Promise<string> {
   const result = await prompt.select(message, choices, defaultValue);
@@ -278,6 +279,7 @@ export async function editSetupSection(section: SetupSection, file: ConfigFile, 
     case "base_branch": await scalar(section, target.branches, file, current, prompt, io); break;
     case "remote": await scalar(section, target.repository?.remotes.map(remote => remote.name) ?? [], file, current, prompt, io); break;
     case "worktree_dir": await scalar(section, [], file, current, prompt, io); break;
+    case "backup_retention_days": case "backup_storage_warning": await editBackupSetting(section, file, current, prompt, io); break;
   }
 }
 

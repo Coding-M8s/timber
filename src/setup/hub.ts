@@ -4,6 +4,7 @@ import type { ConfigFile } from "../config";
 import { safeDisplay } from "../display";
 import type { CommandIO } from "../services";
 import type { ChoiceOption } from "../selection";
+import { backupStatus } from "./backups";
 import { editJiraSettings, editSetupSection, questionnaire } from "./questions";
 import { editDefaultTracker, editTrackerConnections, trackerNames } from "./trackers";
 import type { SetupSection } from "./questions";
@@ -22,6 +23,8 @@ const sections: readonly { value: SetupSection; title: string }[] = [
   { value: "base_branch", title: "Starting branch" },
   { value: "remote", title: "Git remote" },
   { value: "worktree_dir", title: "Workspace folder" },
+  { value: "backup_retention_days", title: "Backup retention" },
+  { value: "backup_storage_warning", title: "Backup size warning" },
 ];
 
 function inheritedNote(file: ConfigFile, target: SetupTarget, key: keyof ConfigFile): string {
@@ -84,6 +87,8 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
       if (resolved.worktreeDir) return `${safeDisplay(resolved.worktreeDir)}${note}`;
       return `default sibling directory${note}`;
     }
+    case "backup_retention_days": case "backup_storage_warning":
+      return backupStatus(key, file, target);
     default:
       return "-";
   }
@@ -136,7 +141,7 @@ export async function runSetupHub(
       if (choice === "save") {
         const parsed = configFileSchema.safeParse(file);
         if (!parsed.success) {
-          io.stderr("Setup values are invalid. Correct base_branch, remote, or worktree_dir before saving.\n");
+          io.stderr("Setup values are invalid. Correct base_branch, remote, worktree_dir or backup settings before saving.\n");
           continue;
         }
         return parsed.data;
