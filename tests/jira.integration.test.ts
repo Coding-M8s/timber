@@ -10,6 +10,7 @@ import { loadRepositoryConfig } from "../src/config";
 import { launchEditor } from "../src/editor";
 import { resolveBase } from "../src/git/branches";
 import { createWorktree } from "../src/git/create-worktree";
+import { readIssueLink, writeIssueLink } from "../src/git/issue-link";
 import { inspectNewBranchCollision } from "../src/git/new-collision";
 import { resolveOpenTarget } from "../src/git/open-target";
 import { discoverRepository } from "../src/git/repository";
@@ -89,6 +90,7 @@ test("new resolving to an existing remote ticket branch refuses unattended and o
       async (_message, choices) => choices.find(choice => choice.label === "Open existing branch")!.value, "new", "ENG-834", "--no-editor");
     const target = join(directory, "primary repo-worktrees", name);
     expect(opened.code).toBe(0);
+    expect(opened.stdout).toContain("Linked jira:ENG-834:");
     expect(await git(target, "rev-parse", "HEAD")).toBe(tip);
     expect(await git(target, "rev-parse", "--symbolic-full-name", "@{upstream}")).toBe(`refs/remotes/origin/${name}`);
     expect(await git(remote, "show-ref")).toBe(remoteRefs);
@@ -243,6 +245,12 @@ function handlersFor(
   const open = createOpenHandler({
     ...shared,
     resolveOpenTarget,
+    // Same issue-link wiring as production, so `new` can carry a ticket into `open`.
+    readIssueLink, writeIssueLink,
+    resolveJiraTicket: (config, key) => resolveJiraTicket(config, key, runtime),
+    resolveGithubRepository: async () => { throw new Error("GitHub must not run"); },
+    resolveGithubTicket: async () => { throw new Error("GitHub must not run"); },
+    resolveLinearTicket: async () => { throw new Error("Linear must not run"); },
   });
   return {
     ...placeholderHandlers,

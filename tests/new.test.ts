@@ -494,6 +494,8 @@ function guarded(options: {
   choose?: (message: string, choices: readonly { value: string; label: string; default?: boolean }[]) => Promise<string | null>;
   name?: string;
   repositoryRemotes?: string[];
+  config?: RepositoryConfig;
+  services?: Partial<import("../src/commands/new").NewServices>;
 }) {
   const calls: string[] = [];
   const opened: Array<[string, unknown]> = [];
@@ -502,8 +504,9 @@ function guarded(options: {
   const h = context(options.choose as never);
   const services = createServiceDouble({
     discoverRepository: async () => repositoryFixture(),
-    loadConfig: async () => config,
+    loadConfig: async () => options.config ?? config,
     resolveBase: async () => base,
+    ...options.services,
     inspectNewBranchCollision: async (_repository, name) => {
       seen.push(name);
       return queue.length > 1 ? queue.shift()! : queue[0]!;
@@ -694,4 +697,35 @@ test("new propagates an open failure without falling back to creation", async ()
   const h = context(async () => "origin");
   await expect(handler("feature/example", {}, h.value)).rejects.toThrow("Could not refresh remote branch");
   expect(calls).toEqual([]);
+});
+
+test("new carries a resolved ticket into open as its issue link", async () => {
+  const name = "ENG-9-fix-login";
+  const jira = { ...config, jira: { siteUrl: "https://example.atlassian.net" } };
+  const g = guarded({
+    inspections: [remoteInspection(name, [remoteState("origin", commitA, present(commitA))])],
+    choose: async () => "origin",
+    config: jira,
+    services: { resolveJiraTicket: async () => ({ key: "ENG-9", title: "Fix Login", url: "https://x" }) },
+  });
+  await g.handler("ENG-9", { setup: false }, g.h.value);
+  expect(g.opened).toEqual([[`origin/${name}`, { issue: "jira:ENG-9", setup: false }]]);
+  expect(g.calls).toEqual([]);
+});
+
+test("new does not pass a GitHub ticket chosen with --remote to open and says so", async () => {
+  const name = "GH-12-fix-login";
+  const output: string[] = [];
+  const g = guarded({
+    inspections: [remoteInspection(name, [remoteState("origin", commitA, present(commitA))])],
+    choose: async () => "origin",
+    services: {
+      resolveGithubRepository: async () => ({ owner: "acme", name: "tracker" }) as never,
+      resolveGithubTicket: async () => ({ key: "GH-12", title: "Fix Login", url: "https://x" }),
+    },
+  });
+  g.h.value.io.stdout = text => { output.push(text); };
+  await g.handler("github:12", { remote: "upstream" } as never, g.h.value);
+  expect(g.opened).toEqual([[`origin/${name}`, {}]]);
+  expect(output.join("")).toContain("Issue github:12 was not linked");
 });

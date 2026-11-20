@@ -231,14 +231,25 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
       if (again.local !== null || current === undefined || current.live.kind !== "present" || current.live.commit !== match.commit) {
         throw new FormattedError(`${match.selector} changed or disappeared after selection. No worktree was created. Rerun timber new or timber open.`);
       }
+      // Carry the resolved ticket so the opened worktree keeps its issue link. open looks
+      // GitHub issues up in the default issue repository, so a GitHub ticket chosen with
+      // --remote is not passed on and the user is told how to link it.
+      const issue = ticket === undefined || input.kind === "literal" ? undefined
+        : issueSelector({ tracker: input.kind, key: input.kind === "github" ? String(input.number) : ticket.key });
+      const skipIssue = issue !== undefined && input.kind === "github" && options.remote !== undefined;
       const openOptions: OpenOptions = {
+        ...(issue === undefined || skipIssue ? {} : { issue }),
         ...(options.workflow === undefined ? {} : { workflow: options.workflow }),
         ...(options.editor === undefined ? {} : { editor: options.editor }),
         ...(options.agent === undefined ? {} : { agent: options.agent }),
         ...(options.setup === false ? { setup: false } : {}),
       };
       if (services.openExisting === undefined) throw new Error("Opening an existing branch is unavailable in this build; no worktree was created.");
-      return services.openExisting(remoteSelector(match.remote, selectedBranch), openOptions, context);
+      await services.openExisting(remoteSelector(match.remote, selectedBranch), openOptions, context);
+      if (skipIssue) {
+        context.io.stdout(`Issue ${issue} was not linked: timber open links GitHub issues from the default issue repository, not the one --remote selected.\n`);
+      }
+      return;
     }
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
     await context.machine?.worktree(worktree, true);
