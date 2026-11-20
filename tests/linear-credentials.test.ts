@@ -31,6 +31,7 @@ test("Linear storage is private, shared, versioned and independent of other prov
     await withLinearCredentialSave(edit, async () => {});
     expect(await loadSavedLinearKey(env)).toBe("REPLACEMENT");
     const remove = await readLinearCredentialStore(env); remove.set(null);
+    expect(remove.serialize()).toBe(JSON.stringify({ version: 1, token: null }, null, 2) + "\n");
     await withLinearCredentialSave(remove, async () => {});
     expect(await Bun.file(store.path).exists()).toBe(false);
     expect(await readFile(jira, "utf8")).toBe("OTHER_PROVIDER_BYTES");

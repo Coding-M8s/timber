@@ -155,9 +155,10 @@ type PublishRecord = {
 
 type PullRequestRecord = {
   result: "created" | "exists" | "refused" | "failed";
-  number: number | null;   // pull request number on GitHub
+  number: number | null;   // pull request number on GitHub, or id on Bitbucket
   url: string | null;      // https://github.com/<owner>/<repo>/pull/<number>
-  base: string | null;     // base branch as GitHub names it, such as "main"
+                           // or https://bitbucket.org/<workspace>/<repo>/pull-requests/<id>
+  base: string | null;     // base branch as the host names it, such as "main"
   published: boolean;      // this run pushed commits to the remote
 };
 
@@ -429,7 +430,8 @@ pre-push hook keeps its ordinary behavior, with closed stdin.
 
 `timber pr <branch-or-worktree> --title <text> [--body <text>] [--base <ref>]
 [--draft] --result-file <path>` publishes a worktree's branch and opens a GitHub
-pull request for it, so an app never calls GitHub or pushes on its own. Target
+or Bitbucket Cloud pull request for it, so an app never calls GitHub or
+Bitbucket or pushes on its own. Each result means the same on both hosts. Target
 selection, publishing, human stdout/stderr and exit codes are the same as without
 the flag; see the [CLI contract](cli-contract.md#open-a-pull-request-157).
 
@@ -441,7 +443,7 @@ The record has `command: "pr"`, `materialized: false`, no `worktrees`, no
 | `created` | `succeeded` | 0 | This run created pull request `number`. |
 | `exists` | `succeeded` | 0 | A pull request from the branch into the same base was already open. Nothing was created. |
 | `refused` | `failed` | 1 | Timber declined, or publish refused because the remote branch moved on. Nothing was pushed and no local ref changed. |
-| `failed` | `failed` | 1 | An operation broke: a missing GitHub login, a failed publish, GitHub rejecting the creation, the network, or a timeout. |
+| `failed` | `failed` | 1 | An operation broke: a missing GitHub or Bitbucket login, a failed publish, the host rejecting the creation, the network, or a timeout. |
 
 - The branch is published first with the rules of
   [Publish outcome](#publish-outcome), including when a pull request is already
@@ -449,16 +451,20 @@ The record has `command: "pr"`, `materialized: false`, no `worktrees`, no
   an up-to-date branch and for every stop before the push.
 - `refused` covers selection and safety stops (as for publish), a missing or
   invalid title, an unassigned, invalid or local-branch saved base, an unusable
-  `--base`, a base equal to the branch, a remote that is not on github.com, and
-  a remote branch that has moved on. Timber's own refusals happen before the
+  `--base`, a base equal to the branch, a remote that is not on github.com or
+  bitbucket.org, base and publish remotes on different hosts, and a remote
+  branch that has moved on. Timber's own refusals happen before the
   login is read; a remote that moved on is refused by the push, which pushes
   nothing.
-- A missing GitHub login is `failed` and stops before the push. The user signs
-  in with `gh auth login` or sets `GH_TOKEN`, and the app retries deliberately.
+- A missing login is `failed` and stops before the push. On GitHub the user
+  signs in with `gh auth login` or sets `GH_TOKEN`; on Bitbucket the user saves
+  a login with `timber setup` or sets `BITBUCKET_EMAIL` and `BITBUCKET_API_TOKEN`
+  ([Bitbucket Cloud](cli-contract.md#bitbucket-cloud-175)). The app retries
+  deliberately. Settings for app consumers cannot yet save the Bitbucket login.
 - `failed` after the push leaves the branch published: `published` says whether
   this run moved it. A rejected creation (for example no commits between the
-  base and the branch, a base branch missing on GitHub, or drafts unsupported)
-  has a fixed `diagnostic` and never GitHub's own text. A creation timeout may
+  base and the branch, a base branch missing on the host, or drafts unsupported)
+  has a fixed `diagnostic` and never the host's own text. A creation timeout may
   have created the pull request; running `pr` again reports it as `exists`.
 - `number` and `url` are null unless `result` is `created` or `exists`. `url`
   is built from the validated repository and number. `base` holds the base
@@ -468,8 +474,9 @@ The record has `command: "pr"`, `materialized: false`, no `worktrees`, no
 The body mentions the worktree's [issue link](#issue-link), or, when none is
 saved, a ticket key at the start of the branch name: `Refs #123` (or
 `Refs owner/repo#123` for an issue in another repository) and `Refs ENG-42` for
-Jira and Linear, unless the body already mentions it. An `invalid` link adds no
-mention. Timber never adds a closing keyword.
+Jira and Linear, unless the body already mentions it. On Bitbucket a GitHub
+issue is mentioned by its `https://github.com/.../issues/<n>` link instead. An
+`invalid` link adds no mention. Timber never adds a closing keyword.
 
 `worktree` is the selected worktree as it was before the push. It is null when
 no single target was selected. Result-file mode never opens a chooser, so

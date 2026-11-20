@@ -173,13 +173,13 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     });
 
   program.command("pr <branch-or-worktree>")
-    .description("Publish an existing worktree's branch and open a GitHub pull request for it")
+    .description("Publish an existing worktree's branch and open a GitHub or Bitbucket pull request for it")
     .option("--title <text>", "Pull request title (required)")
     .option("--body <text>", "Pull request description")
     .option("--base <ref>", "Base branch (remote/branch or branch name); defaults to the worktree's saved base")
     .option("--draft", "Open the pull request as a draft")
     .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
-    .addHelpText("after", "\nPublishes the branch first with the rules of timber publish, then opens the pull request on github.com\nwith your GitHub CLI login or GH_TOKEN. Reports an already open pull request instead of creating another.\nThe worktree's linked issue, or one its branch is named for (GH-123-...), is mentioned in the body. Never prompts for credentials.")
+    .addHelpText("after", "\nPublishes the branch first with the rules of timber publish, then opens the pull request on github.com\nwith your GitHub CLI login or GH_TOKEN, or on bitbucket.org with BITBUCKET_EMAIL and BITBUCKET_API_TOKEN\nor the login saved by timber setup. Reports an already open pull request instead of creating another.\nThe worktree's linked issue, or one its branch is named for (GH-123-...), is mentioned in the body. Never prompts for credentials.")
     .action(async (input: string, options: { title?: string; body?: string; base?: string; draft?: boolean; resultFile?: string }) => {
       const pr = handlers.pr;
       if (!pr) throw new Error("Pull request handler is unavailable in this embedding.");
@@ -300,7 +300,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
 
   program.command("uninstall")
     .description("Remove the running standalone Timber executable; settings are kept unless requested")
-    .option("--remove-settings", "Also remove machine config, saved Jira and Linear credentials, the setup hint marker and the update check cache")
+    .option("--remove-settings", "Also remove machine config, saved Jira, Linear and Bitbucket credentials, the setup hint marker and the update check cache")
     .option("--yes", "Confirm without a prompt; required without an interactive terminal")
     .addHelpText("after", "\nOnly a standalone release build is removed, never a Bun source run. Symlinks, files owned by another user and paths inside Git are refused. Unknown files are never deleted. Repositories, worktrees, branches, .timber.toml and <git common dir>/timber/ are never touched.")
     .action(async (options: { removeSettings?: boolean; yes?: boolean }) => {

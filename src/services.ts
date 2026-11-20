@@ -65,7 +65,7 @@ export interface CommandServices {
   /** Push a verified registered worktree's branch under its own name; never forces or prompts. */
   publishWorktree(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     io: CommandIO, report?: PublishReport): Promise<number>;
-  /** Publish a verified registered worktree's branch, then open or report its GitHub pull request; never prompts. */
+  /** Publish a verified registered worktree's branch, then open or report its GitHub or Bitbucket pull request; never prompts. */
   openPullRequest(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     options: PullRequestOptions, io: CommandIO, report?: PullRequestReport): Promise<number>;
   /** Snapshot a verified, idle registered worktree into private Git-directory storage; never changes the source. */

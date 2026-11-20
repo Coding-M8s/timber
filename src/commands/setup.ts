@@ -7,10 +7,12 @@ import { SetupCancelled, SetupVisibilityError } from "../setup/types";
 import type { SetupPrompt, SetupTarget } from "../setup/types";
 import type { JiraSetupSession } from "../setup/jira";
 import type { GithubSetupSession } from "../setup/github";
+import type { BitbucketSetupSession } from "../setup/bitbucket";
 
 export interface SetupServices {
   linear?: () => LinearSetupSession;
   github?: () => GithubSetupSession;
+  bitbucket?: () => BitbucketSetupSession;
   inspectTarget(global: boolean, cwd: string): Promise<SetupTarget>;
   prompt(): SetupPrompt;
   checkExecutable(command: string): Promise<boolean>;
@@ -30,6 +32,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
     } } : context;
     let jira = services.jira?.();
     let linear = services.linear?.();
+    let bitbucket = services.bitbucket?.();
     const github = services.github?.();
     let closed = false;
     const done = (message: string) => {
@@ -45,16 +48,17 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
             { value: "edit", label: "Explicitly edit tracked config (index remains unchanged)" },
           ], "cancel");
           if (choice === null || choice === "cancel") throw new SetupCancelled();
-          if (choice === "global") { global = true; target = await services.inspectTarget(true, context.cwd); jira = services.jira?.(); linear = services.linear?.(); continue; }
+          if (choice === "global") { global = true; target = await services.inspectTarget(true, context.cwd); jira = services.jira?.(); linear = services.linear?.(); bitbucket = services.bitbucket?.(); continue; }
           if (choice !== "edit") throw new Error("Invalid tracked-config choice; no settings saved.");
           trackedApproved = true;
         }
-        const file = await runSetupHub(target, prompt, setupContext.io, services.checkExecutable, jira, github, linear);
+        const file = await runSetupHub(target, prompt, setupContext.io, services.checkExecutable, jira, github, linear, bitbucket);
         if (file === null) throw new SetupCancelled();
         const source = renderConfig(file);
         try {
           const publish = () => services.save(target, source, trackedApproved, prompt.signal);
-          const publishCredentials = () => linear ? linear.save(publish, prompt.signal) : publish();
+          const publishBitbucket = () => bitbucket ? bitbucket.save(publish, prompt.signal) : publish();
+          const publishCredentials = () => linear ? linear.save(publishBitbucket, prompt.signal) : publishBitbucket();
           if (jira) await jira.save(publishCredentials, prompt.signal); else await publishCredentials();
         }
         catch (error) {
@@ -69,6 +73,7 @@ export function createSetupHandler(services: SetupServices): CommandHandlers["se
           target = await services.inspectTarget(global, context.cwd);
           jira = services.jira?.();
           linear = services.linear?.();
+          bitbucket = services.bitbucket?.();
           continue;
         }
         done(`Saved ${target.scope === "global" ? "machine defaults" : "repository settings"} at ${safeDisplay(target.path)}\n`);

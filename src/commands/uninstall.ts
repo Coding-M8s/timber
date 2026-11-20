@@ -64,7 +64,7 @@ async function buildPlan(removeSettings: boolean, dependencies: Required<Pick<Un
   const configFile = globalConfigPath(dependencies.env);
   const configDirectory = dirname(configFile);
   const credentialsDirectory = join(configDirectory, "credentials");
-  const credentialFiles = ["jira.json", "linear.json"].map(name => join(credentialsDirectory, name));
+  const credentialFiles = ["jira.json", "linear.json", "bitbucket.json"].map(name => join(credentialsDirectory, name));
   const marker = installationMarkerPath(dependencies.env);
   const stateDirectory = dirname(marker);
   const updateCache = updateCheckCachePath(dependencies.env);
@@ -134,7 +134,7 @@ export function createUninstallHandler(dependencies: UninstallDependencies): Non
       }
     }
     out(`Removed ${display(dependencies.executablePath)}.\n`);
-    if (removeSettings) out("Removed machine settings, saved Jira and Linear credentials, the setup hint marker and the update check cache.\n");
+    if (removeSettings) out("Removed machine settings, saved Jira, Linear and Bitbucket credentials, the setup hint marker and the update check cache.\n");
     const remaining = await findExecutable("timber", env);
     if (remaining !== null) {
       context.io.stderr(`warning: another timber is still on PATH at ${safeDiagnostic(remaining)}. Remove it separately.\n`);

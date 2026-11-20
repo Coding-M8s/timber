@@ -11,6 +11,12 @@ import type { PublishReport } from "../src/git/publish";
 import { createServiceDouble, repositoryFixture, worktreeFixture } from "./helpers/services";
 import type { CommandContext } from "../src/services";
 import type { OpenTarget, RepositoryConfig } from "../src/types";
+import type { PullRequestRepository } from "../src/github/repository";
+import type { BitbucketRuntime } from "../src/bitbucket/client";
+
+const unusedBitbucket: BitbucketRuntime = { timeoutMs: 200,
+  login: async () => { throw new Error("Bitbucket must not be used"); },
+  fetch: async () => { throw new Error("Bitbucket must not be used"); } };
 
 const repository = repositoryFixture({ remotes: [{ name: "origin" }, { name: "up/stream" }] as never });
 const config: RepositoryConfig = { baseBranch: "main", remote: "origin", worktreeDir: null,
@@ -18,7 +24,7 @@ const config: RepositoryConfig = { baseBranch: "main", remote: "origin", worktre
   hooks: { postCreate: ["must-not-run"] } };
 const branch = "GH-157-timber-pr";
 const tree = worktreeFixture({ path: "/repo/feature", branch, isPrimary: false });
-const repos: Record<string, { owner: string; name: string }> = { origin: { owner: "acme", name: "widgets" }, "up/stream": { owner: "upstream", name: "widgets" } };
+const repos: Record<string, PullRequestRepository> = { origin: { host: "github", owner: "acme", name: "widgets" }, "up/stream": { host: "github", owner: "upstream", name: "widgets" } };
 const io = () => {
   let stdout = "", stderr = "";
   return { io: { stdout: (text: string) => { stdout += text; }, stderr: (text: string) => { stderr += text; } }, out: () => ({ stdout, stderr }) };
@@ -26,12 +32,19 @@ const io = () => {
 const pull = (number: number, extra: Record<string, unknown> = {}) => ({ number, draft: false,
   head: { ref: branch, repo: { full_name: "acme/widgets" } }, base: { ref: "main" }, ...extra });
 
+const bbPull = (id: number, extra: Record<string, unknown> = {}) => ({ id, draft: false,
+  source: { branch: { name: branch }, repository: { full_name: "acme/widgets" } },
+  destination: { branch: { name: "main" }, repository: { full_name: "acme/widgets" } }, ...extra });
+const bitbucketRepos: Record<string, PullRequestRepository> = { origin: { host: "bitbucket", owner: "acme", name: "widgets" },
+  "up/stream": { host: "bitbucket", owner: "upstream", name: "widgets" } };
+
 /** Doubles for every seam; the order of calls proves nothing is pushed before a refusal. */
 function harness(options: {
   saved?: BaseAssociationRead; publish?: (report: PublishReport) => void; token?: () => Promise<string>;
   respond?: (method: string, url: string, body: unknown) => Response; issues?: { owner: string; name: string } | null;
-  issue?: IssueLinkRead;
+  issue?: IssueLinkRead; remotes?: Record<string, PullRequestRepository>; login?: () => Promise<{ email: string; token: string }>;
 } = {}) {
+  const remotes = options.remotes ?? repos;
   const events: string[] = [];
   const requests: { method: string; url: string; body: unknown }[] = [];
   const dependencies: PullRequestDependencies = {
@@ -45,9 +58,9 @@ function harness(options: {
       options.publish?.(report!);
       return 0;
     },
-    githubRepository: async (_r, remote, _role, push) => {
+    remoteRepository: async (_r, remote, _role, push) => {
       events.push(push ? "head" : "base");
-      const found = repos[remote];
+      const found = remotes[remote];
       if (!found) throw new Error(`The remote ${remote} does not identify one github.com repository.`);
       return found;
     },
@@ -60,6 +73,15 @@ function harness(options: {
         events.push(String(init.method));
         return options.respond?.(String(init.method), url, body)
           ?? (init.method === "GET" ? Response.json([]) : Response.json(pull(42, { draft: body.draft }), { status: 201 }));
+      } },
+    bitbucket: { timeoutMs: 200,
+      login: async () => { events.push("login"); return options.login ? options.login() : { email: "dev@example.com", token: "token" }; },
+      fetch: async (url, init) => {
+        const body = init.body === undefined ? undefined : JSON.parse(String(init.body));
+        requests.push({ method: String(init.method), url, body });
+        events.push(String(init.method));
+        return options.respond?.(String(init.method), url, body)
+          ?? (init.method === "GET" ? Response.json({ values: [] }) : Response.json(bbPull(42, { draft: body.draft }), { status: 201 }));
       } },
   };
   const run = async (prOptions: PullRequestOptions = { title: "Add timber pr" }) => {
@@ -212,7 +234,7 @@ test("a Jira or Linear key is mentioned by its key", async () => {
     readBase: async () => ({ kind: "assigned", ref: "refs/remotes/origin/main" }), readIssue: async () => ({ kind: "none" }),
     planPublish: async () => ({ path: jira.path, branch: "ENG-42-thing", head: jira.head!, remote: "origin", upstream: "refs/remotes/origin/ENG-42-thing" }),
     publishWorktree: async (_r, _w, _c, _io, published) => { published!.remote = "origin"; published!.result = "published"; return 0; },
-    githubRepository: async () => repos.origin!, issueRepository: async () => repos.origin!,
+    remoteRepository: async () => repos.origin!, issueRepository: async () => repos.origin!, bitbucket: unusedBitbucket,
     runtime: { timeoutMs: 200, token: async () => "t", fetch: async (_url, init) => init.method === "GET" ? Response.json([])
       : Response.json({ ...pull(5), head: { ref: "ENG-42-thing", repo: { full_name: "acme/widgets" } }, body: JSON.parse(String(init.body)).body }, { status: 201 }) },
   };
@@ -223,6 +245,120 @@ test("a Jira or Linear key is mentioned by its key", async () => {
   } } };
   expect(await openPullRequest(repository, jira, config, { title: "t", body: "Work" }, output.io, report, recording)).toBe(0);
   expect(sent).toBe("Work\n\nRefs ENG-42");
+});
+
+test("a Bitbucket base creates the pull request on Bitbucket with the Bitbucket login and link", async () => {
+  const h = harness({ remotes: bitbucketRepos });
+  const result = await h.run({ title: "Add timber pr", body: "Adds the command.", draft: true });
+  expect(result.error).toBeNull();
+  expect(result.report).toEqual({ result: "created", number: 42, url: "https://bitbucket.org/acme/widgets/pull-requests/42", base: "main", published: true });
+  expect(h.events).toEqual(["readBase", "plan", "base", "head", "login", "publish", "GET", "POST"]);
+  const lookup = new URL(h.requests[0]!.url);
+  expect(lookup.origin + lookup.pathname).toBe("https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests");
+  expect(lookup.searchParams.get("state")).toBe("OPEN");
+  expect(lookup.searchParams.get("q")).toBe(`source.branch.name = "${branch}" AND destination.branch.name = "main"`);
+  // The branch's GH number is mentioned by its GitHub link, never as a bare #157.
+  expect(h.requests[1]).toMatchObject({ method: "POST", url: "https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests",
+    body: { title: "Add timber pr", description: "Adds the command.\n\nRefs https://github.com/acme/widgets/issues/157", draft: true,
+      source: { branch: { name: branch } }, destination: { branch: { name: "main" } } } });
+  expect(result.output.stdout).toBe("Created draft pull request #42: https://bitbucket.org/acme/widgets/pull-requests/42\n");
+});
+
+test("an open Bitbucket pull request into the same base is reported as exists; others do not count", async () => {
+  const h = harness({ remotes: bitbucketRepos, publish: report => { report.result = "up-to-date"; },
+    respond: method => method === "GET" ? Response.json({ values: [
+      bbPull(3, { destination: { branch: { name: "release" } } }),
+      bbPull(4, { source: { branch: { name: branch }, repository: null } }),
+      bbPull(5, { source: { branch: { name: branch }, repository: { full_name: "someone/widgets" } } }),
+      bbPull(9), bbPull(7),
+    ] }) : new Response(null, { status: 500 }) });
+  const result = await h.run({ title: "t" });
+  expect(result.report).toEqual({ result: "exists", number: 7, url: "https://bitbucket.org/acme/widgets/pull-requests/7", base: "main", published: false });
+  expect(h.requests.map(request => request.method)).toEqual(["GET"]);
+});
+
+test("a fork's branch names its source repository, so the pull request opens against the base repository", async () => {
+  const h = harness({ remotes: { origin: { host: "bitbucket", owner: "someone", name: "widgets" }, "up/stream": bitbucketRepos["up/stream"]! },
+    saved: { kind: "assigned", ref: "refs/remotes/up/stream/main" },
+    respond: method => method === "GET" ? Response.json({ values: [] })
+      : Response.json(bbPull(11, { source: { branch: { name: branch }, repository: { full_name: "someone/widgets" } } }), { status: 201 }) });
+  expect((await h.run()).report).toMatchObject({ result: "created", number: 11, url: "https://bitbucket.org/upstream/widgets/pull-requests/11" });
+  expect(h.requests[1]!.body).toMatchObject({ source: { branch: { name: branch }, repository: { full_name: "someone/widgets" } } });
+});
+
+test("Bitbucket failures map to fixed diagnostics that never echo the response", async () => {
+  const cases: [number, string][] = [[401, "did not accept the sign-in"], [403, "denied access"], [429, "rate limited"], [404, "could not find the repository"],
+    [400, "rejected the request as invalid"], [500, "retry when Bitbucket is reachable"]];
+  for (const [status, message] of cases) {
+    const h = harness({ remotes: bitbucketRepos, respond: method => method === "GET" ? Response.json({ values: [] })
+      : Response.json({ type: "error", error: { message: "SECRET-ECHO" } }, { status }) });
+    const result = await h.run();
+    expect(result.error?.message).toContain(message);
+    expect(result.error?.message).not.toContain("SECRET-ECHO");
+    expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: true });
+  }
+  const malformed = harness({ remotes: bitbucketRepos, respond: () => Response.json({ nope: true }) });
+  expect((await malformed.run()).error?.message).toContain("invalid pull request response");
+});
+
+test("on Bitbucket a branch's GH number without a known GitHub repository adds no mention", async () => {
+  const h = harness({ remotes: bitbucketRepos, issues: null });
+  await h.run({ title: "t", body: "Work" });
+  expect((h.requests[1]!.body as { description: string }).description).toBe("Work");
+});
+
+test("a Bitbucket creation rejected with 400 is checked once more and reported as exists when one is open", async () => {
+  let lookups = 0;
+  const h = harness({ remotes: bitbucketRepos, respond: method => method === "GET"
+    ? Response.json({ values: lookups++ === 0 ? [] : [bbPull(8)] })
+    : Response.json({ type: "error", error: { message: "duplicate" } }, { status: 400 }) });
+  const result = await h.run();
+  expect(result.report).toMatchObject({ result: "exists", number: 8, url: "https://bitbucket.org/acme/widgets/pull-requests/8" });
+  expect(h.requests.map(request => request.method)).toEqual(["GET", "POST", "GET"]);
+});
+
+test("a Bitbucket creation timeout says the pull request may exist", async () => {
+  const h = harness({ remotes: bitbucketRepos,
+    respond: method => method === "GET" ? Response.json({ values: [] }) : new Promise<never>(() => {}) as never });
+  const result = await h.run();
+  expect(result.error?.message).toBe("Bitbucket did not answer the pull request creation in time; it may have been created. Run timber pr again to report it.");
+  expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: true });
+});
+
+test("a missing Bitbucket login fails before the push", async () => {
+  const h = harness({ remotes: bitbucketRepos, login: async () => { throw new Error("Bitbucket login is missing."); } });
+  const result = await h.run();
+  expect(result.error?.message).toContain("Bitbucket login is missing");
+  expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: false });
+  expect(h.events).not.toContain("publish");
+  expect(h.requests).toEqual([]);
+});
+
+test("base and publish remotes on different hosts are refused before the login or any push", async () => {
+  const h = harness({ remotes: { origin: repos.origin!, "up/stream": bitbucketRepos["up/stream"]! } });
+  const result = await h.run({ title: "t", base: "up/stream/main" });
+  expect(result.error?.message).toContain("same host");
+  expect(result.report).toMatchObject({ result: "refused", published: false });
+  expect(h.events).not.toContain("login");
+  expect(h.events).not.toContain("token");
+  expect(h.events).not.toContain("publish");
+});
+
+test("on Bitbucket a GitHub issue is mentioned by its link, and Jira keys by key", async () => {
+  const sent = async (issue: IssueLinkRead, description: string) => {
+    const h = harness({ remotes: bitbucketRepos, issue });
+    await h.run({ title: "t", body: description });
+    return (h.requests[1]!.body as { description: string }).description;
+  };
+  const github: IssueLinkRead = { kind: "linked", tracker: "github", key: "9", url: "https://github.com/acme/widgets/issues/9" };
+  expect(await sent(github, "Work")).toBe("Work\n\nRefs https://github.com/acme/widgets/issues/9");
+  // A bare #9 names a Bitbucket issue, so it does not count; the link or owner/repo#9 does.
+  expect(await sent(github, "See #9")).toBe("See #9\n\nRefs https://github.com/acme/widgets/issues/9");
+  expect(await sent(github, "See acme/widgets#9")).toBe("See acme/widgets#9");
+  expect(await sent(github, "See acme/widgets#90")).toBe("See acme/widgets#90\n\nRefs https://github.com/acme/widgets/issues/9");
+  expect(await sent(github, "See https://github.com/acme/widgets/issues/9.")).toBe("See https://github.com/acme/widgets/issues/9.");
+  expect(await sent({ kind: "linked", tracker: "jira", key: "ENG-7", url: "https://example.atlassian.net/browse/ENG-7" }, "Work"))
+    .toBe("Work\n\nRefs ENG-7");
 });
 
 function cliHarness(open = mock(async () => 0), choose?: CommandContext["choose"], commonGitDir = "/repo/.git", ambiguous = true) {

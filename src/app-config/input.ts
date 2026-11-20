@@ -60,7 +60,8 @@ export async function readAppConfigInput(path: string): Promise<AppConfigInput> 
 export function knownSecrets(env: NodeJS.ProcessEnv, input?: AppConfigInput): string[] {
   const jira = input?.credentials?.jira;
   return [jira?.token, jira?.email, input?.credentials?.linear?.token,
-    env.JIRA_API_TOKEN, env.JIRA_EMAIL, env.LINEAR_API_KEY, env.GH_TOKEN, env.GITHUB_TOKEN]
+    env.JIRA_API_TOKEN, env.JIRA_EMAIL, env.LINEAR_API_KEY, env.GH_TOKEN, env.GITHUB_TOKEN,
+    env.BITBUCKET_API_TOKEN, env.BITBUCKET_EMAIL]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     // Longest first, so one secret containing another is hidden whole.
     .sort((left, right) => right.length - left.length);

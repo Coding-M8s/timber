@@ -3,6 +3,7 @@ import type { CommandIO } from "../services";
 import type { ChoiceOption } from "../selection";
 import type { GithubSetupSession } from "./github";
 import type { LinearSetupSession } from "./linear";
+import type { BitbucketSetupSession } from "./bitbucket";
 import { SetupCancelled } from "./types";
 import type { SetupPrompt, SetupTarget } from "./types";
 
@@ -11,6 +12,8 @@ export interface TrackerConnections {
   editJira?: (configure: boolean) => Promise<void>;
   github?: GithubSetupSession | undefined;
   linear?: LinearSetupSession | undefined;
+  /** The Bitbucket pull request login; not an issue tracker, so never a default. */
+  bitbucket?: BitbucketSetupSession | undefined;
 }
 
 async function select(prompt: SetupPrompt, message: string, choices: ChoiceOption[], current: string): Promise<string> {
@@ -42,13 +45,15 @@ export async function editTrackerConnections(prompt: SetupPrompt,
     { value: "jira", label: "Jira site and personal credentials" },
     ...(connections.github ? [{ value: "github", label: "GitHub CLI login" }] : []),
     ...(connections.linear ? [{ value: "linear", label: "Linear personal API key" }] : []),
+    ...(connections.bitbucket ? [{ value: "bitbucket", label: "Bitbucket pull request login" }] : []),
     { value: "back", label: "Back to settings" },
   ];
   while (true) {
-    const choice = await select(prompt, "Issue tracker connections (does not change your default)", choices, "back");
+    const choice = await select(prompt, "Connections (does not change your default issue tracker)", choices, "back");
     if (choice === "back") return;
     if (choice === "jira") await connections.editJira?.(false);
     if (choice === "github") await connections.github?.edit(prompt, io);
     if (choice === "linear") await connections.linear?.edit(prompt, io);
+    if (choice === "bitbucket") await connections.bitbucket?.edit(prompt, io);
   }
 }
