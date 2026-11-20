@@ -25,6 +25,7 @@ const sections: readonly { value: SetupSection; title: string }[] = [
   { value: "worktree_dir", title: "Workspace folder" },
   { value: "backup_retention_days", title: "Backup retention" },
   { value: "backup_storage_warning", title: "Backup size warning" },
+  { value: "rebase_resolve", title: "Rebase --resolve" },
 ];
 
 function inheritedNote(file: ConfigFile, target: SetupTarget, key: keyof ConfigFile): string {
@@ -43,7 +44,7 @@ function effectiveConfig(file: ConfigFile, target: SetupTarget) {
 /** Compact live status for one config section in the setup hub. */
 export function sectionStatus(key: SetupSection, file: ConfigFile, target: SetupTarget): string {
   const resolved = effectiveConfig(file, target);
-  const note = inheritedNote(file, target, key === "pre_delete" ? "hooks" : key);
+  const note = inheritedNote(file, target, key === "pre_delete" ? "hooks" : key === "rebase_resolve" ? "agent" : key);
 
   switch (key) {
     case "default_tracker":
@@ -64,6 +65,12 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
       const wait = resolved.editor?.integration === "orca"
         ? `; waits for setup: ${agent.waitForSetup ? "yes" : "no"}` : "";
       return `${safeDisplay(agent.command)} · ${launch}${wait}${note}`;
+    }
+    case "rebase_resolve": {
+      const agent = resolved.agent;
+      if (!agent) return "needs a coding assistant";
+      if (!agent.resolveHandoff) return `off${note}`;
+      return `${agent.resolveHandoff} handoff${agent.resolveInstructions ? " · extra instructions" : ""}${note}`;
     }
     case "jira": {
       if (file.jira === false) return "off";

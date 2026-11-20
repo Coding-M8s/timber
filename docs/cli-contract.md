@@ -89,7 +89,87 @@ state and safely quoted `git -C '<path>' rebase --continue` / `--abort` guidance
 resolve and stage before continuing, which may expose later conflicts. Rerunning
 Timber refuses an existing operation. Cleanup refuses in-progress Git operations,
 even when conflicts are staged and the index has no unmerged paths. Native Git
-continuation/abort suffice; no Timber continuation flags or AI resolution.
+continuation/abort suffice; no Timber continuation flags. Without `--resolve`,
+no AI resolution, agent launch or backup happens, whatever `[agent]`, workflow or
+editor settings say.
+
+## Assisted conflict resolution (#59)
+
+`timber rebase <branch-or-worktree> --resolve [--resolve-note <text>] [--base <ref>]`
+asks the configured top-level `[agent]` to resolve rebase conflicts. The flag is
+the only opt-in; `agent.enabled`, workflows and editor integrations never imply it.
+The assistant's limits are instructed, not enforced: it runs with the user's
+permissions, and output and docs say so.
+
+Before any Git change, refuse when stdin/stdout are not terminals or CI is set,
+when `[agent]` is absent or off, when `agent.resolve_handoff` is unset, when
+`--result-file` is given, or when `--resolve-note` is empty, longer than 4000
+characters, or given without `--resolve`. Plain `rebase` stays usable without a
+terminal.
+
+Selection matches `rebase`. An idle target runs the ordinary TIM-28 rebase; a
+completed or up-to-date rebase launches nothing. A verified conflict pause is
+reported without manual guidance and handed to the assistant. A target already
+paused in a `rebase-merge` rebase is attached to: no fetch, no restart, and
+`--base` is refused. Other operations (`rebase-apply`/am, merge, cherry-pick,
+revert, sequencer) are refused with native guidance. Attaching with no unmerged
+paths launches nothing and gives native guidance.
+
+Before launch, revalidate registration, Git identity, `rebase-merge/head-name`
+(the branch must not be checked out elsewhere), `orig-head` and `onto`, and
+require unmerged paths. Then create and verify a recovery backup of the paused
+worktree (files including ignored files; not the index or rebase state). Backup
+failure, or a rebase that changed while it was made, stops the run before the
+assistant with native guidance and a nonzero exit.
+
+The built-in task is written to `<worktree git dir>/timber-rebase-resolve-task.txt`
+(0600, removed after the session, or at the next run if Timber was killed) and is
+never printed. Configured
+`resolve_instructions` and then the `--resolve-note` text are appended. The task
+lists the branch, original tip, onto commit, HEAD, REBASE_HEAD and unmerged paths,
+explains ours/theirs during rebase, and permits editing conflicted files, running
+verification commands only after in-session user approval, staging resolved paths,
+and `GIT_EDITOR=true git rebase --continue` through later conflicts. It forbids
+abort, skip, reset, clean, stash, push, force-push, unrelated edits, ref or config
+changes, and reading ignored secrets.
+
+`resolve_handoff` selects how the task is passed: `codex`, `claude` or `cursor`
+append `--` and one prompt that only points at the task file to the configured
+arguments; `wrapper` runs the configured command unchanged. All receive
+`TIMBER_TASK_FILE`, `TIMBER_WORKTREE` and `TIMBER_BRANCH`. The tool is never
+inferred from the executable name. Before launch, print that assistance was
+requested, the executable's basename and handoff, the trust statement, branch,
+original tip and backup ID. Never print the task, note text or argument list.
+The note text is visible in Timber's own process arguments.
+
+The assistant runs in the foreground of the invoking terminal and is awaited.
+Afterwards Timber re-reads Git state and does not trust exit status or output.
+Status entries are compared together with a content hash of each listed path.
+While the rebase is still on the same step (same HEAD and `msgnum`), changed
+conflict paths are listed, and paths changed outside the conflict set are warned
+about. After the rebase completed, every remaining dirty path is warned about.
+While it is paused at a later step, only new untracked paths are attributable.
+Ignored files are not compared; the backup holds their earlier content. Refs
+other than the rebased branch and Timber backups that changed during the session
+are warned about. Warnings name the backup.
+
+If the rebase completed (no operation, HEAD on the branch, onto is an ancestor),
+report it with a `git range-diff <original-tip>...HEAD` review hint, and warn when
+the branch now has fewer commits on the base than it had, since a skipped commit
+looks like completion. If it is
+still paused with unmerged paths, list them with native guidance. If every
+conflict is staged, ask `Continue the rebase now? Type y and press Enter to
+continue [y/N]` whatever the assistant's exit status was; only `y` or `Y`
+continues, and EOF or interrupt means no. Yes runs one owned noninteractive
+`git rebase --continue`. A later conflict then stops with its paths, native
+guidance and a suggestion to rerun `--resolve`; Timber never launches a second
+session or continues automatically. If no rebase remains and the branch is not
+rebased, report a possible abort with the original tip and backup; another
+operation left in progress is named instead.
+
+Exit 0 only when the rebase completed and the assistant exited 0. Otherwise
+return the assistant's nonzero or signal status, or 1. Never abort, reset, skip,
+stash, clean, push or force-push automatically.
 
 ## Publish a worktree's branch (#154)
 
@@ -328,7 +408,9 @@ ticket matching, filtered to registered worktrees, with the existing chooser or
 capped diagnostic; cancellation does not mutate. The primary worktree is eligible.
 Detached worktrees with a commit are eligible. Refuse missing, stale, locked,
 unverifiable and unborn targets, and in-progress rebase/am/merge/cherry-pick/revert/
-sequencer state; finish or abort those explicitly first.
+sequencer state; finish or abort those explicitly first. Only `rebase --resolve` backs up a
+paused `rebase-merge` rebase of the recorded branch (detached HEAD); `timber
+backup create` keeps refusing it.
 
 Storage lives in `<commonGitDir>/timber/backups/`, outside every worktree, so
 `timber done` or `git worktree remove` cannot delete it. Deleting the repository's
@@ -484,8 +566,10 @@ protects every backup: an admin directory or rebase marker that cannot be
 inspected, a link in `worktrees/`, rebase state whose branch cannot be read (this
 includes `git am`), or a record whose source admin directory cannot be mapped.
 A missing admin directory, for example after `timber done`, is not rebase
-state. Version 1 backups are created only from idle worktrees and record no
-operation origin; a future record that marks a rebase origin must stay protected
+state. Version 1 backups are created from idle worktrees, or by `rebase
+--resolve` from a paused merge-backend rebase, and record no operation origin.
+Such a backup records the rebased branch, so the scan above protects it while
+that rebase is active; a future record that marks a rebase origin must stay protected
 until completion or abort is reliably observed, never inferred from a missing
 rebase directory (#188). Protected backups are listed with their reason and are
 never offered, by either form of `backup done`.
@@ -869,7 +953,7 @@ hooks, editors or agents and leave files, refs and worktree registrations intact
 Read `.timber.toml` from the primary worktree root and Linux machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml`. Empty or relative XDG paths use the HOME fallback. Do not search nested or linked-worktree configuration. Validate both existing files independently; unknown keys, unreadable files, and invalid values are errors even when overridden in the other scope. Missing files use defaults.
 
 Core configuration keys are `base_branch`, `remote`, `worktree_dir`,
-`max_generated_branch_name_length`, `update_check`, `backup_retention_days`, `backup_storage_warning` ([backups](#backup-retention-and-storage-warning-121)), `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below.
+`max_generated_branch_name_length`, `update_check`, `backup_retention_days`, `backup_storage_warning` ([backups](#backup-retention-and-storage-warning-121)), `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below. The top-level `[agent]` (not workflow agents) also accepts `resolve_handoff` (`"codex"`, `"claude"`, `"cursor"` or `"wrapper"`) and `resolve_instructions` (nonempty text, at most 4000 characters) for [assisted conflict resolution](#assisted-conflict-resolution-59). Because tables replace whole, a repository `[agent]` without them disables `--resolve` handoff from machine defaults. Older Timber releases reject these keys, so prefer machine defaults for shared repositories.
 
 Precedence is explicit CLI options > repository TOML > global TOML > built-in defaults. Absent keys inherit. Present optional tables replace the whole lower-scope table: executable/argument combinations stay together, and argument arrays and hook lists never concatenate. Relative `worktree_dir` in either scope resolves against the current repository's primary root. Root-level `editor = false`, `agent = false`, `hooks = false`, or `jira = false` explicitly disables that inherited integration; `true` is invalid. Editor and agent tables with a command and `enabled = false` still support explicit `--editor` and `--agent`, respectively; root-level `false` removes the inherited command. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional integrations described below.
 
@@ -1462,7 +1546,11 @@ was wanted.
 directory, or a linked checkout. `timber setup --global` configures defaults for
 all repositories and works outside Git. Both require interactive stdin/stdout and
 CI off; noninteractive use fails with guidance and no writes. Main questions cover editor, agent, and default issue tracker; scripts and Git/folder
-defaults live in an optional advanced section, skipped by default. Unconfigured
+defaults live in an optional advanced section, skipped by default. The setup hub's
+optional "Rebase --resolve" section sets `resolve_handoff` and
+`resolve_instructions` on an `[agent]` table in the scope being edited; it is not
+part of the guided walkthrough. Choosing a new assistant command drops both keys,
+because another tool's argument grammar may differ. Unconfigured
 integrations offer one None choice (the default), without a duplicate Skip/Keep
 disabled choice. Existing enabled integrations retain a default Keep choice;
 machine-default resets appear only when they change the effective setting.

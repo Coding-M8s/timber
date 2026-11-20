@@ -27,7 +27,8 @@ timber rebase my-feature --base origin/release
 Failures before rebase or non-conflict Git failures retain the previous choice.
 Conflicts leave Git paused. Resolve and stage files, then use `git rebase --continue`
 or `git rebase --abort` in that worktree. A later native abort restores Git's branch
-state but does not restore the old saved base.
+state but does not restore the old saved base. To have your coding assistant resolve
+conflicts, see [assisted resolution](rebase-resolve.md).
 
 ## Local and remote branches
 

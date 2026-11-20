@@ -163,7 +163,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
     backupDone: createBackupDoneHandler({ discoverRepository, reviewBackupDeletion }),
     backupCleanup: createBackupCleanupHandler({ discoverRepository, cleanupBackups: (repository, io) => cleanupBackups(repository, io) }),
     backupKeep: createBackupKeepHandler({ discoverRepository, setBackupKeep: (repository, id, keep, io) => setBackupKeep(repository, id, keep, io) }),
-    rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
+    rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree, createBackup, launchAgent }),
     // Shares rebase selection so a paused rebase's branch reports its detached worktree.
     publish: createPublishHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, publishWorktree, resolveOpenTarget: resolveRebaseTarget,
