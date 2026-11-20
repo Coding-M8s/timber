@@ -233,6 +233,33 @@ terminal text. Status may become stale immediately. A locked existing worktree c
 still open under ordinary Open rules; a missing/unverifiable one fails without
 recreation. Listing never implies permission for mutation.
 
+## Handing off from app terminals (experimental v1)
+
+The app sets `TIMBER_APP_HANDOFF` in its own terminal sessions only, never in
+the environment of the Timber commands it runs itself with `--result-file`. A
+setup session the app opens in a terminal (`timber open --setup` of an existing
+worktree) has it, and never hands off, since it creates nothing. When to hand off is in the
+[CLI contract](cli-contract.md#timber-app-terminals). Each handoff is one JSON
+file in that folder:
+
+```json
+{
+  "schemaVersion": 1,
+  "command": "new",
+  "repository": { "primaryWorktreeRoot": "/abs/repo" },
+  "worktree": { "path": "/abs/repo-worktrees/feature", "branch": "feature" },
+  "agent": true
+}
+```
+
+`command` is `new` or `open`, the handler that created the worktree (a `new`
+that opens an existing remote branch reports `open`). `branch` is null only for
+a detached worktree. `agent` says whether Timber would have started its
+configured agent; the record never carries the agent's command or arguments,
+so the app chooses which agent starts. Read only `*.json` regular files, once,
+and delete them; dot-files are still being written. Treat every field as
+untrusted: open a session only in a worktree the app already lists.
+
 ## Saved base
 
 An app can show which base each worktree rebases onto and is cleaned up against

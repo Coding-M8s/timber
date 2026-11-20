@@ -17,6 +17,7 @@ in source; update them and their consumers together when a shared interface chan
 | [hooks.ts](../src/hooks.ts) | Trusted shell hooks and context environment |
 | [editor.ts](../src/editor.ts), [agent.ts](../src/agent.ts) | Separate editor and foreground agent launching |
 | [editor-terminals](../src/editor-terminals) | Orca terminal handoff and private runner protocol |
+| [app-handoff.ts](../src/app-handoff.ts) | Handing a created worktree to a Timber app terminal |
 | [arena](../src/arena) | Attempt selection, planning, records, and recovery |
 | [backup](../src/backup) | Private worktree snapshots, records, verification, restore, listing, and confirmed deletion |
 | [completion](../src/completion) | Read-only candidate lookup and shell adapters |
