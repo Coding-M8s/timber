@@ -1,3 +1,4 @@
+import { runAppArena } from "./commands/app-arena";
 import { runAppBackup } from "./commands/app-backup";
 import { runAppConfig } from "./commands/app-config";
 import { runAppIssue } from "./commands/app-issue";
@@ -252,8 +253,9 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .on("option:preset", (value: string) => arenaTokens.push({option: "preset", value}))
     .option("--base <ref>", "Resolve one starting commit for every attempt")
     .option("--no-agent", "Prepare workspaces without launching agents; required for agent presets without a terminal")
+    .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file; requires --no-editor --no-agent")
     .addHelpText("after", "\nAll worktrees and setup finish before sequential editor/foreground-agent launches. Failures retain completed state. No automatic cleanup or background sessions. Use arena resume to revisit retained attempts, or arena pick to compare and explicitly keep a winner.")
-    .action(async (name: string, options: { promptFile?: string; prompt?: string; defaultEffort?: string; name?: string; base?: string; agent?: boolean; editor?: boolean }) => {
+    .action(async (name: string, options: { promptFile?: string; prompt?: string; defaultEffort?: string; name?: string; base?: string; agent?: boolean; editor?: boolean; resultFile?: string }) => {
       const normalized: ArenaNewOptions = {
         ...(options.defaultEffort === undefined ? {} : { defaultEffort: options.defaultEffort }),
         ...(options.promptFile === undefined ? {} : { taskFile: options.promptFile }),
@@ -264,8 +266,12 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
         ...(options.agent === false ? { agent: false as const } : {}),
         ...(options.editor === undefined ? {} : { editor: options.editor }),
       };
-      if (handlers.arenaNew === undefined) throw new Error("Arena handler is unavailable in this embedding.");
-      onExitCode(await handlers.arenaNew(name, normalized, context));
+      const arenaNew = handlers.arenaNew;
+      if (arenaNew === undefined) throw new Error("Arena handler is unavailable in this embedding.");
+      if (options.resultFile !== undefined) {
+        requireSuppressedLaunches(options);
+        onExitCode(await runMachineCommand("arena-new", context, machineContext => arenaNew(name, normalized, machineContext), options.resultFile));
+      } else onExitCode(await arenaNew(name, normalized, context));
     });
 
   editorOptions(arena.command("resume <name>"))
@@ -291,10 +297,16 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--winner <label>", "Attempt to keep; required without an interactive terminal")
     .option("--keep-branch", "Keep local branches of removed attempts")
     .option("--keep-ignored", "Keep attempts that contain ignored files such as .env instead of deleting those files")
+    .option("--json", "With --inspect, print an experimental v1 JSON comparison instead")
+    .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
     .addHelpText("after", "\nBeta: incomplete and under active testing; behavior may change.\n\nThe winner's branch and workspace are untouched; nothing is merged or pushed. Before removing another attempt, its commits and uncommitted (non-ignored) files are saved under refs/timber/arena/<name>/<label>, so they can be restored with git worktree add. Ignored files are deleted unless --keep-ignored. Running attempts are kept. Attempts that cannot be archived or verified are kept with a reason; the command then exits nonzero and can be rerun. Removal frees disk; RAM is freed when agent processes exit, and Timber never kills them.")
-    .action(async (name: string, options: ArenaPickOptions) => {
-      if (handlers.arenaPick === undefined) throw new Error("Arena pick handler is unavailable in this embedding.");
-      onExitCode(await handlers.arenaPick(name, options, context));
+    .action(async (name: string, { resultFile, ...options }: ArenaPickOptions & { resultFile?: string }) => {
+      const arenaPick = handlers.arenaPick;
+      if (arenaPick === undefined) throw new Error("Arena pick handler is unavailable in this embedding.");
+      if (resultFile !== undefined && options.inspect) throw new Error("--result-file records a pick; use --inspect --json to compare.");
+      onExitCode(resultFile === undefined
+        ? await arenaPick(name, options, context)
+        : await runMachineCommand("arena-pick", context, machineContext => arenaPick(name, options, machineContext), resultFile));
     });
 
   program.command("setup")
@@ -354,6 +366,12 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--result-file <path>")
     .action(async (action: string, options) => {
       onExitCode(await runAppBackup(action, options, context));
+    });
+
+  program.command("__app-arena <action> [name]", { hidden: true })
+    .option("--attempt <label>")
+    .action(async (action: string, name: string | undefined, options: { attempt?: string }) => {
+      onExitCode(await runAppArena(action, name, options, context));
     });
 
   program.command("__app-issue <worktree>", { hidden: true })

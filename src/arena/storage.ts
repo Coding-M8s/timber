@@ -3,7 +3,7 @@ import { assertPrivateStorage, protectNewStorage } from "../platform/private-sto
 import { constants } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, realpath, rename, unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
@@ -302,6 +302,40 @@ async function readArenaRecord(
 
 export async function readArena(repository: RepositoryContext, name: string) {
   return readArenaRecord(repository, name, true);
+}
+
+/** Arena names with a private record directory, sorted. Never creates storage. */
+export async function listArenaNames(repository: RepositoryContext): Promise<string[]> {
+  const common = await realpath(repository.commonGitDir);
+  const timber = join(common, "timber"), arenas = join(timber, "arenas");
+  for (const path of [timber, arenas]) {
+    try { await lstat(path); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+    await privateDirectory(path, false);
+  }
+  const entries = await readdir(arenas, { withFileTypes: true });
+  return entries.filter(entry => entry.isDirectory() && arenaNamePattern.test(entry.name))
+    .map(entry => entry.name).sort();
+}
+
+export interface ArenaObservation {
+  manifest: ArenaManifest;
+  taskPath: string;
+  /** An invocation lock exists: an arena command is running or was interrupted. */
+  active: boolean;
+  /** When the private task snapshot was written, which happens once, at reservation. */
+  createdAt: string | null;
+}
+
+/** Read a record without taking or requiring the lock; changes nothing. */
+export async function observeArena(repository: RepositoryContext, name: string): Promise<ArenaObservation> {
+  const { manifest, taskPath } = await readArenaRecord(repository, name, false);
+  const dir = await directory(repository, name);
+  let active = true;
+  try { await lstat(join(dir, "active.lock")); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") active = false; }
+  const createdAt = await lstat(taskPath).then(info => info.mtime.toISOString(), () => null);
+  return { manifest, taskPath, active, createdAt };
 }
 
 export type ArenaResumeSession = Pick<ArenaSession, "manifest" | "taskPath" | "save" | "verifyTask" | "close">;

@@ -5,6 +5,7 @@ import type { ArenaArchive } from "../arena/archive";
 import type { ArenaAttemptRecord, ArenaManifest, ArenaPickOptions, ArenaPickRecord } from "../arena/types";
 import type { CommandContext } from "../services";
 import type { ArenaAttemptSummary, DiffStat } from "../arena/summary";
+import { attemptState, recordedAgent, type ArenaAttemptState, type ArenaPickReport } from "../arena/report";
 
 const BETA = "Beta: arena pick is incomplete and under active testing; behavior may change.\n";
 
@@ -52,7 +53,10 @@ export function createArenaPickHandler(services: ArenaPickServices) {
   return async (name: string, options: ArenaPickOptions, context: CommandContext): Promise<number> => {
     validateArenaName(name);
     if (options.inspect && options.winner !== undefined) throw new Error("--inspect cannot be combined with --winner.");
+    if (options.json && !options.inspect) throw new Error("--json requires --inspect.");
+    if (options.json) return inspectJson(services, name, context);
     const repository = await services.discoverRepository(context.cwd);
+    await context.machine?.repository(repository);
     const { manifest } = await services.readArena(repository, name);
     const previous = await services.readArenaPick(repository, name, manifest);
     const out = context.io.stdout, err = context.io.stderr;
@@ -89,7 +93,7 @@ export function createArenaPickHandler(services: ArenaPickServices) {
       const offered: ArenaAttemptRecord[] = [], labels: { value: string; label: string }[] = [];
       manifest.attempts.forEach((a, i) => { if (!gone(i)) { offered.push(a); labels.push({ value: a.id, label: line(a, i) }); } });
       const id = await choose("Which attempt do you want to keep?", labels);
-      if (id === null) { out("Cancelled. Nothing changed.\n"); return 0; }
+      if (id === null) { context.machine?.cancelled(); out("Cancelled. Nothing changed.\n"); return 0; }
       winner = offered.find(a => a.id === id);
       if (!winner) throw new Error("Invalid selection; nothing was changed.");
     } else {
@@ -113,9 +117,18 @@ export function createArenaPickHandler(services: ArenaPickServices) {
         { value: "cancel", label: "Cancel (default)", default: true },
         { value: "pick", label: losers.length ? `Keep ${chosen.label}, archive and remove ${plural(losers.length, "other attempt")}` : `Record ${chosen.label} as winner` },
       ]);
-      if (decision !== "pick") { out("Cancelled. Nothing changed.\n"); return 0; }
+      if (decision !== "pick") { context.machine?.cancelled(); out("Cancelled. Nothing changed.\n"); return 0; }
     }
 
+    // Every attempt starts as kept, so a pick that stops early still reports the truth.
+    const report: ArenaPickReport = { name, winner: chosen.label, attempts: manifest.attempts.map((a, i) => ({
+      label: a.label,
+      outcome: a.id === chosen.id ? "winner" : gone(i) ? "already-removed" : "kept",
+      archiveRef: archiveOf(a.id)?.ref ?? null,
+      reason: a.id === chosen.id || gone(i) ? null : "Pick stopped before this attempt was processed.",
+    })) };
+    const outcome = (attempt: ArenaAttemptRecord) => report.attempts.find(a => a.label === attempt.label)!;
+    context.machine?.arenaPick(report);
     const session = await services.openArenaForPick(repository, name, manifest, previous);
     let code = 0;
     const archived: ArenaArchive[] = [];
@@ -154,12 +167,15 @@ export function createArenaPickHandler(services: ArenaPickServices) {
             { keepBranch: options.keepBranch === true, discardIgnored: options.keepIgnored !== true },
             context.io, preserve, undefined, { confirmEveryDiscard: true, beforeRemove: boundary, beforeDeleteBranch: verifyWinner });
           if (archive) archived.push(archive);
+          Object.assign(outcome(attempt), { outcome: archive ? "archived" : "removed", archiveRef: archive?.ref ?? null, reason: null });
           out(`Removed ${attempt.label}${archive ? ` (archived as ${archive.ref})` : " (no unique work)"}.\n`);
         } catch (error) {
           code = 1;
           if (archive) archived.push(archive);
           const reason = safeDiagnostic(error instanceof Error ? error.message : "cleanup failed");
           const after = await services.inspectArenaRemoval(repository, attempt);
+          Object.assign(outcome(attempt), { outcome: after.worktree === "absent" ? "partly-removed" : "kept",
+            archiveRef: archive?.ref ?? outcome(attempt).archiveRef, reason });
           err(`${after.worktree === "absent" ? "Partly removed" : "Kept"} ${attempt.label}: ${reason}\n`);
         }
       }
@@ -170,4 +186,50 @@ export function createArenaPickHandler(services: ArenaPickServices) {
     if (code !== 0) out(`Fix the reasons above, then rerun: ${retryCommand(name, chosen.label, options)}\n`);
     return code;
   };
+}
+
+export interface ArenaInspectRecord {
+  schemaVersion: 1;
+  arena: string;
+  base: { ref: string; commit: string } | null;
+  winner: string | null;
+  diagnostic: string | null;
+  attempts: {
+    label: string; tool: ArenaAttemptRecord["tool"]; preset: string; model: string | null; effort: string | null;
+    branch: string; path: string; state: ArenaAttemptState; stage: ArenaAttemptRecord["stage"];
+    removed: boolean; archiveRef: string | null;
+    /** Null when the attempt was removed or could not be compared; see reason. */
+    comparison: Omit<Extract<ArenaAttemptSummary, { kind: "available" }>, "kind"> | null;
+    reason: string | null;
+  }[];
+}
+
+/** The --inspect comparison as one JSON record on stdout; read-only, like --inspect. */
+async function inspectJson(services: ArenaPickServices, name: string, context: CommandContext): Promise<number> {
+  const record: ArenaInspectRecord = { schemaVersion: 1, arena: name, base: null, winner: null, diagnostic: null, attempts: [] };
+  try {
+    const repository = await services.discoverRepository(context.cwd);
+    const { manifest } = await services.readArena(repository, name);
+    const pick = await services.readArenaPick(repository, name, manifest);
+    const [summaries, removal] = await Promise.all([
+      Promise.all(manifest.attempts.map(a => services.summarizeArenaAttempt(repository, manifest, a))),
+      Promise.all(manifest.attempts.map(a => services.inspectArenaRemoval(repository, a))),
+    ]);
+    record.base = { ref: manifest.base.ref, commit: manifest.base.commit };
+    record.winner = manifest.attempts.find(a => a.id === pick?.winnerId)?.label ?? null;
+    record.attempts = manifest.attempts.map((a, i) => {
+      const removed = removal[i]!.worktree === "absent", summary = summaries[i]!;
+      return {
+        label: a.label, tool: a.tool, preset: a.preset, ...recordedAgent(manifest, a), branch: a.branch, path: a.path,
+        state: attemptState(a, pick), stage: a.stage, removed,
+        archiveRef: pick?.archives.find(x => x.attemptId === a.id)?.ref ?? null,
+        comparison: removed || summary.kind !== "available" ? null : (({ kind: _, ...stats }) => stats)(summary),
+        reason: removed ? null : summary.kind === "unavailable" ? safeDiagnostic(summary.reason) : null,
+      };
+    });
+  } catch (error) {
+    record.diagnostic = safeDiagnostic(error instanceof Error ? error.message : "Cannot inspect arena.");
+  }
+  context.io.stdout(JSON.stringify(record) + "\n");
+  return record.diagnostic === null ? 0 : 1;
 }

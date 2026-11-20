@@ -4,20 +4,15 @@ import type { ArenaAttemptRecord, ArenaResumeOptions } from "../arena/types";
 import { FormattedError, safeDisplay } from "../display";
 import { SetupFailure } from "../hooks";
 import { workflowEditor } from "../workflow";
-import { buildArenaAgentCommand, validateArenaName } from "../arena/participants";
+import { validateArenaName } from "../arena/participants";
+import { arenaAgentLaunch, assertArenaAttemptResumable } from "../arena/launch";
 import { recoverArenaParticipant } from "../arena/recovery";
 import { arenaResumeRetry } from "../arena/display";
-import { arenaEffortEnvironment } from "../arena/effort";
 
 
 function selectorError(attempts: readonly ArenaAttemptRecord[]): FormattedError {
   const labels = attempts.map(a => a.label).sort();
   return new FormattedError(`Select an exact attempt with --attempt <label> (${labels.length} attempts; showing ${Math.min(5, labels.length)}):\n${labels.slice(0, 5).map(label => `  ${label}`).join("\n")}\nOr rerun in an interactive terminal to choose an existing attempt.`);
-}
-
-function incompleteSetup(attempt: ArenaAttemptRecord): boolean {
-  return attempt.stage === "created" || attempt.stage === "setup-running" ||
-    (attempt.stage === "failed" && attempt.failedStage === "setup");
 }
 
 /** Continue only an existing, reciprocal identity; never materialize or reset work. */
@@ -39,16 +34,8 @@ export function createArenaResumeHandler(services: ArenaResumeServices) {
       selected = manifest.attempts.find(a => a.id === id);
       if (!selected) throw new Error("Invalid arena attempt selection; choose one of the displayed attempts.");
     }
-    if (selected.stage !== "failed" && selected.failedStage !== undefined)
-      throw new Error(`Arena attempt ${selected.label} has inconsistent lifecycle metadata; inspect and explicitly repair the record before recovery.`);
-    if (selected.stage === "launch-running" ||
-      (selected.stage === "failed" && selected.failedStage === undefined))
-      throw new Error(`Arena attempt ${selected.label} has an uncertain interrupted stage; inspect processes and private metadata before explicit repair. Nothing was relaunched.`);
-    if (selected.stage === "planned" || selected.failedStage === "creation" || selected.worktreeGitDir === null)
-      throw new Error(`Arena attempt ${selected.label} was not completely created and bound; inspect Git worktrees and private metadata. Nothing was recreated.`);
     const launch = options.agent !== false && selected.tool !== "manual";
-    if (launch && incompleteSetup(selected) && !options.setup)
-      throw new Error(`Arena attempt ${selected.label} has incomplete setup. Deliberately rerun every hook with ${arenaResumeRetry(name, selected.label, true, options)}, or revisit with --no-agent.`);
+    assertArenaAttemptResumable(name, selected, launch, options);
     if (launch && !context.interactive)
       throw new Error("Arena agents require an interactive stdin/stdout terminal with CI disabled. Use --attempt <label> --no-agent for unattended revisit/setup.");
     const config = await services.loadConfig(repository);
@@ -94,16 +81,14 @@ export function createArenaResumeHandler(services: ArenaResumeServices) {
         context.io.stdout("Workspace retained; no agent launched.\n");
       } else {
         stage = "agent";
-        const command = buildArenaAgentCommand(participant, session.taskPath);
         active.stage = "launch-running"; await save();
         const tree = await boundary();
-        context.io.stdout("Starting assigned agent in this terminal; requested effort is not proof of effective runtime effort.\n");
-        const result = await services.launchAgent(tree, command, {
-          ...arenaEffortEnvironment(participant), TIMBER_TASK_FILE: session.taskPath,
-          TIMBER_ARENA: name, TIMBER_ATTEMPT: active.label, TIMBER_REPO: repository.primaryWorktreeRoot,
-          TIMBER_WORKTREE: tree.path, TIMBER_BRANCH: active.branch,
-          TIMBER_WORKFLOW: undefined, TIMBER_TASK_ID: undefined,
+        const agent = arenaAgentLaunch(participant, {
+          arena: name, attempt: active.label, taskPath: session.taskPath,
+          repositoryRoot: repository.primaryWorktreeRoot, worktreePath: tree.path, branch: active.branch,
         });
+        context.io.stdout("Starting assigned agent in this terminal; requested effort is not proof of effective runtime effort.\n");
+        const result = await services.launchAgent(tree, agent?.command ?? null, agent?.environment);
         if (result.kind !== "exited") throw new Error("agent startup");
         active.stage = "exited"; active.exitCode = result.exitCode; active.signal = result.signal;
         await save(); exitCode = result.exitCode;

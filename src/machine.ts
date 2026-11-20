@@ -4,6 +4,7 @@ import { safeDiagnostic } from "./display";
 import { readBaseAssociation, type BaseAssociationRead } from "./git/base-metadata";
 import { readIssueLink, type IssueLinkRead } from "./git/issue-link";
 import type { AppConfigReport } from "./app-config/settings";
+import type { ArenaNewReport, ArenaPickReport } from "./arena/report";
 import type { BackupDeleteReport } from "./backup/lifecycle";
 import type { BackupRestoreReport } from "./backup/service";
 import type { RebaseReport } from "./git/rebase";
@@ -32,6 +33,10 @@ export interface MachineReporter {
   backupRestore(report: BackupRestoreReport): void;
   /** Attaches the live backup deletion report; it is read once the handler has finished. */
   backupDelete(report: BackupDeleteReport): void;
+  /** Attaches the live arena creation report; it is read once the handler has finished. */
+  arenaNew(report: ArenaNewReport): void;
+  /** Attaches the live arena pick report; it is read once the handler has finished. */
+  arenaPick(report: ArenaPickReport): void;
   /** `new` or `open` with --no-setup left configured post_create hooks for the caller to run. */
   setupSkipped(): void;
   cancelled(): void;
@@ -67,7 +72,7 @@ interface WorktreeRecord extends Worktree {
 
 export interface MachineRecord {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete" | "arena-new" | "arena-pick";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -88,6 +93,10 @@ export interface MachineRecord {
   backupRestore?: BackupRestoreReport;
   /** Present only for backup-delete. */
   backupDelete?: BackupDeleteReport;
+  /** Present only for arena-new, once the arena was reserved. */
+  arenaNew?: ArenaNewReport;
+  /** Present only for arena-pick, once a winner was chosen. */
+  arenaPick?: ArenaPickReport;
   /** Present, and true, only when --no-setup skipped configured post_create hooks. */
   setupSkipped?: true;
 }
@@ -145,6 +154,8 @@ export async function runMachineCommand(
     config: report => { record.config = report; },
     backupRestore: report => { record.backupRestore = report; },
     backupDelete: report => { record.backupDelete = report; },
+    arenaNew: report => { record.arenaNew = report; },
+    arenaPick: report => { record.arenaPick = report; },
     setupSkipped: () => { record.setupSkipped = true; },
     cancelled: () => { record.outcome = "cancelled"; },
   };

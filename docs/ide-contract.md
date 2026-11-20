@@ -3,15 +3,16 @@
 This additive interface is experimental. It supports repository inventory,
 ordinary New/Open outcomes, Rebase, Publish and PR outcomes, reading, saving and
 checking settings for app consumers, reading each worktree's pull request,
-reading a worktree's linked issue, listing recovery backups, and restoring or
-deleting one recovery backup.
+reading a worktree's linked issue, listing recovery backups, restoring or
+deleting one recovery backup, and listing, launching, creating and picking arenas.
 It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
 No IDE consumer is included. Rebase, Publish and PR records, native cleanup approval,
 [settings for app consumers](#settings-for-app-consumers-experimental-v1),
 [pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1),
 [linked issues for app consumers](#linked-issues-for-app-consumers-experimental-v1),
-[backups for app consumers](#backups-for-app-consumers-experimental-v1), and the
+[backups for app consumers](#backups-for-app-consumers-experimental-v1),
+[arenas for app consumers](#arenas-for-app-consumers-experimental-v1), and the
 [backup restore](#backup-restore-outcome) and [backup delete](#backup-delete-outcome) outcomes are described below. Linux x86_64 is the tested
 initial target. Consumers must check `schemaVersion` and reject unsupported versions.
 Within v1, ignore additional object fields; incompatible changes require a new version.
@@ -33,6 +34,11 @@ timber publish --result-file /private/temp/publish.json -- '/absolute/worktree p
 timber pr --title 'Add login' --result-file /private/temp/pr.json -- '/absolute/worktree path'
 timber backup restore --result-file /private/temp/restore.json -- '<id>' '/absolute/new directory'
 timber __app-backup delete --id '<id>' --record-sha256 '<digest>' --result-file /private/temp/delete.json
+timber __app-arena list
+timber __app-arena launch '<arena>' --attempt '<label>'
+timber arena new '<name>' --prompt-file /private/temp/task.txt --tool codex --runs 2 --no-editor --no-agent --result-file /private/temp/arena.json
+timber arena pick '<arena>' --inspect --json
+timber arena pick '<arena>' --winner '<label>' --result-file /private/temp/pick.json
 ```
 
 `ls --json` writes exactly one UTF-8 JSON object plus newline to stdout after
@@ -104,7 +110,8 @@ All fields are required except the `worktrees` array, which exists only on `ls`,
 the `rebase` object, which exists only on `rebase`, the `publish` object, which
 exists only on `publish`, the `pr` object, which exists only on `pr`, the `config` object, which exists only on a
 [settings apply](#saving-settings), the `backupRestore` object, which exists only on `backup-restore`, and the
-`backupDelete` object, which exists only on `backup-delete`.
+`backupDelete` object, which exists only on `backup-delete`, and the `arenaNew` and
+`arenaPick` objects, described under [arenas](#arenas-for-app-consumers-experimental-v1).
 There are no `undefined` values.
 
 ```ts
@@ -195,7 +202,7 @@ type BackupDeleteRecord = {
 
 type RecordV1 = {
   schemaVersion: 1;
-  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete";
+  command: "ls" | "new" | "open" | "done" | "rebase" | "publish" | "pr" | "config" | "backup-restore" | "backup-delete" | "arena-new" | "arena-pick";
   outcome: "succeeded" | "cancelled" | "failed";
   exitCode: number;
   repository: RepositoryIdentity | null;
@@ -209,6 +216,8 @@ type RecordV1 = {
   config?: ConfigApplyRecord;   // always present for a settings apply
   backupRestore?: BackupRestoreRecord; // always present for backup-restore, including refusals
   backupDelete?: BackupDeleteRecord;   // always present for backup-delete, including refusals
+  arenaNew?: ArenaNewReport;    // arena-new, once the arena was reserved
+  arenaPick?: ArenaPickReport;  // arena-pick, once a winner was chosen
   setupSkipped?: true;          // new/open: --no-setup skipped configured post_create hooks
 };
 ```
@@ -947,3 +956,226 @@ storage, and contacts nothing. The schema, ordering and failure rules are in the
 Creating backups is not part of this interface. Restoring and deleting one
 backup have their own records: [backup restore](#backup-restore-outcome) and
 [backup delete](#backup-delete-outcome).
+
+## Arenas for app consumers (experimental v1)
+
+An app can run an [arena](cli-contract.md#arena-creation-post-10-tim-20) with these commands: create it
+with `arena new --no-agent`, list arenas and their attempts, ask Timber for each
+attempt's agent command and start it in its own session, compare the attempts,
+and pick a winner. Every record has `schemaVersion: 1`; reject other versions and
+ignore unknown fields. Arena commands are beta, as in the CLI.
+
+Task text never appears in these records, their diagnostics, or stdout and
+stderr. Pass the task to `arena new` through `--prompt-file` with a private
+temporary file, never `--prompt` on a command line. An agent reads the task from
+the arena's private snapshot, named by `TIMBER_TASK_FILE` and in its last
+argument.
+
+### Listing arenas
+
+`timber __app-arena list` is hidden and read-only. Run it in any worktree of
+the repository with stdin closed. It prints one `ArenaListRecord` plus newline
+to stdout and exits 0, or 1 when the repository or any arena could not be read;
+the record is printed in both cases. It never prompts, takes no lock, writes no
+file or record, changes no ref, and contacts nothing. It also reads arenas whose
+invocation lock is held.
+
+```ts
+type ArenaListRecord = {
+  schemaVersion: 1;
+  repository: RepositoryIdentity | null; // null when discovery failed
+  diagnostic: string | null;  // set only when the repository or arena storage could not be read
+  arenas: ArenaEntry[];       // sorted by name; empty when there are none
+};
+
+type ArenaEntry = {
+  name: string;
+  outcome: "read" | "failed"; // failed: this arena's records could not be read
+  diagnostic: string | null;  // terminal-safe text, not a stable code; non-null only when failed
+  id: string | null;          // the arena's UUID; null when failed, as are the fields below
+  base: { ref: string; commit: string } | null; // the pinned base every attempt started from
+  createdAt: string | null;   // ISO 8601: when the private task snapshot was written, at creation
+  ticket: string | null;      // the ticket key the arena was created for, if any
+  active: boolean;            // an arena command holds the lock, or one was interrupted
+  winner: string | null;      // the label arena pick recorded, if any
+  attempts: ArenaAttempt[];   // in creation order; empty when failed
+};
+
+type ArenaAttempt = {
+  label: string;              // exact label for launch, resume and pick
+  tool: "codex" | "claude" | "cursor" | "wrapper" | "manual";
+  preset: string;
+  model: string | null;       // recorded model; null when the tool default was used or unknown
+  effort: string | null;      // recorded requested effort, not proof of the effective one
+  branch: string;
+  path: string;
+  state: "incomplete" | "prepared" | "setup-failed" | "launched" | "picked" | "archived";
+  stage: "planned" | "created" | "setup-running" | "ready" | "launch-running" | "exited" | "failed";
+  failedStage: "creation" | "setup" | "editor" | "agent" | null;
+  exitCode: number | null;    // last recorded agent exit status
+  signal: string | null;
+  archive: { ref: string; commit: string; present: boolean } | null; // saved by arena pick
+  git: "ok" | "stale" | "missing" | "unknown";
+};
+```
+
+- `state` is one word to show. `picked` is the recorded winner and `archived`
+  an attempt whose work pick saved under `archive.ref`. Otherwise `prepared` is
+  set up and ready to launch (including after an editor failed to start),
+  `setup-failed` needs setup rerun, `launched` means Timber
+  launched its agent (in `arena new` or `arena resume`), and `incomplete`
+  covers creation that did not finish and setup that is pending or was
+  interrupted. `stage`, `failedStage`, `exitCode` and `signal` are the recorded
+  values behind it.
+- An agent the app starts from `launch` is not recorded: the attempt stays
+  `prepared`. Track that session in the app. `arena pick` only refuses attempts
+  Timber recorded as running, so the app must not offer pick while its own
+  sessions for that arena run.
+- `git` is checked live against Git and the attempt's private identity marker,
+  never guessed from branch names or paths. `ok` means Git still has the exact
+  worktree Timber created. `missing` means no worktree is at that path any more,
+  as after pick removed it. `stale` means something is at that path or on that
+  branch, but it is not the worktree Timber created. `unknown` means it could
+  not be checked. A branch in the `arena/<name>/` namespace that no record
+  names is not listed.
+- `archive.present` is false when the archive ref is gone or moved.
+- A damaged arena is a failed entry; the other arenas are still listed.
+
+### Launching an attempt's agent
+
+`timber __app-arena launch <arena> --attempt <label>` prints the exact program,
+folder and environment that `timber arena resume <arena> --attempt <label>`
+would start for that attempt's agent, and runs nothing. It is hidden and
+read-only like `list`. Start the agent yourself, in its own terminal session;
+never build the command in the app. It prints one record and exits 0 for
+`ready` and `no-agent`, or 1 for `failed`.
+
+```ts
+type ArenaLaunchRecord = {
+  schemaVersion: 1;
+  repository: RepositoryIdentity | null;
+  arena: string;
+  attempt: string | null;
+  outcome: "ready" | "no-agent" | "failed"; // no-agent: a manual attempt
+  launch: {
+    argv: string[];           // argv[0] is the program, found on PATH unless absolute
+    cwd: string;              // the attempt's worktree
+    environment: Record<string, string>; // set these on top of your own environment
+    unset: string[];          // remove these from it
+  } | null;                   // non-null only when ready
+  diagnostic: string | null;  // non-null only when failed
+};
+```
+
+- `launch` refuses whatever `arena resume` refuses before starting an agent: an
+  unknown label, a held or interrupted lock, an attempt that was not fully
+  created, an uncertain or inconsistent stage, incomplete setup, agent
+  configuration that is missing or differs from the recorded fingerprint, a
+  missing executable, and a worktree whose identity no longer matches. For
+  incomplete setup, run the deliberate setup the diagnostic names, then ask
+  again. Nothing is substituted.
+- The task file path and arena details are in `environment`: `TIMBER_TASK_FILE`,
+  `TIMBER_ARENA`, `TIMBER_ATTEMPT`, `TIMBER_REPO`, `TIMBER_WORKTREE` and
+  `TIMBER_BRANCH`, plus `CLAUDE_CODE_EFFORT_LEVEL` for a Claude attempt with a
+  requested effort. Run the agent with an interactive terminal; the native tools
+  are interactive.
+
+### Creating an arena
+
+`timber arena new <name-or-ticket> ... --no-editor --no-agent --result-file <path>`
+creates the arena with the [result-file rules](#invocations-and-channels); both
+launch flags are required. Without a terminal, give the attempts with
+`--tool`/`--runs` or `--preset` and the task with `--prompt-file`. The record has
+`command: "arena-new"`, `worktree: null`, `materialized: false`, and, once the
+arena was reserved, an `arenaNew` object. Without it, no worktree was created,
+though a failed reservation can leave private records that keep the name taken.
+
+```ts
+type ArenaNewReport = {
+  name: string;
+  id: string;
+  base: { ref: string; commit: string };
+  failure: { stage: "creation" | "setup" | "editor" | "agent"; attempt: string | null } | null;
+  attempts: {
+    label: string; tool: string; preset: string; model: string | null; effort: string | null;
+    branch: string; path: string;
+    created: boolean;         // the worktree was created and bound
+    stage: string;            // as in ArenaAttempt; ready is the end with --no-agent
+    failedStage: string | null;
+  }[];
+};
+```
+
+A failure stops creation where it happened. Completed worktrees and setup are
+kept, and `failure` names the stage and attempt. Recover with `arena resume`, as
+the human error text says; never rerun creation for the same name.
+
+### Comparing attempts
+
+`timber arena pick <arena> --inspect --json` prints the same comparison as
+`--inspect`, as one record on stdout, and changes nothing. It exits 0, or 1 with
+`diagnostic` set and no attempts when the arena could not be read. `--json`
+requires `--inspect`.
+
+```ts
+type ArenaInspectRecord = {
+  schemaVersion: 1;
+  arena: string;
+  base: { ref: string; commit: string } | null;
+  winner: string | null;
+  diagnostic: string | null;
+  attempts: {
+    label: string; tool: string; preset: string; model: string | null; effort: string | null;
+    branch: string; path: string; state: string; stage: string; // as in ArenaAttempt
+    removed: boolean;         // the worktree is gone
+    archiveRef: string | null;
+    comparison: {
+      commits: number;        // commits on HEAD since the base
+      committed: { files: number; insertions: number; deletions: number };   // base to HEAD
+      uncommitted: { files: number; insertions: number; deletions: number }; // HEAD to working files
+      untracked: number;
+      ignored: number;
+    } | null;                 // null when removed or not comparable
+    reason: string | null;    // why it could not be compared
+  }[];
+};
+```
+
+Committed and uncommitted changes are separate because local edits can cancel
+committed work. To show the diff, run `git diff <base.commit>` in the attempt's
+`path`.
+
+### Picking a winner
+
+`timber arena pick <arena> --winner <label> --result-file <path>` picks with the
+[CLI rules](cli-contract.md#arena-pick-tim-22). Show the exact command and what will be
+removed first, as `--inspect` does. The record has `command: "arena-pick"`,
+`worktree: null`, `materialized: false`, and, once the winner was chosen, an
+`arenaPick` object with one entry per attempt:
+
+```ts
+type ArenaPickReport = {
+  name: string;
+  winner: string;
+  attempts: {
+    label: string;
+    outcome: "winner" | "removed" | "archived" | "kept" | "partly-removed" | "already-removed";
+    archiveRef: string | null; // refs/timber/arena/<arena>/<label>... holding its work
+    reason: string | null;     // terminal-safe text for kept and partly-removed
+  }[];
+};
+```
+
+- `archived`: the work was saved under `archiveRef`, then the worktree removed.
+  `removed`: removed without an archive, because it held no unique work.
+- `kept`: still there, with Timber's `reason`. Running attempts, ignored files
+  with `--keep-ignored`, failed identity checks and archive failures keep an
+  attempt. `partly-removed`: the worktree is gone but a later step failed, such
+  as deleting the branch. Either one makes the outcome `failed` with exit 1;
+  fix the reason and rerun the same command.
+- `already-removed`: its worktree was gone before this pick, removed by an
+  earlier pick or by hand; `archiveRef` is from an earlier pick, if any.
+- An attempt Timber did not reach before an error stays `kept` with a reason
+  saying so. `--result-file` cannot be combined with `--inspect`.
+
+Read `__app-arena list` again after every create and pick.

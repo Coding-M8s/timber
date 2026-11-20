@@ -153,6 +153,8 @@ export interface ArenaPickOptions {
   keepIgnored?: boolean;
   /** Read-only summaries and inspection commands. */
   inspect?: boolean;
+  /** With inspect: print the comparison as one JSON record instead. */
+  json?: boolean;
 }
 
 export interface ArenaPickArchive {

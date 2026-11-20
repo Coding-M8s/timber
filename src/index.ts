@@ -77,6 +77,8 @@ const machineListing = (process.argv[2] === "ls" && process.argv.slice(3).includ
   || (process.argv[2] === "backup" && process.argv[3] === "list" && process.argv.slice(4).includes("--json"))
   || process.argv[2] === "__app-config"
   || process.argv[2] === "__app-backup"
+  || process.argv[2] === "__app-arena"
+  || (process.argv[2] === "arena" && process.argv[3] === "pick" && process.argv.slice(4).includes("--json"))
   || process.argv[2] === "uninstall";
 if (!completing && !machineListing) {
   await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });

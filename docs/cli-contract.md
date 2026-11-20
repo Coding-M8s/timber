@@ -1614,6 +1614,11 @@ and preservation rules. Neither command should rerun fuzzy resolution against
 mutable current catalogs to reinterpret a recorded run. No resume, winner,
 comparison, merging, cleanup or parallel-session behavior is added by selection.
 
+Apps list arenas, read each attempt's exact agent command, and read `arena new`
+and `arena pick` outcomes through the
+[arena machine interface](ide-contract.md#arenas-for-app-consumers-experimental-v1).
+`arena new --result-file` requires `--no-editor --no-agent`.
+
 
 ## Arena resume (TIM-21)
 
@@ -1716,7 +1721,9 @@ may change before stable release; the preservation rules below are enforced now.
 
 `timber arena pick <name> [--inspect | --winner <label>] [--keep-branch] [--keep-ignored]`
 compares recorded attempts, records an explicit human winner, and removes the
-other attempts after archiving their work.
+other attempts after archiving their work. `--inspect --json` and
+`--result-file <path>` give apps the comparison and each attempt's outcome; see
+the [arena machine interface](ide-contract.md#arenas-for-app-consumers-experimental-v1).
 
 ### Comparison
 

@@ -1,4 +1,3 @@
-import { arenaEffortEnvironment } from "../arena/effort";
 import { arenaIdentity } from "../arena/source";
 import { arenaRunBlock, arenaStartText, arenaResumeRetry } from "../arena/display";
 import { terminalStyle as arenaStyle } from "../terminal-style";
@@ -12,7 +11,8 @@ import type {
   ArenaPlan,
   ArenaDraft,
 } from "../arena/types";
-import { buildArenaAgentCommand } from "../arena/participants";
+import { arenaAgentLaunch } from "../arena/launch";
+import { arenaNewReport, type ArenaNewReport } from "../arena/report";
 
 function recovery(path: string, setup = false): string {
   const options = `${setup ? "--setup " : ""}--no-editor --no-agent`;
@@ -33,10 +33,12 @@ export function createArenaNewHandler(services: ArenaServices) {
     const err = arenaStyle(process.stderr.isTTY === true);
     const identity = arenaIdentity(name, options.name);
     const repository = await services.discoverRepository(context.cwd);
+    await context.machine?.repository(repository);
     const config = await services.loadConfig(repository);
     const editor = workflowEditor(config, null, options.editor);
     const input = await services.collectInput(options, config, context);
     if (input === null) {
+      context.machine?.cancelled();
       context.io.stdout("Cancelled.\n");
       return 0;
     }
@@ -81,6 +83,7 @@ export function createArenaNewHandler(services: ArenaServices) {
           ? input.chooseSource(resolved.candidates)
           : services.chooseSource(resolved.candidates));
         if (selected === null) {
+          context.machine?.cancelled();
           context.io.stdout("Cancelled.\n");
           return 0;
         }
@@ -106,6 +109,7 @@ export function createArenaNewHandler(services: ArenaServices) {
         context.interactive &&
         !(await services.confirmPlan(draft, input.review))
       ) {
+        context.machine?.cancelled();
         context.io.stdout("Cancelled.\n");
         return 0;
       }
@@ -138,6 +142,7 @@ export function createArenaNewHandler(services: ArenaServices) {
     let active: ArenaAttemptRecord | undefined;
     let stage: NonNullable<ArenaAttemptRecord["failedStage"]> = "creation";
     let exitCode = 0;
+    let failure: ArenaNewReport["failure"] = null;
     try {
       context.io.stdout(out.heading("Preparing workspaces") + "\n");
       let created = 0;
@@ -205,11 +210,14 @@ export function createArenaNewHandler(services: ArenaServices) {
         if (result.kind === "failed") throw new Error("editor startup");
         active.stage = "ready";
         await session.save();
-        const command =
+        const agent =
           options.agent === false
             ? null
-            : buildArenaAgentCommand(participant, session.taskPath);
-        if (command === null) {
+            : arenaAgentLaunch(participant, {
+                arena: name, attempt: active.label, taskPath: session.taskPath,
+                repositoryRoot: repository.primaryWorktreeRoot, worktreePath: worktree.path, branch: active.branch,
+              });
+        if (agent === null) {
           context.io.stdout("  Ready for manual use; no agent launched.\n");
           continue;
         }
@@ -225,17 +233,7 @@ export function createArenaNewHandler(services: ArenaServices) {
         context.io.stdout(
           "\n  Starting agent in this terminal. Exit it normally to continue.\n\n",
         );
-        const launched = await services.launchAgent(agentWorktree, command, {
-          ...arenaEffortEnvironment(participant),
-          TIMBER_TASK_FILE: session.taskPath,
-          TIMBER_ARENA: name,
-          TIMBER_ATTEMPT: active.label,
-          TIMBER_REPO: repository.primaryWorktreeRoot,
-          TIMBER_WORKTREE: worktree.path,
-          TIMBER_BRANCH: active.branch,
-          TIMBER_WORKFLOW: undefined,
-          TIMBER_TASK_ID: undefined,
-        });
+        const launched = await services.launchAgent(agentWorktree, agent.command, agent.environment);
         if (launched.kind === "failed" || launched.kind === "skipped")
           throw new Error("agent startup");
         active.stage = "exited";
@@ -257,6 +255,7 @@ export function createArenaNewHandler(services: ArenaServices) {
         );
     } catch {
       exitCode = 1;
+      failure = { stage, attempt: active?.label ?? null };
       if (active) {
         active.stage = "failed";
         active.failedStage = stage;
@@ -287,6 +286,7 @@ export function createArenaNewHandler(services: ArenaServices) {
           err.error("error: Arena invocation lock could not be released; workspaces retained.") + "\nInspect private arena metadata before recovery.\n",
         );
       }
+      context.machine?.arenaNew(arenaNewReport(session.manifest, failure));
     }
     return exitCode;
   };
