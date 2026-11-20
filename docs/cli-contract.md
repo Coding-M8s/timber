@@ -396,7 +396,7 @@ workspace and branch, returns nonzero, and reports exact
 `git worktree remove --force` and `git branch -D` commands for manual removal.
 
 Ordinary `rebase` behavior is unchanged. Listing, deletion and the `done`
-lifecycle are below (#120); retention is separate (#121).
+lifecycle are below (#120); retention and the storage warning follow (#121).
 
 ## Backup list, deletion and done lifecycle (#120)
 
@@ -440,7 +440,11 @@ type BackupListRecord = {
     worktreePath: string;     // recorded source worktree path; it may no longer exist
     recordSha256: string;     // lowercase hex SHA-256 of the exact record.json bytes
     protection: { protected: false; reason: null } | { protected: true; reason: string };
-    expiry: null;             // version 1 records carry no retention policy; kept until deleted
+    expiry: null | {          // null: version 1 record, no retention policy; kept until deleted
+      state: "kept" | "until-deleted" | "expiring" | "expired";
+      retentionDays: number | null;
+      expiresAt: string | null;
+    };
   }[];
   unfinished: {               // .deleting-<id> directories, ascending
     id: string;
@@ -459,15 +463,16 @@ repository discovery give `outcome: "failed"`, exit 1, empty lists and
 `totalBytes: 0`, with nothing on stderr. Names, branches and paths are raw values
 (JSON-escaped on the wire), not the escaped terminal rendering; treat them as
 untrusted text. `reason` is the text form's terminal-safe wording, not a stable
-code. `expiry: null` means no recorded retention policy; #121 defines any non-null
-form, and consumers must not assume its shape. Help and option parse failures
+code. `expiry: null` means no recorded retention policy; the non-null form is
+defined in [retention](#backup-retention-and-storage-warning-121). Help and option parse failures
 print ordinary help or errors and no record. Additional fields may be added within
 version 1; incompatible changes need a new schema version. See the
 [IDE machine interface](ide-contract.md#backups-for-app-consumers-experimental-v1).
 
 Expiry: version 1 records carry no retention policy, so expiry is shown as
 "none, no retention policy; kept until deleted". Timber never derives an expiry
-for a record without a recorded policy; #121 defines retention and its migration.
+for a record without a recorded policy. Version 2 records carry one; see
+[retention](#backup-retention-and-storage-warning-121).
 
 Protection: a backup is protected while a rebase is active or uncertain for it.
 Timber inspects the common Git directory and every `worktrees/<name>` admin
@@ -532,6 +537,211 @@ can still contain copies of ignored files including secrets such as `.env`, and
 how to list, restore and delete them. A failure to read backups only replaces
 that report with a pointer to `timber backup list`; it never changes the cleanup
 outcome. Restore works unchanged after `timber done` removed the source worktree.
+
+## Backup retention and storage warning (#121)
+
+Retention limits how long a backup is kept before Timber may delete it. The
+storage warning stops backups from growing silently. Both are evaluated only
+when Timber runs. There is no background service, so an expired backup is only
+eligible for deletion by a later `timber backup create` or `timber backup
+cleanup`. Until one runs, backups, including copies of ignored secrets such as
+`.env`, stay on disk.
+
+### Settings
+
+Two root-level keys, valid in the global and repository configuration files.
+Each inherits on its own with the usual precedence (repository over global over
+built-in default), and both files must be valid on their own.
+
+```toml
+backup_retention_days = 7          # positive integer up to 36500; false keeps backups until deleted
+backup_storage_warning = "5GiB"    # positive integer then B, KiB, MiB, GiB or TiB; false turns the warning off
+```
+
+`backup_retention_days` defaults to 7. `false` means new backups are kept until
+deleted. `true`, zero, negative, fractional and larger values are invalid.
+`backup_storage_warning` defaults to `"5GiB"`. Its string must match
+`^[1-9][0-9]*(B|KiB|MiB|GiB|TiB)$` (binary units) and stay within a safe
+integer number of bytes. `false` turns the warning off. `true` and other forms are
+invalid. Diagnostics name the file and key, never the value.
+
+### Records and policy capture
+
+New backups write record version 2. It adds three fields to version 1:
+
+- `origin: "manual"` (rebase-origin records are a follow-up; see below)
+- `retentionDays`: the effective `backup_retention_days` when the backup was
+  created, a positive integer or `null` for until deleted
+- `keep`: `true` when the backup is kept indefinitely
+
+The policy is captured at creation. Later configuration changes affect only new
+backups. A version 2 backup with a number of retention days expires at `createdAt`
+plus that many 24-hour days, and is expired from that instant on (the boundary
+counts as expired). A record whose `createdAt` cannot be parsed is not usable, as
+today.
+
+Version 1 records have no retention policy and never expire. They are listed as
+before ("none, no retention policy; kept until deleted"). Timber never assigns
+them a policy. They can still be deleted with `timber backup done`.
+
+A rebase that creates a backup is not part of this change. A future
+`origin: "rebase"` record must stay unexpired until completion or abort of that
+rebase is reliably observed, never inferred from a missing rebase directory.
+This is tracked in #188.
+
+### Retention states
+
+Each usable backup has exactly one retention state, evaluated against the
+current time:
+
+| State | Meaning |
+| --- | --- |
+| `kept` | `keep` is true; never expires |
+| `until-deleted` | captured policy was `false`; never expires |
+| `expiring` | expires at a future instant |
+| `expired` | its expiry instant has passed |
+| none (version 1) | no retention policy; never expires |
+
+Protection is separate and wins: a protected backup is never deleted, whatever
+its retention state. An expired protected backup is listed as expired and
+protected, with the protection reason, and becomes eligible again only once a
+later run finds it unprotected.
+
+### Keeping a backup
+
+`timber backup create --keep <branch-or-worktree>` creates a backup with `keep:
+true`. `timber backup keep <id>` and `timber backup unkeep <id>` change `keep` on
+an existing usable backup. Neither needs a terminal or asks a question. Unkeep
+restores the captured policy, so an old backup can become expired immediately;
+the command says so. Neither applies to version 1 records, which already never
+expire: both refuse with a message saying so. Keeping an already kept backup or
+unkeeping one that is not kept changes nothing and exits 0.
+
+The change rewrites `record.json`: Timber checks the backup is usable (as
+`backup done` does: same directory identity, exact contents, ref naming the
+commit), writes the new record to a private temporary file `.retain-<id>-<8 hex>`
+in the backup root, rechecks the old record bytes and directory identity, then
+renames it over `<id>/record.json`. Any difference removes the temporary file
+and changes nothing. A forced kill can leave a `.retain-*` file, which is listed
+as not usable and never deleted by Timber. Because the record bytes change, the
+backup's `recordSha256` changes: an app delete confirmed against the old digest
+is refused, and the app must show the backup again. Protection does not block
+keep or unkeep, since neither deletes anything.
+
+### Expiry cleanup
+
+`timber backup cleanup` deletes every backup that is usable, unprotected and
+expired, oldest ID first, without asking. The retention policy, explained in
+setup and printed on every backup creation, is the consent. It works without a
+terminal. It never deletes kept, until-deleted, unexpired or version 1 backups,
+protected backups, unusable entries or unfinished deletions, and it reads no
+configuration (the policy is in each record), so an invalid config file cannot
+widen what it deletes.
+
+Each deletion goes through the #120 path unchanged: immediately before deletion
+Timber rereads the record and requires the same record bytes, directory identity,
+exact contents, ref and no protection, then renames, deletes the ref
+conditionally and removes named files. A backup kept or unkept after it was
+selected has different record bytes and is kept. A failed inspection, including
+an unreadable rebase state, protects; nothing is deleted on uncertainty.
+
+The report lists each deleted ID with its size and expiry, each expired backup
+that was kept with its reason, and the totals. A partial deletion is reported
+with the remaining state and the manual command as in #120, and the command exits
+nonzero. Unfinished deletions are mentioned with a pointer to `timber backup
+done`. With nothing expired it prints that nothing was deleted and exits 0.
+Storage that cannot be read refuses with exit 1 and deletes nothing.
+
+### Backup creation
+
+`timber backup create` keeps its selection and preflight rules. After preflight
+it:
+
+1. Reads the effective retention and warning settings. Invalid configuration
+   refuses before anything is changed.
+2. Runs expiry cleanup as above and prints its report. A cleanup partial
+   failure is reported on stderr and does not stop creation, but the command
+   then exits 1 after creating the backup. Storage that cannot be inventoried
+   refuses with no backup created.
+3. Measures the snapshot. If the warning is on and the usable backups' total
+   plus the new snapshot size exceeds the threshold, it warns before copying
+   anything (below).
+4. Creates the backup as in #119, writing the version 2 record.
+
+The report adds the retention (`Retention: expires <ISO time> (7 days)`, `kept
+indefinitely`, or `kept until deleted (backup_retention_days = false)`), the
+total of usable backups including the new one, and that expired unprotected
+backups are deleted by a later `timber backup create` or `timber backup cleanup`.
+
+### Storage warning
+
+The warning shows the new snapshot size, the current total and count of usable
+backups, the total they would reach, the threshold and the key that sets it, and
+how much the expired and the eligible (unprotected) backups hold. Interactively
+(stdin and stdout are terminals and CI is off) it asks:
+
+`Type c to continue, r to review backups for deletion, or press Enter to cancel [c/r/N]`
+
+`c` or `C` creates the backup. `r` or `R` runs the `timber backup done` review,
+then measures again and asks again if still over. Enter, any other answer, end
+of input or Ctrl-C cancels: no backup is created and the command exits 0 with
+"Cancelled; no backup was created". The backup is never silently skipped.
+
+Noninteractively it never waits and never assumes consent: it prints the warning
+and refuses with exit 1 and no backup created, pointing to an interactive run,
+`timber backup cleanup`, `timber backup done`, or raising or turning off
+`backup_storage_warning`. There is no override option.
+
+The measurement is taken before the warning. The snapshot is measured again
+while copying, and the report shows the copied size. A size that grew past the
+threshold after the answer is not asked about again.
+
+### Listing
+
+`timber backup list` replaces the version 2 Expiry line with Retention:
+`expires <ISO time> (<n> days)`, `expired <ISO time>; deleted by the next timber
+backup create or timber backup cleanup`, `expired <ISO time>; kept while
+protected`, `kept indefinitely (timber backup unkeep <id> to restore its
+<n>-day retention)` or `kept indefinitely` when the captured policy was until
+deleted plus keep, and `kept until deleted (no expiry when created)`. Version 1
+lines are unchanged. The footer adds the cleanup and keep commands.
+
+In `backup list --json`, `expiry` stays `null` for version 1 records. Version 2
+records use:
+
+```ts
+expiry: {
+  state: "kept" | "until-deleted" | "expiring" | "expired";
+  retentionDays: number | null;  // captured policy; null when kept until deleted
+  expiresAt: string | null;      // ISO 8601 UTC; non-null whenever retentionDays is
+}
+```
+
+`state` is evaluated at list time; protection is reported separately and is
+not folded into it. The schema version stays 1.
+
+### `timber done`
+
+`timber done` still never deletes or changes backups. Its retained-backup report
+adds each backup's size and retention (`expires <ISO time>`, `expired`, `kept
+indefinitely`, `kept until deleted` or `no retention policy`) and the command
+`timber backup keep <id>` to keep one past its expiry.
+
+### Setup
+
+`timber setup` (repository and global) adds a Backups section to the settings
+menu with two choices: retention and storage warning. Each offers inherit (the
+default when unset), the built-in default, a custom value validated as above
+with inline retry, and off (`false`). Before the retention choice, setup
+explains:
+
+> Recovery backups can contain copies of ignored files, including secrets such
+> as .env. Expired backups that are not protected by a rebase may be deleted
+> automatically the next time timber backup create or timber backup cleanup
+> runs. Nothing runs in the background, so backups stay on disk until Timber
+> runs again or you delete them. Keep one with timber backup keep <id>.
+
+Values are written with the existing setup publication rules.
 
 ## Backups for app consumers (#168)
 
@@ -657,7 +867,7 @@ hooks, editors or agents and leave files, refs and worktree registrations intact
 Read `.timber.toml` from the primary worktree root and Linux machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml`. Empty or relative XDG paths use the HOME fallback. Do not search nested or linked-worktree configuration. Validate both existing files independently; unknown keys, unreadable files, and invalid values are errors even when overridden in the other scope. Missing files use defaults.
 
 Core configuration keys are `base_branch`, `remote`, `worktree_dir`,
-`max_generated_branch_name_length`, `update_check`, `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below.
+`max_generated_branch_name_length`, `update_check`, `backup_retention_days`, `backup_storage_warning` ([backups](#backup-retention-and-storage-warning-121)), `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below.
 
 Precedence is explicit CLI options > repository TOML > global TOML > built-in defaults. Absent keys inherit. Present optional tables replace the whole lower-scope table: executable/argument combinations stay together, and argument arrays and hook lists never concatenate. Relative `worktree_dir` in either scope resolves against the current repository's primary root. Root-level `editor = false`, `agent = false`, `hooks = false`, or `jira = false` explicitly disables that inherited integration; `true` is invalid. Editor and agent tables with a command and `enabled = false` still support explicit `--editor` and `--agent`, respectively; root-level `false` removes the inherited command. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional integrations described below.
 
@@ -1279,7 +1489,7 @@ not transactions spanning arbitrary external writers.
 
 Open directly on the settings menu with destination, scope, compact section status,
 and an explicit Save and exit choice,
-individual editor/agent/Jira/setup-scripts/pre-done-scripts/base-branch/remote/workspace-folder edit choices,
+individual editor/agent/Jira/setup-scripts/pre-done-scripts/base-branch/remote/workspace-folder/backups edit choices,
 and cancellation. Save is the menu default. Do not show introductory summaries or
 require acknowledgements between edits and the menu. Full-screen prompts show
 guidance, errors, and pending credential actions inline with the active question
