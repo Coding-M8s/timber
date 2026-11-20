@@ -1,6 +1,7 @@
 import { reportAgentResult } from "../agent";
 import { FormattedError, failureWithRetry, retryNamingWorkflow, safeDisplay, shellQuoteForDisplay, workflowRetryFlag } from "../display";
-import type { CommandContext, CommandHandlers, CommandServices } from "../services";
+import type { CommandContext, CommandHandlers, CommandServices, OpenOptions } from "../services";
+import { decideNewBranchCollision, remoteSelector } from "../git/new-collision";
 import { JiraLookupFailure } from "../jira/client";
 import { finishWordAt, shortenAtWord } from "../branch-shorten";
 import { validateNewBranchName } from "../git/branches";
@@ -13,10 +14,13 @@ import { resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflo
 import { reportSkippedSetup } from "../hooks";
 import { issueSelector, type IssueLink } from "../git/issue-link";
 
-type NewServices = Pick<CommandServices,
+export type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
-  "resolveGithubRepository" | "resolveGithubTicket" | "resolveLinearTicket" |
-  "createWorktree" | "writeBaseAssociation" | "writeIssueLink" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals">;
+  "resolveGithubRepository" | "resolveGithubTicket" | "resolveLinearTicket" | "inspectNewBranchCollision" |
+  "createWorktree" | "writeBaseAssociation" | "writeIssueLink" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals"> & {
+  /** The `open` handler; the only way `new` may materialize an existing remote branch. */
+  openExisting?: CommandHandlers["open"];
+};
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
@@ -200,6 +204,42 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
       return;
     }
     const selectedBranch = selectedName;
+    const decision = decideNewBranchCollision(
+      await services.inspectNewBranchCollision(repository, selectedBranch, config),
+      { explicitBase: options.base, interactive: context.choose !== undefined },
+    );
+    if (decision.kind === "refuse") throw new FormattedError(decision.message);
+    if (decision.kind === "offer-open") {
+      const cancel = "\u0000cancel";
+      const chosen = await context.choose!(decision.prompt, [
+        ...decision.matches.map(match => ({
+          value: match.remote,
+          label: `Open existing branch${decision.matches.length > 1 ? ` ${match.selector} (${match.commit.slice(0, 12)})` : ""}`,
+        })),
+        { value: cancel, label: "Cancel", default: true },
+      ]);
+      if (chosen === null || chosen === cancel) {
+        context.machine?.cancelled();
+        context.io.stdout("Cancelled.\n");
+        return;
+      }
+      const match = decision.matches.find(candidate => candidate.remote === chosen);
+      if (match === undefined) throw new Error("Chooser returned an unknown remote; no worktree was created.");
+      // Re-inspect: the remote can change while the prompt is open. Never fall back to creation.
+      const again = await services.inspectNewBranchCollision(repository, selectedBranch, config);
+      const current = again.remotes.find(remote => remote.remote === match.remote);
+      if (again.local !== null || current === undefined || current.live.kind !== "present" || current.live.commit !== match.commit) {
+        throw new FormattedError(`${match.selector} changed or disappeared after selection. No worktree was created. Rerun timber new or timber open.`);
+      }
+      const openOptions: OpenOptions = {
+        ...(options.workflow === undefined ? {} : { workflow: options.workflow }),
+        ...(options.editor === undefined ? {} : { editor: options.editor }),
+        ...(options.agent === undefined ? {} : { agent: options.agent }),
+        ...(options.setup === false ? { setup: false } : {}),
+      };
+      if (services.openExisting === undefined) throw new Error("Opening an existing branch is unavailable in this build; no worktree was created.");
+      return services.openExisting(remoteSelector(match.remote, selectedBranch), openOptions, context);
+    }
     const worktree = await services.createWorktree(repository, { kind: "new", branch: selectedBranch, base }, config);
     await context.machine?.worktree(worktree, true);
     try {

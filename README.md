@@ -59,6 +59,7 @@ Run these inside the Git repository you want to work on:
 | --- | --- |
 | `timber new "Fix login bug"` | Create branch `fix-login-bug` and a worktree |
 | `timber new my-feature --base main` | Choose the starting branch |
+| `timber new` with a name that exists on a remote | Asks whether you meant `timber open` instead of creating a fresh branch; `new` checks remotes, so it needs network access when the repository has any |
 | `timber open my-feature` | Reuse its worktree, or create one for an existing branch |
 | `timber open origin/some-feature` | Open a remote branch in its own worktree |
 | `timber open my-feature --editor` | Open your configured editor |

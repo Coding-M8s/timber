@@ -190,6 +190,15 @@ other characters are passed to Git for validation. Put options before or after
 the words. `--` ends option parsing; Git still validates the resulting branch
 name.
 
+Before creating anything, `new` checks the final branch name against local
+branches and the configured (or every) remote, which needs network access when the
+repository has remotes. If the branch already exists on a remote, Timber asks
+`Branch already exists on <remote>. Did you mean timber open?` with `Open existing
+branch` and `Cancel` (the default). Without a terminal it refuses and prints a
+command such as `timber open -- 'origin/feature/example'`. An unreachable remote
+counts as unknown, not as absent, and also refuses. `--base` cannot be combined
+with an existing branch. Details: [CLI contract](cli-contract.md#existing-branch-guard).
+
 By default, Timber places the linked worktree at
 `../<repository-name>-worktrees/<safe-branch-slug>` beside the primary checkout.
 Set `worktree_dir` in `.timber.toml` to choose another root; relative paths
@@ -932,7 +941,7 @@ does a fresh check and refreshes the cache; it cannot be combined with `--versio
 | Git/editor/agent executable missing | Install the required tool or correct its executable/PATH. Configure literal argument arrays; skip optional launches with `--no-editor`/`--no-agent`. |
 | Setup or launch failed after creation | Workspace remains. Fix the prerequisite, then use the printed `open` retry; `--setup` reruns every hook. |
 | Jira authorization/network failure | Run setup to check/replace the saved pair; check complete environment overrides, token type/site/cloud ID, permissions, and connectivity. Never paste tokens into config or bug reports. |
-| Remote unavailable | Existing local worktrees can open offline; remote materialization needs a successful refresh. |
+| Remote unavailable | Existing local worktrees can open offline; remote materialization needs a successful refresh. `timber new` also refuses when it cannot verify that the branch name is free on a remote; retry when the remote is reachable. |
 | Cleanup refused | Read the named files/commits and preservation evidence. Commit or move your work deliberately; `--keep-branch` does not bypass safety. `--keep-ignored` preserves ignored content in place. |
 
 `done` discards ignored files by default, including `.env` and `node_modules`.
