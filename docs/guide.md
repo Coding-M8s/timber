@@ -455,15 +455,17 @@ first and linked paths sorted deterministically.
 The primary worktree is marked `primary`; detached HEAD shows `(detached HEAD)`.
 Dirty status includes modified and untracked file counts. Staged and unstaged
 changes to the same file count once; a rename counts as one modified file.
-Ignored content is reported separately and does not by itself make Git status
-dirty. Missing or inaccessible worktrees stay visible with `unknown` status;
-`missing`, `locked`, and `prunable` markers describe their state. Control
+Listing does not read ignored files such as `.env` or `node_modules`, so large
+ignored folders do not slow it down; `done` and `rebase` still check them.
+Missing or inaccessible worktrees stay visible with `unknown` status; `missing`,
+`locked`, and `prunable` markers describe their state. Control
 characters in paths are escaped so each worktree occupies one row.
 `BASE` shows the [saved base](worktree-bases.md), `-` when none is saved, and `?`
 when local base metadata cannot be trusted. A narrow terminal may wrap a complete row.
 
-Listing works offline and requires no `.timber.toml`. It does not fetch, prune,
-refresh the index, open an editor, launch an agent, or change files or refs.
+Listing checks a few worktrees at a time, works offline, and requires no
+`.timber.toml`. It does not fetch, prune, refresh the index, open an editor,
+launch an agent, or change files or refs.
 
 ### Publish a branch
 

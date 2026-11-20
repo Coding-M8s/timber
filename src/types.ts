@@ -38,6 +38,8 @@ export type Resolution<T> =
   | { kind: "not-found" }
   | { kind: "ambiguous"; candidates: readonly T[] };
 
+/** `ignored` is empty when the read skipped ignored files (as `ls` does); that is
+ * "not inspected", never evidence that a worktree has no ignored content. */
 export type WorktreeStatus =
   | { kind: "known"; modified: readonly string[]; untracked: readonly string[]; ignored: readonly string[] }
   | { kind: "unknown"; reason: string };

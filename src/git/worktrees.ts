@@ -149,9 +149,12 @@ export function uninspectedWorktree(tree: WorktreeInventory): Worktree {
 }
 
 /** Visit only this registered path; callers start a fresh phase after external actions.
- * Without inspectStatus, stop after identity: status can run repository clean filters. */
+ * Without inspectStatus, stop after identity: status can run repository clean filters.
+ * Without includeIgnored, Git skips ignored folders and status.ignored is [] meaning
+ * "not inspected": only listing may use it, never cleanup or rebase safety checks. */
 export async function inspectWorktree(
   repository: RepositoryContext, inventory: WorktreeInventory, phase?: WorktreeReadPhase, inspectStatus = true,
+  includeIgnored = true,
 ): Promise<Worktree> {
   const tree = uninspectedWorktree(inventory);
   try {
@@ -186,9 +189,12 @@ export async function inspectWorktree(
   if (!inspectStatus) return tree;
 
   try {
+    // Untracked files are listed one by one in both modes. Leaving out --ignored
+    // keeps Git out of ignored folders such as node_modules, which dominate cost.
     const result = await runGit(tree.path, [
       "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "status.renames=true",
-      "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored", "--ignore-submodules=none",
+      "status", "--porcelain=v1", "-z", "--untracked-files=all", ...(includeIgnored ? ["--ignored"] : []),
+      "--ignore-submodules=none",
     ]);
     tree.status = result.exitCode === 0
       ? parseStatus(result.stdout)
@@ -237,10 +243,39 @@ export async function listWorktreeInventory(
   return trees;
 }
 
+/** At most this many worktrees are inspected at once, so many worktrees do not flood the machine. */
+export const WORKTREE_INSPECTION_LIMIT = 4;
+
+/** Map items with at most `limit` calls in flight, keeping input order. */
+export async function mapWithLimit<T, R>(
+  items: readonly T[], limit: number, run: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError("Concurrency limit must be a positive integer.");
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failed = false;
+  const worker = async () => {
+    while (!failed && next < items.length) {
+      const index = next++;
+      try {
+        results[index] = await run(items[index]!);
+      } catch (error) {
+        // Start no new items after a failure; Promise.all reports the first one.
+        failed = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /** Git's inventory is authoritative; per-worktree failures remain visible as unknown rows. */
 export async function listWorktrees(
-  repository: RepositoryContext, options: { inspectStatus?: boolean; phase?: WorktreeReadPhase } = {},
+  repository: RepositoryContext,
+  options: { inspectStatus?: boolean; includeIgnored?: boolean; phase?: WorktreeReadPhase } = {},
 ): Promise<readonly Worktree[]> {
   const trees = await listWorktreeInventory(repository);
-  return Promise.all(trees.map(tree => inspectWorktree(repository, tree, options.phase, options.inspectStatus !== false)));
+  return mapWithLimit(trees, WORKTREE_INSPECTION_LIMIT, tree => inspectWorktree(
+    repository, tree, options.phase, options.inspectStatus !== false, options.includeIgnored !== false));
 }

@@ -28,15 +28,22 @@ function shuffle<T>(items: T[]): T[] {
   return items;
 }
 type Sample = { variant: keyof typeof binaries; command: string; milliseconds: number; gitProcesses: number };
-const scenarios: { worktrees: number; trackedFiles: number; untrackedFilesPerSibling: number; samples: Sample[] }[] = [];
+const scenarios: {
+  worktrees: number; trackedFiles: number; untrackedFilesPerSibling: number; ignoredFilesPerWorktree: number; samples: Sample[];
+}[] = [];
+// The last scenario puts a large ignored folder (like node_modules) in every worktree.
+const layouts = [
+  ...[2, 8].flatMap(worktrees => [0, 1000].map(trackedFiles => ({ worktrees, trackedFiles, ignoredFiles: 0 }))),
+  { worktrees: 8, trackedFiles: 0, ignoredFiles: 20_000 },
+];
 try {
-  for (const worktrees of [2, 8]) for (const trackedFiles of [0, 1000]) {
-    const directory = join(root, `trees-${worktrees}-files-${trackedFiles}`);
+  for (const { worktrees, trackedFiles, ignoredFiles } of layouts) {
+    const directory = join(root, `trees-${worktrees}-files-${trackedFiles}-ignored-${ignoredFiles}`);
     const primary = join(directory, "repo");
     const target = join(directory, "target");
     await mkdir(primary, { recursive: true });
     await git(primary, ["init", "-b", "trunk"]);
-    await writeFile(join(primary, ".gitignore"), ".timber.toml\n");
+    await writeFile(join(primary, ".gitignore"), ".timber.toml\nnode_modules/\n");
     for (let i = 0; i < trackedFiles; i++) await writeFile(join(primary, `tracked-${i}.txt`), `fixture ${i}\n`);
     await git(primary, ["add", "."]);
     await git(primary, ["commit", "-m", "benchmark fixture"]);
@@ -47,6 +54,15 @@ try {
       await git(primary, ["worktree", "add", "-b", `sibling-${i}`, sibling]);
       for (let j = 0; j < trackedFiles; j++) await writeFile(join(sibling, `untracked-${j}.txt`), "sibling fixture\n");
     }
+    const fillIgnored = async (tree: string) => {
+      for (let folder = 0; folder < ignoredFiles / 100; folder++) {
+        const path = join(tree, "node_modules", `package-${folder}`);
+        await mkdir(path, { recursive: true });
+        await Promise.all(Array.from({ length: 100 }, (_, file) => writeFile(join(path, `file-${file}.js`), "ignored\n")));
+      }
+    };
+    for (const tree of (await git(primary, ["worktree", "list", "--porcelain"])).split("\n")
+      .filter(line => line.startsWith("worktree ")).map(line => line.slice("worktree ".length))) await fillIgnored(tree);
     const trace = join(directory, "trace.jsonl");
     const commands: Record<string, string[]> = {
       open: ["open", "target", "--no-editor", "--no-agent"],
@@ -54,6 +70,7 @@ try {
       done: ["done", "target", "--base", "trunk", "--keep-branch"],
       rebase: ["rebase", "target", "--base", "refs/heads/trunk"],
       ls: ["ls"],
+      "ls-json": ["ls", "--json"],
     };
     const samples: Sample[] = [];
     const jobs = Object.keys(binaries).flatMap(variant => Object.keys(commands).map(command => ({
@@ -80,10 +97,13 @@ try {
       if (job.command === "new") {
         await git(primary, ["worktree", "remove", join(directory, "repo-worktrees", "fresh")]);
         await git(primary, ["branch", "-D", "fresh"]);
-      } else if (job.command === "done") await git(primary, ["worktree", "add", target, "target"]);
+      } else if (job.command === "done") {
+        await git(primary, ["worktree", "add", target, "target"]);
+        await fillIgnored(target);
+      }
     }
-    scenarios.push({ worktrees, trackedFiles, untrackedFilesPerSibling: trackedFiles, samples });
-    process.stderr.write(`Measured ${worktrees} worktrees, ${trackedFiles} tracked files, ${repetitions} repetitions.\n`);
+    scenarios.push({ worktrees, trackedFiles, untrackedFilesPerSibling: trackedFiles, ignoredFilesPerWorktree: ignoredFiles, samples });
+    process.stderr.write(`Measured ${worktrees} worktrees, ${trackedFiles} tracked files, ${ignoredFiles} ignored files per worktree, ${repetitions} repetitions.\n`);
   }
   process.stdout.write(JSON.stringify({ platform: `${process.platform} ${process.arch}`, bun: Bun.version,
     git: await git(root, ["--version"]), repetitions, randomSeed: 108, binaries,

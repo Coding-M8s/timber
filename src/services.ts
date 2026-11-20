@@ -33,9 +33,10 @@ export interface CommandServices {
   resolveJiraTicket(config: JiraConfig, key: string, allowClosed?: boolean): Promise<JiraTicket>;
   /** Return only validated active ticket alternatives for an exact missing/done key. */
   findJiraSuggestions(config: JiraConfig, key: string): Promise<readonly JiraTicket[]>;
-  /** Installed Git is authoritative; include manual, detached, stale entries. */
+  /** Installed Git is authoritative; include manual, detached, stale entries.
+   * includeIgnored: false leaves status.ignored empty; use it only for listing. */
   listWorktrees(
-    repository: RepositoryContext, options?: { inspectStatus?: boolean; phase?: WorktreeReadPhase },
+    repository: RepositoryContext, options?: { inspectStatus?: boolean; includeIgnored?: boolean; phase?: WorktreeReadPhase },
   ): Promise<readonly Worktree[]>;
   /** Local and cached remote branches, without fetching. */
   listBranches(repository: RepositoryContext): Promise<readonly Branch[]>;
