@@ -32,7 +32,7 @@ const io = () => {
 const pull = (number: number, extra: Record<string, unknown> = {}) => ({ number, draft: false,
   head: { ref: branch, repo: { full_name: "acme/widgets" } }, base: { ref: "main" }, ...extra });
 
-const bbPull = (id: number, extra: Record<string, unknown> = {}) => ({ id, draft: false,
+const bbPull = (id: number, extra: Record<string, unknown> = {}) => ({ id, state: "OPEN", draft: false,
   source: { branch: { name: branch }, repository: { full_name: "acme/widgets" } },
   destination: { branch: { name: "main" }, repository: { full_name: "acme/widgets" } }, ...extra });
 const bitbucketRepos: Record<string, PullRequestRepository> = { origin: { host: "bitbucket", owner: "acme", name: "widgets" },
@@ -256,7 +256,7 @@ test("a Bitbucket base creates the pull request on Bitbucket with the Bitbucket 
   const lookup = new URL(h.requests[0]!.url);
   expect(lookup.origin + lookup.pathname).toBe("https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests");
   expect(lookup.searchParams.get("state")).toBe("OPEN");
-  expect(lookup.searchParams.get("q")).toBe(`source.branch.name = "${branch}" AND destination.branch.name = "main"`);
+  expect(lookup.searchParams.get("q")).toBe(`state = "OPEN" AND source.branch.name = "${branch}" AND destination.branch.name = "main"`);
   // The branch's GH number is mentioned by its GitHub link, never as a bare #157.
   expect(h.requests[1]).toMatchObject({ method: "POST", url: "https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests",
     body: { title: "Add timber pr", description: "Adds the command.\n\nRefs https://github.com/acme/widgets/issues/157", draft: true,
@@ -275,6 +275,16 @@ test("an open Bitbucket pull request into the same base is reported as exists; o
   const result = await h.run({ title: "t" });
   expect(result.report).toEqual({ result: "exists", number: 7, url: "https://bitbucket.org/acme/widgets/pull-requests/7", base: "main", published: false });
   expect(h.requests.map(request => request.method)).toEqual(["GET"]);
+});
+
+test("a merged or declined Bitbucket pull request from the branch is not reported, so a new one is created", async () => {
+  // Bitbucket answers a q filter with pull requests in every state, whatever the state parameter says.
+  const h = harness({ remotes: bitbucketRepos,
+    respond: method => method === "GET" ? Response.json({ values: [bbPull(3, { state: "MERGED" }), bbPull(4, { state: "DECLINED" }), bbPull(6, { state: "SUPERSEDED" })] })
+      : Response.json(bbPull(8), { status: 201 }) });
+  const result = await h.run({ title: "t" });
+  expect(result.report).toEqual({ result: "created", number: 8, url: "https://bitbucket.org/acme/widgets/pull-requests/8", base: "main", published: true });
+  expect(h.requests.map(request => request.method)).toEqual(["GET", "POST"]);
 });
 
 test("a fork's branch names its source repository, so the pull request opens against the base repository", async () => {

@@ -40,13 +40,14 @@ const quoted = (value: string) => `"${value.replace(/[\\"]/gu, "\\$&")}"`;
 /** The open pull request from this branch in the head repository into baseBranch, if there is one. */
 export async function findOpenBitbucketPullRequest(base: BitbucketRepository, head: BitbucketRepository, branch: string,
   baseBranch: string, runtime: BitbucketRuntime): Promise<PullRequest | null> {
+  // Bitbucket ignores the state parameter once q is given, so the state goes in q too.
   const query = new URLSearchParams({ state: "OPEN", pagelen: "50",
-    q: `source.branch.name = ${quoted(branch)} AND destination.branch.name = ${quoted(baseBranch)}` });
+    q: `state = "OPEN" AND source.branch.name = ${quoted(branch)} AND destination.branch.name = ${quoted(baseBranch)}` });
   return bitbucketRequest(`${path(base)}/pullrequests?${query}`, runtime, body => {
     const values = record(body)?.values;
     if (!Array.isArray(values)) throw malformed();
-    // The filter is checked here too, not trusted.
-    const matches = values.map(item => pullRequest(item, base, head, branch))
+    // The filter is checked here too, not trusted: a merged or declined pull request never counts.
+    const matches = values.filter(item => record(item)?.state === "OPEN").map(item => pullRequest(item, base, head, branch))
       .filter(item => item !== null && item.base === baseBranch) as PullRequest[];
     return matches.sort((a, b) => a.number - b.number)[0] ?? null;
   }, { timeout: "Bitbucket did not answer the pull request lookup in time; nothing was created. Retry when Bitbucket is reachable.",

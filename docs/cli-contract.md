@@ -199,9 +199,10 @@ origin. The token is an Atlassian API token with the scopes
 uses the user's own Git login.
 
 After the push, list `GET /repositories/<workspace>/<repo>/pullrequests` with
-`state=OPEN`, `pagelen=50` and a `q` filter on the source and destination branch
-names (quoted, with `"` and `\` escaped), then check each result's source
-branch, source repository (`full_name`, case-insensitive) and destination branch,
+`state=OPEN`, `pagelen=50` and a `q` filter on `state = "OPEN"` and the source
+and destination branch names (quoted, with `"` and `\` escaped), because
+Bitbucket ignores the `state` parameter once `q` is given. Then check each
+result's state, source branch, source repository (`full_name`, case-insensitive) and destination branch,
 since the filter is not trusted. A result whose source repository is null (a
 deleted fork) does not count. The lowest matching id is reported. Otherwise POST
 the title, `description`, `draft`, the source branch (with its repository only

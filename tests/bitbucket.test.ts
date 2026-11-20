@@ -106,7 +106,7 @@ test("the Bitbucket lookup quotes the branch, refuses redirects and times out wi
   expect(await findOpenBitbucketPullRequest(repo, repo, 'say-"hi"', "main", runtime(async (url, init) => {
     urls.push(url); inits.push(init); return Response.json({ values: [] });
   }))).toBeNull();
-  expect(new URL(urls[0]!).searchParams.get("q")).toBe('source.branch.name = "say-\\"hi\\"" AND destination.branch.name = "main"');
+  expect(new URL(urls[0]!).searchParams.get("q")).toBe('state = "OPEN" AND source.branch.name = "say-\\"hi\\"" AND destination.branch.name = "main"');
   expect(inits[0]!.redirect).toBe("error");
 
   await expect(findOpenBitbucketPullRequest(repo, repo, "b", "main", runtime(async () => { throw new TypeError("redirect"); })))
