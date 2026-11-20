@@ -250,12 +250,13 @@ source checkout behave differently. Use
 Timber adds no `.env` loader.
 Without `cloud_id`, Timber calls the configured site for an unscoped token. With
 `cloud_id`, it uses Atlassian's fixed Jira Cloud gateway for a scoped token.
-Requests do not follow redirects or retry. Each exact lookup has a 10-second
-deadline; a suggestions search shares one 10-second deadline across every page and
-response body.
+Requests do not follow redirects or retry. Each lookup has a 10-second
+deadline covering the response body.
 
-Only a complete uppercase key such as `ENG-834` is looked up, and only when
-`[jira]` is configured. `timber new ENG-834` looks up the issue and creates a
+Timber looks up a complete key such as `ENG-834` when it is written `jira:ENG-834`,
+or written bare with `default_tracker = "jira"`. Case does not matter: `eng-834`
+and `Eng-834` are read as `ENG-834`. With `default_tracker = "jira"`,
+`timber new ENG-834` looks up the issue and creates a
 branch from its canonical key and summary. For example, `Fix café / login!`
 becomes `ENG-834-fix-cafe-login`. Timber normalizes the summary into an ASCII
 slug and caps the whole branch name at `max_generated_branch_name_length`
@@ -268,32 +269,10 @@ categories fail closed. Timber reads the category key rather than the visible
 status name, which may be localized or customized, and it does not infer
 completion from resolution fields.
 
-With no selected default and no `-c`, when an exact bare ticket is unavailable (404)
-or complete, Timber searches that
-project for unfinished issues whose full key starts with the requested key. For
-example, `ENG-4` can suggest `ENG-40` and `ENG-41`. Timber uses a fixed read-only
-JQL query, filters candidates again by full key prefix, and offers only issues
-whose category is `new` or `indeterminate`. Authentication, permission, network,
-rate-limit, malformed-response, and unknown-status failures do not start a search.
-The search must finish all pages successfully before Timber presents a count or
-choice. Jira's [enhanced JQL search API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/)
-supports the paginated endpoint used here.
-
-In an interactive terminal, choose a candidate explicitly, even when there is
-only one; canceling prints `Cancelled.`, exits successfully, and leaves Git untouched.
-This also applies to the `open` chooser. The initial menu shows five choices,
-and displaying more asks for confirmation first. Without an interactive chooser,
-Timber prints at most five candidate keys and titles plus the total count, then
-shows how to run a candidate key explicitly or retry in a terminal. After a
-choice, Timber fetches that exact issue again and checks its current status and
-summary before creating anything. If it has become missing or complete, the
-command stops without searching again. Literal branch inputs continue through
-the ordinary branch creation flow.
-
 The summary becomes part of a Git branch name, which may later be published.
 Choose a literal branch such as `feature/ENG-834` when a title would expose
-sensitive information. Inputs such as `ENG-834-fix`, lowercase `eng-834`, and
-`feature/ENG-834` are always treated as literal branch names.
+sensitive information. Inputs such as `ENG-834-fix` and `feature/ENG-834` are
+always treated as literal branch names.
 
 If a title changes, a later `new ENG-834` can produce a different branch. Use
 `timber open ENG-834` to resume existing work. `open` does not need Jira
@@ -974,7 +953,7 @@ default_tracker = "linear" # github, linear, jira, or none
 Repository settings override `timber setup --global`. Choose **Inherit machine
 default** to follow global changes, or **None** to disable automatic lookup just
 for this repository. Switching defaults or selecting None retains credentials.
-If neither scope has a preference, existing Jira/literal behavior stays in effect.
+If neither scope has a preference, unprefixed names are literal branches.
 
 | Default | Command | Behavior |
 | --- | --- | --- |
@@ -985,7 +964,9 @@ If neither scope has a preference, existing Jira/literal behavior stays in effec
 | Any | `timber new fix-login` | Create literal branch fix-login |
 
 Explicit `github:97`, `linear:ENG-123`, and `jira:ENG-123` override the default,
-including None. Jira needs effective site settings; `jira = false` disables it.
+including None. Jira and Linear keys may be typed in any case, prefixed or bare:
+`jira:eng-123` and, with Jira as the default, `eng-123` both mean `ENG-123`.
+Branch names, lookups and saved issue links always use the uppercase key. Jira needs effective site settings; `jira = false` disables it.
 After creating an issue-named branch, Timber displays the canonical key, title,
 and link before running setup scripts. This does not create new saved issue metadata.
 
@@ -997,8 +978,7 @@ before branch creation or setup scripts. Git creation errors also stop; Timber
 never retries those as literal branches.
 
 Use `-c` with any provider to allow a known closed/completed ticket without
-reopening it. Unknown states and deleted/trashed issues still refuse. Only legacy
-bare Jira with no selected default and no `-c` offers ticket suggestions. `--remote`
+reopening it. Unknown states and deleted/trashed issues still refuse. `--remote`
 remains GitHub-only; issue-only flags cannot turn a literal input into a lookup.
 
 ## GitHub issues
@@ -1073,8 +1053,8 @@ branches, paths and logs. Title changes may produce another branch name; collisi
 fail without adding suffixes. Creation prints the branch, path and Linear issue link
 and follows ordinary setup, workflow, editor and agent settings.
 
-Explicit whole-input `linear:<UPPERCASE-KEY>` always invokes Linear; bare keys also
-use Linear when it is the default tracker. Triage, backlog, unstarted and started
+Explicit whole-input `linear:<KEY>` always invokes Linear; bare keys also
+use Linear when it is the default tracker. The key may be typed in any case. Triage, backlog, unstarted and started
 issues are accepted; completed, canceled and duplicate require `-c`. Unknown states
 and deleted/trashed issues always refuse. `--remote` applies only to GitHub issues. No URL input, suggestions/search,
 OAuth, account chooser, issue updates or automatic closing is supported. `open`,

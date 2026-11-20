@@ -16,12 +16,6 @@ const issueSchema = z.object({
     status: z.unknown().optional(),
   }),
 });
-const searchPageSchema = z.object({
-  issues: z.array(z.unknown()),
-  isLast: z.boolean(),
-  nextPageToken: z.string().optional(),
-});
-
 export type JiraLookupFailureReason = "not-found" | "done";
 
 /** A safe Jira diagnostic; reason is present only for exact missing/done lookups. */
@@ -66,58 +60,6 @@ export async function resolveJiraTicket(
     }
 
     return toTicket(issue, requestContext.siteOrigin);
-  });
-}
-
-/** Find validated active tickets whose full key begins with the requested Jira key. */
-export async function findJiraSuggestions(
-  config: JiraConfig,
-  key: string,
-  runtime: JiraRuntime = defaultRuntime(),
-): Promise<readonly JiraTicket[]> {
-  if (!isJiraTicketKey(key)) throw new Error("Invalid Jira ticket key.");
-
-  const requestContext = await prepareRequest(config, runtime);
-  const projectKey = key.slice(0, key.lastIndexOf("-"));
-  const jql = `project = "${projectKey}" AND statusCategory != Done ORDER BY key ASC`;
-
-  return withDeadline(runtime, async signal => {
-    const tickets = new Map<string, JiraTicket>();
-    const requestedTokens = new Set<string>();
-    let nextPageToken: string | undefined;
-
-    while (true) {
-      const requestUrl = new URL(`${requestContext.apiRoot}/rest/api/3/search/jql`);
-      requestUrl.searchParams.set("jql", jql);
-      requestUrl.searchParams.set("fields", "summary,status");
-      requestUrl.searchParams.set("maxResults", "100");
-      if (nextPageToken !== undefined) requestUrl.searchParams.set("nextPageToken", nextPageToken);
-
-      const body = await fetchJson(runtime, requestUrl.href, requestContext.authorization, signal);
-      const page = searchPageSchema.safeParse(body);
-      if (!page.success) throw unusableSearchResponse();
-
-      for (const rawIssue of page.data.issues) {
-        const issue = usableIssue(rawIssue);
-        if (!isJiraTicketKey(issue.key)) throw unusableSearchResponse();
-
-        const statusCategory = statusCategoryKeySchema.safeParse(statusCategoryKey(issue.fields.status));
-        if (!statusCategory.success || statusCategory.data === "done") continue;
-        if (issue.key === key || !issue.key.startsWith(key)) continue;
-        if (!tickets.has(issue.key)) tickets.set(issue.key, toTicket(issue, requestContext.siteOrigin));
-      }
-
-      if (page.data.isLast) {
-        return [...tickets.values()].sort((left, right) => compareKeys(left.key, right.key));
-      }
-
-      const token = page.data.nextPageToken;
-      if (token === undefined || token.trim().length === 0 || requestedTokens.has(token)) {
-        throw incompleteSuggestions();
-      }
-      requestedTokens.add(token);
-      nextPageToken = token;
-    }
   });
 }
 
@@ -334,18 +276,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function unknownStatusCategory(key: string): JiraLookupFailure {
   return new JiraLookupFailure(`Jira issue ${key} has an unknown status category; refusing to create a branch.`);
-}
-
-function unusableSearchResponse(): JiraLookupFailure {
-  return new JiraLookupFailure("Unexpected Jira response; search data was not usable.");
-}
-
-function incompleteSuggestions(): JiraLookupFailure {
-  return new JiraLookupFailure("Jira suggestions could not be loaded completely; retry when service is reachable.");
-}
-
-function compareKeys(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function timeoutMessage(timeoutMs: number): string {

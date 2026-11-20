@@ -48,7 +48,7 @@ export function sectionStatus(key: SetupSection, file: ConfigFile, target: Setup
 
   switch (key) {
     case "default_tracker":
-      return `${resolved.defaultTracker ? trackerNames[resolved.defaultTracker] : "existing Jira/literal behavior"}${note}`;
+      return `${resolved.defaultTracker ? trackerNames[resolved.defaultTracker] : "literal branch names"}${note}`;
     case "editor": {
       if (file.editor === false) return "off";
       const editor = resolved.editor;

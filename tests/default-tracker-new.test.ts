@@ -78,12 +78,28 @@ test("bare default GitHub accepts --remote; non-GitHub routes refuse it", async 
   await expect(harness("linear").run("ENG-123", { remote: "origin" })).rejects.toThrow();
 });
 
-test("legacy Jira -c is exact and missing does not fall back or suggest", async () => {
-  const h = harness(undefined, { resolveJiraTicket: async (_config, _key, allowClosed) => {
-    expect(allowClosed).toBe(true); throw new JiraLookupFailure("missing", "not-found");
-  } });
-  await expect(h.run("ENG-123", { allowClosed: true })).rejects.toThrow("missing"); expect(h.calls).toEqual(["base"]);
+test("Jira site settings without a default tracker leave bare keys literal", async () => {
+  for (const input of ["ENG-123", "eng-123"]) {
+    const h = harness(); await h.run(input); expect(h.branch()).toBe(input); expect(h.calls).toEqual(["base", "create", "setup"]);
+  }
 });
+
+for (const provider of ["linear", "jira"] as const) {
+  const service = provider === "linear" ? "resolveLinearTicket" : "resolveJiraTicket";
+  test(`lowercase ${provider} keys look up and name the branch with the uppercase key`, async () => {
+    for (const input of ["eng-123", `${provider}:eng-123`, `${provider}:Eng-123`]) {
+      const keys: string[] = [];
+      const lookup = async (...args: unknown[]) => { keys.push(String(args[provider === "linear" ? 0 : 1])); return ticket; };
+      const h = harness(provider, { [service]: lookup });
+      await h.run(input); expect(keys).toEqual(["ENG-123"]); expect(h.branch()).toBe("ENG-123-fix-login");
+    }
+  });
+  test(`a missing lowercase default ${provider} key creates the literal branch as typed`, async () => {
+    const missing = provider === "linear" ? new LinearLookupFailure("missing", "not-found") : new JiraLookupFailure("missing", "not-found");
+    const h = harness(provider, { [service]: async () => { throw missing; } });
+    await h.run("fix-2"); expect(h.branch()).toBe("fix-2"); expect(h.output()).toContain("Creating literal branch fix-2");
+  });
+}
 
 test("explicit Jira without effective site settings fails before lookup or creation", async () => {
   const h = harness("none", { loadConfig: async () => { const { jira: _jira, ...withoutJira } = config; return withoutJira; } });

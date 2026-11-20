@@ -6,8 +6,7 @@ import { decideNewBranchCollision, remoteSelector } from "../git/new-collision";
 import { JiraLookupFailure } from "../jira/client";
 import { finishWordAt, shortenAtWord } from "../branch-shorten";
 import { validateNewBranchName } from "../git/branches";
-import { generateTicketBranch, isJiraTicketKey } from "../jira/branch";
-import type { JiraTicket } from "../types";
+import { generateTicketBranch } from "../jira/branch";
 import { LinearLookupFailure } from "../linear/client";
 import { GithubLookupFailure } from "../github/client";
 import { resolveIssueInput } from "../issue-input";
@@ -16,7 +15,7 @@ import { reportSkippedSetup } from "../hooks";
 import { issueSelector, type IssueLink } from "../git/issue-link";
 
 export type NewServices = Pick<CommandServices,
-  "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" | "findJiraSuggestions" |
+  "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" |
   "resolveGithubRepository" | "resolveGithubTicket" | "resolveLinearTicket" | "inspectNewBranchCollision" |
   "createWorktree" | "writeBaseAssociation" | "writeIssueLink" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals"> & {
   /** The `open` handler; the only way `new` may materialize an existing remote branch. */
@@ -151,39 +150,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         ticket = await services.resolveLinearTicket(input.key, options.allowClosed === true);
       } else if (input.kind === "jira") {
         if (!jiraConfig) throw new Error("Jira site settings are missing or disabled. Configure Jira with timber setup before looking up tickets.");
-        try {
-          ticket = await services.resolveJiraTicket(jiraConfig, input.key, options.allowClosed === true);
-        } catch (error) {
-          if (input.origin !== "legacy" || options.allowClosed === true) throw error;
-          if (!(error instanceof JiraLookupFailure) || error.reason === undefined) throw error;
-
-          let suggestions: readonly JiraTicket[];
-          try {
-            suggestions = await services.findJiraSuggestions(jiraConfig, branch);
-          } catch {
-            throw new Error(`${error.message} Jira suggestions could not be loaded; no workspace was created.`);
-          }
-          if (suggestions.length === 0) throw error;
-          validateSuggestions(branch, suggestions);
-
-          const choices = suggestions.map(suggestion => ({
-            value: suggestion.key,
-            label: `${suggestion.key} - ${safeTitle(suggestion.title)}`,
-          }));
-          if (context.choose === undefined) throw noChooserFailure(error.message, branch, suggestions);
-
-          const selected = await context.choose(`${error.message}\nDid you mean one of these?`, choices);
-          if (selected === null) {
-            context.machine?.cancelled();
-            context.io.stdout("Cancelled.\n");
-            return;
-          }
-          const chosen = suggestions.find(suggestion => suggestion.key === selected);
-          if (chosen === undefined) throw new Error("Jira chooser returned an unknown suggestion; no workspace was created.");
-
-          // The search result can be stale; the selected exact issue is authoritative.
-          ticket = await services.resolveJiraTicket(jiraConfig, chosen.key);
-        }
+        ticket = await services.resolveJiraTicket(jiraConfig, input.key, options.allowClosed === true);
       }
     } catch (error) {
       const missing = (input.kind === "github" && error instanceof GithubLookupFailure)
@@ -302,38 +269,4 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     if (agentCommand === null) return;
     return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io, options.workflow);
   };
-}
-
-function validateSuggestions(requestedKey: string, suggestions: readonly JiraTicket[]): void {
-  const seen = new Set<string>();
-  for (const suggestion of suggestions) {
-    if (!isJiraTicketKey(suggestion.key) || suggestion.key === requestedKey
-      || !suggestion.key.startsWith(requestedKey) || suggestion.title.trim().length === 0
-      || seen.has(suggestion.key)) {
-      throw new Error("Jira suggestions could not be used safely; no workspace was created.");
-    }
-    seen.add(suggestion.key);
-  }
-}
-
-function safeTitle(title: string): string {
-  return title.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, character => {
-    return `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`;
-  });
-}
-
-function noChooserFailure(
-  originalFailure: string,
-  requestedKey: string,
-  suggestions: readonly JiraTicket[],
-): Error {
-  const visible = suggestions.slice(0, 5)
-    .map(suggestion => `  ${suggestion.key} - ${safeTitle(suggestion.title)}`)
-    .join("\n");
-  const count = suggestions.length;
-  const shown = Math.min(count, 5);
-  return new FormattedError(
-    `${originalFailure}\nNo interactive chooser is available. ${count} unfinished Jira prefix matches for ${requestedKey} (showing ${shown}):\n${visible}\n` +
-    "Run `timber new <candidate-key>` explicitly, or rerun in an interactive terminal to choose one.",
-  );
 }
