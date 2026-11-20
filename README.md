@@ -71,6 +71,8 @@ Run these inside the Git repository you want to work on:
 | `timber backup restore <id> ../recovered` | Recover a backup into a new worktree |
 | `timber backup list` | Show backups with branch, time, size, protection and expiry (`--json` for apps) |
 | `timber backup done` | Delete backups one at a time after `y` then Enter (`--all` asks once) |
+| `timber backup keep <id>` | Keep a backup past its retention (`unkeep` restores it); [retention](docs/cli-contract.md#backup-retention-and-storage-warning-121) |
+| `timber backup cleanup` | Delete expired backups now (also runs on `backup create`; default retention 7 days) |
 | `timber ls` | List paths, bases, and file status |
 | `timber done my-feature` | Remove a finished worktree and its local branch |
 | `timber done my-feature --base parent-feature` | Override the cleanup merge target |

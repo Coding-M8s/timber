@@ -1073,6 +1073,12 @@ storage, and contacts nothing. The schema, ordering and failure rules are in the
   `protection` and `notUsable` as given and does not reimplement those rules.
   Protected and unusable entries are never offered by `timber backup done`.
 - Exit 0 with entries under `notUsable` or `unfinished` is normal; read each list.
+- `expiry` is `null` for records without a retention policy. Otherwise its
+  `state` (`kept`, `until-deleted`, `expiring` or `expired`) is evaluated when the
+  list is read; show protection alongside it, since a protected expired backup is
+  never deleted. See [retention](cli-contract.md#backup-retention-and-storage-warning-121).
+- `timber backup keep` and `unkeep` change `recordSha256`; read the list again
+  before confirming a deletion.
 - To delete a usable backup or finish an unfinished deletion, pass its `id` and
   `recordSha256` to [`__app-backup delete`](#backup-delete-outcome). When an
   unfinished deletion's `recordSha256` is null because its record is gone, the
