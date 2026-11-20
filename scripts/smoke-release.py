@@ -268,7 +268,7 @@ def smoke(binary, expected, lab):
           and ref_exists("failed-agent"), "Agent startup failure did not retain workspace")
 
     config('[jira]\nsite_url = "https://example.atlassian.net"\n')
-    refuses("new", "TIM-999", "--no-editor")
+    refuses("new", "jira:TIM-999", "--no-editor")
     cli("new", "literal-jira-disabled", "--no-editor")
     cli("open", "local-only", "--no-editor")
     return git("--version")
