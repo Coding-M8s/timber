@@ -43,6 +43,7 @@ function harness(options: {
   saved?: BaseAssociationRead; publish?: (report: PublishReport) => void; token?: () => Promise<string>;
   respond?: (method: string, url: string, body: unknown) => Response; issues?: { owner: string; name: string } | null;
   issue?: IssueLinkRead; remotes?: Record<string, PullRequestRepository>; login?: () => Promise<{ email: string; token: string }>;
+  hang?: (url: string) => boolean;
 } = {}) {
   const remotes = options.remotes ?? repos;
   const events: string[] = [];
@@ -71,8 +72,11 @@ function harness(options: {
         const body = init.body === undefined ? undefined : JSON.parse(String(init.body));
         requests.push({ method: String(init.method), url, body });
         events.push(String(init.method));
+        if (options.hang?.(url)) return new Promise<Response>(() => {});
         return options.respond?.(String(init.method), url, body)
-          ?? (init.method === "GET" ? Response.json([]) : Response.json(pull(42, { draft: body.draft }), { status: 201 }));
+          ?? (init.method === "GET" ? Response.json([])
+            : url.endsWith("/requested_reviewers") ? Response.json(pull(42), { status: 201 })
+              : Response.json(pull(42, { draft: body.draft }), { status: 201 }));
       } },
     bitbucket: { timeoutMs: 200,
       login: async () => { events.push("login"); return options.login ? options.login() : { email: "dev@example.com", token: "token" }; },
@@ -98,7 +102,7 @@ test("an unpublished branch is published, then the pull request is created again
   const h = harness();
   const result = await h.run({ title: "Add timber pr", body: "Adds the command." });
   expect(result.error).toBeNull();
-  expect(result.report).toEqual({ result: "created", number: 42, url: "https://github.com/acme/widgets/pull/42", base: "main", published: true });
+  expect(result.report).toEqual({ result: "created", number: 42, url: "https://github.com/acme/widgets/pull/42", base: "main", published: true, reviewers: [] });
   // The head repository is read from the push URL, the base from the fetch URL.
   expect(h.events).toEqual(["readBase", "plan", "base", "head", "token", "publish", "GET", "POST"]);
   expect(h.requests[1]!.body).toEqual({ title: "Add timber pr", head: `acme:${branch}`, base: "main",
@@ -110,7 +114,7 @@ test("an open pull request into the same base is reported as exists and nothing 
   const h = harness({ publish: report => { report.result = "up-to-date"; },
     respond: method => method === "GET" ? Response.json([pull(7, { base: { ref: "release" } })]) : new Response(null, { status: 500 }) });
   const result = await h.run({ title: "t", base: "release" });
-  expect(result.report).toEqual({ result: "exists", number: 7, url: "https://github.com/acme/widgets/pull/7", base: "release", published: false });
+  expect(result.report).toEqual({ result: "exists", number: 7, url: "https://github.com/acme/widgets/pull/7", base: "release", published: false, reviewers: [] });
   expect(h.requests.map(request => request.method)).toEqual(["GET"]);
   expect(result.output.stdout).toContain("already open");
 });
@@ -161,7 +165,7 @@ test("an unusable base, title or remote is refused before the login is read or a
     const h = harness(saved === undefined ? {} : { saved });
     const result = await h.run(options);
     expect(result.error?.message).toContain(message);
-    expect(result.report).toEqual({ result: "refused", number: null, url: null, base, published: false });
+    expect(result.report).toEqual({ result: "refused", number: null, url: null, base, published: false, reviewers: [] });
     expect(h.events).not.toContain("token");
     expect(h.events).not.toContain("publish");
     expect(h.requests).toEqual([]);
@@ -186,7 +190,7 @@ test("a missing login, a failed or refused publish and a rejected creation each 
     : Response.json({ message: "Validation Failed", errors: [{ message: "No commits between main and x" }] }, { status: 422 }) });
   const run = await rejected.run();
   expect(run.error?.message).toContain("no commits");
-  expect(run.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: true });
+  expect(run.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: true, reviewers: [] });
 });
 
 test("the linked issue is referenced without a closing keyword, once, and qualified for another repository", async () => {
@@ -251,7 +255,7 @@ test("a Bitbucket base creates the pull request on Bitbucket with the Bitbucket 
   const h = harness({ remotes: bitbucketRepos });
   const result = await h.run({ title: "Add timber pr", body: "Adds the command.", draft: true });
   expect(result.error).toBeNull();
-  expect(result.report).toEqual({ result: "created", number: 42, url: "https://bitbucket.org/acme/widgets/pull-requests/42", base: "main", published: true });
+  expect(result.report).toEqual({ result: "created", number: 42, url: "https://bitbucket.org/acme/widgets/pull-requests/42", base: "main", published: true, reviewers: [] });
   expect(h.events).toEqual(["readBase", "plan", "base", "head", "login", "publish", "GET", "POST"]);
   const lookup = new URL(h.requests[0]!.url);
   expect(lookup.origin + lookup.pathname).toBe("https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests");
@@ -273,7 +277,7 @@ test("an open Bitbucket pull request into the same base is reported as exists; o
       bbPull(9), bbPull(7),
     ] }) : new Response(null, { status: 500 }) });
   const result = await h.run({ title: "t" });
-  expect(result.report).toEqual({ result: "exists", number: 7, url: "https://bitbucket.org/acme/widgets/pull-requests/7", base: "main", published: false });
+  expect(result.report).toEqual({ result: "exists", number: 7, url: "https://bitbucket.org/acme/widgets/pull-requests/7", base: "main", published: false, reviewers: [] });
   expect(h.requests.map(request => request.method)).toEqual(["GET"]);
 });
 
@@ -283,7 +287,7 @@ test("a merged or declined Bitbucket pull request from the branch is not reporte
     respond: method => method === "GET" ? Response.json({ values: [bbPull(3, { state: "MERGED" }), bbPull(4, { state: "DECLINED" }), bbPull(6, { state: "SUPERSEDED" })] })
       : Response.json(bbPull(8), { status: 201 }) });
   const result = await h.run({ title: "t" });
-  expect(result.report).toEqual({ result: "created", number: 8, url: "https://bitbucket.org/acme/widgets/pull-requests/8", base: "main", published: true });
+  expect(result.report).toEqual({ result: "created", number: 8, url: "https://bitbucket.org/acme/widgets/pull-requests/8", base: "main", published: true, reviewers: [] });
   expect(h.requests.map(request => request.method)).toEqual(["GET", "POST"]);
 });
 
@@ -305,7 +309,7 @@ test("Bitbucket failures map to fixed diagnostics that never echo the response",
     const result = await h.run();
     expect(result.error?.message).toContain(message);
     expect(result.error?.message).not.toContain("SECRET-ECHO");
-    expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: true });
+    expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: true, reviewers: [] });
   }
   const malformed = harness({ remotes: bitbucketRepos, respond: () => Response.json({ nope: true }) });
   expect((await malformed.run()).error?.message).toContain("invalid pull request response");
@@ -332,14 +336,14 @@ test("a Bitbucket creation timeout says the pull request may exist", async () =>
     respond: method => method === "GET" ? Response.json({ values: [] }) : new Promise<never>(() => {}) as never });
   const result = await h.run();
   expect(result.error?.message).toBe("Bitbucket did not answer the pull request creation in time; it may have been created. Run timber pr again to report it.");
-  expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: true });
+  expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: true, reviewers: [] });
 });
 
 test("a missing Bitbucket login fails before the push", async () => {
   const h = harness({ remotes: bitbucketRepos, login: async () => { throw new Error("Bitbucket login is missing."); } });
   const result = await h.run();
   expect(result.error?.message).toContain("Bitbucket login is missing");
-  expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: false });
+  expect(result.report).toEqual({ result: "failed", number: null, url: null, base: "main", published: false, reviewers: [] });
   expect(h.events).not.toContain("publish");
   expect(h.requests).toEqual([]);
 });
@@ -348,7 +352,7 @@ test("base and publish remotes on different hosts are refused before the login o
   const h = harness({ remotes: { origin: repos.origin!, "up/stream": bitbucketRepos["up/stream"]! } });
   const result = await h.run({ title: "t", base: "up/stream/main" });
   expect(result.error?.message).toContain("same host");
-  expect(result.report).toMatchObject({ result: "refused", published: false });
+  expect(result.report).toMatchObject({ result: "refused", published: false, reviewers: [] });
   expect(h.events).not.toContain("login");
   expect(h.events).not.toContain("token");
   expect(h.events).not.toContain("publish");
@@ -388,9 +392,11 @@ test("the command passes its options through and never opens a chooser in result
   try {
     const open = mock(async () => 0);
     const h = cliHarness(open, undefined, directory, false);
-    expect(await h.invoke(["pr", "GH-157", "--title", "T", "--body", "B", "--base", "origin/main", "--draft"])).toBe(0);
+    expect(await h.invoke(["pr", "GH-157", "--title", "T", "--body", "B", "--base", "origin/main", "--draft",
+      "--reviewer", "alice", "--reviewer", "acme/core"])).toBe(0);
     expect(open).toHaveBeenCalledTimes(1);
-    expect((open.mock.calls[0] as unknown[])[3]).toEqual({ title: "T", body: "B", base: "origin/main", draft: true });
+    expect((open.mock.calls[0] as unknown[])[3]).toEqual({ title: "T", body: "B", base: "origin/main", draft: true,
+      reviewers: ["alice", "acme/core"] });
 
     const choose = mock(async () => "/repo/a");
     const machine = cliHarness(mock(async () => 0), choose, directory);
@@ -400,9 +406,115 @@ test("the command passes its options through and never opens a chooser in result
     expect(machine.open).not.toHaveBeenCalled();
     const data = JSON.parse(await readFile(output, "utf8"));
     expect(data).toMatchObject({ schemaVersion: 1, command: "pr", outcome: "failed", exitCode: 1, worktree: null,
-      pr: { result: "refused", number: null, url: null, base: null, published: false } });
+      pr: { result: "refused", number: null, url: null, base: null, published: false, reviewers: [] } });
     expect(data.diagnostic).toContain("matches 2 worktrees");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+const reviewRequests = (requests: { method: string; url: string; body: unknown }[]) =>
+  requests.filter(request => request.url.endsWith("/requested_reviewers"));
+
+test("--reviewer requests each user and team on a created pull request with the one login", async () => {
+  const h = harness();
+  const result = await h.run({ title: "t", reviewers: ["alice", "acme/core"] });
+  expect(result.error).toBeNull();
+  expect(result.report).toMatchObject({ result: "created", number: 42, reviewers: [
+    { name: "alice", kind: "user", result: "requested", diagnostic: null },
+    { name: "acme/core", kind: "team", result: "requested", diagnostic: null },
+  ] });
+  expect(h.events).toEqual(["readBase", "plan", "base", "head", "token", "publish", "GET", "POST", "POST", "POST"]);
+  expect(reviewRequests(h.requests)).toEqual([
+    { method: "POST", url: "https://api.github.com/repos/acme/widgets/pulls/42/requested_reviewers", body: { reviewers: ["alice"] } },
+    { method: "POST", url: "https://api.github.com/repos/acme/widgets/pulls/42/requested_reviewers", body: { team_reviewers: ["core"] } },
+  ]);
+  expect(result.output.stdout).toBe("Created pull request #42: https://github.com/acme/widgets/pull/42\nRequested review from alice, acme/core.\n");
+});
+
+test("--reviewer requests reviewers on an already open pull request, including one found after a race", async () => {
+  const open = harness({ respond: (method, url) => method === "GET" ? Response.json([pull(7)])
+    : url.endsWith("/requested_reviewers") ? Response.json(pull(7), { status: 201 }) : new Response(null, { status: 500 }) });
+  const exists = await open.run({ title: "t", reviewers: ["Alice", "alice"] });
+  expect(exists.report).toMatchObject({ result: "exists", number: 7,
+    reviewers: [{ name: "Alice", kind: "user", result: "requested", diagnostic: null }] });
+  // A reviewer named twice in any case is requested once.
+  expect(reviewRequests(open.requests)).toEqual([
+    { method: "POST", url: "https://api.github.com/repos/acme/widgets/pulls/7/requested_reviewers", body: { reviewers: ["Alice"] } }]);
+
+  let lookups = 0;
+  const raced = harness({ respond: (method, url) => method === "GET" ? Response.json(lookups++ === 0 ? [] : [pull(8)])
+    : url.endsWith("/requested_reviewers") ? Response.json(pull(8), { status: 201 })
+      : Response.json({ message: "Validation Failed", errors: [{ message: "A pull request already exists" }] }, { status: 422 }) });
+  const result = await raced.run({ title: "t", reviewers: ["bob"] });
+  expect(result.report).toMatchObject({ result: "exists", number: 8, reviewers: [{ name: "bob", result: "requested" }] });
+  expect(reviewRequests(raced.requests).map(request => request.url)).toEqual(["https://api.github.com/repos/acme/widgets/pulls/8/requested_reviewers"]);
+});
+
+test("an unusable --reviewer is refused before the login is read or anything is pushed", async () => {
+  const cases: [string[], string, Record<string, PullRequestRepository> | undefined][] = [
+    [[""], "user login or org/team", undefined],
+    [["-alice"], "user login or org/team", undefined],
+    [["al ice"], "user login or org/team", undefined],
+    [["acme/core/x"], "user login or org/team", undefined],
+    [["acme/"], "user login or org/team", undefined],
+    [["a".repeat(40)], "user login or org/team", undefined],
+    [Array.from({ length: 16 }, (_, index) => `user${index}`), "at most 15", undefined],
+    [["other/core"], "owner of the base repository", undefined],
+    [["alice"], "only on github.com", bitbucketRepos],
+  ];
+  for (const [reviewers, message, remotes] of cases) {
+    const h = harness(remotes === undefined ? {} : { remotes });
+    const result = await h.run({ title: "t", reviewers });
+    expect(result.error?.message).toContain(message);
+    expect(result.report).toMatchObject({ result: "refused", number: null, published: false, reviewers: [] });
+    expect(h.events).not.toContain("token");
+    expect(h.events).not.toContain("login");
+    expect(h.events).not.toContain("publish");
+    expect(h.requests).toEqual([]);
+  }
+});
+
+test("a rejected review request is a failed entry with a fixed diagnostic, never GitHub's text, and the pull request stays created", async () => {
+  const marker = "SECRET-GITHUB-TEXT ghp_token123";
+  const h = harness({ respond: (method, url, body) => {
+    if (method === "GET") return Response.json([]);
+    if (!url.endsWith("/requested_reviewers")) return Response.json(pull(42), { status: 201 });
+    const name = (body as { reviewers?: string[] }).reviewers?.[0];
+    if (name === "outsider") return Response.json({ message: marker, errors: [marker] }, { status: 422 });
+    if (name === "locked") return Response.json({ message: marker }, { status: 403 });
+    return Response.json(pull(42), { status: 201 });
+  } });
+  const result = await h.run({ title: "t", reviewers: ["outsider", "alice", "locked"] });
+  expect(result.code).toBe(0);
+  expect(result.error).toBeNull();
+  expect(result.report.result).toBe("created");
+  expect(result.report.reviewers).toEqual([
+    { name: "outsider", kind: "user", result: "failed",
+      diagnostic: "GitHub could not request this reviewer; check that they can access the repository and are not the pull request author." },
+    { name: "alice", kind: "user", result: "requested", diagnostic: null },
+    { name: "locked", kind: "user", result: "failed",
+      diagnostic: "GitHub denied access or rate limited the request while requesting a reviewer; check repository permissions and rate limits." },
+  ]);
+  const everything = JSON.stringify(result.report) + result.output.stdout + result.output.stderr;
+  expect(everything).not.toContain("SECRET");
+  expect(everything).not.toContain("ghp_");
+  expect(result.output.stdout).toContain("Requested review from alice.\n");
+  expect(result.output.stderr).toContain("warning: Could not request review from outsider: GitHub could not request this reviewer");
+  expect(result.output.stderr).toContain("warning: Could not request review from locked: GitHub denied access");
+});
+
+test("a review request that times out or breaks is a failed entry and the deadline still applies", async () => {
+  // The review request never answers, so the 200 ms test deadline ends it.
+  const slow = harness({ hang: url => url.endsWith("/requested_reviewers") });
+  const timedOut = await slow.run({ title: "t", reviewers: ["alice"] });
+  expect(timedOut.code).toBe(0);
+  expect(timedOut.report).toMatchObject({ result: "created", number: 42, reviewers: [{ name: "alice", kind: "user", result: "failed",
+    diagnostic: "GitHub did not answer the review request in time; the reviewer may have been requested. Check the pull request." }] });
+
+  const broken = harness({ respond: (method, url) => method === "GET" ? Response.json([])
+    : url.endsWith("/requested_reviewers") ? new Response("not json", { status: 201 }) : Response.json(pull(42), { status: 201 }) });
+  const malformed = await broken.run({ title: "t", reviewers: ["alice"] });
+  expect(malformed.report).toMatchObject({ result: "created", reviewers: [{ name: "alice", result: "failed",
+    diagnostic: "GitHub returned an invalid response to the review request; check the pull request's reviewers." }] });
 });

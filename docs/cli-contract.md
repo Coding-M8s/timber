@@ -127,7 +127,7 @@ go to stderr with control characters escaped.
 ## Open a pull request (#157)
 
 `timber pr <branch-or-worktree> --title <text> [--body <text>] [--base <ref>]
-[--draft]` publishes a registered worktree's branch and opens one pull request
+[--draft] [--reviewer <login|org/team>]...` publishes a registered worktree's branch and opens one pull request
 for it on github.com or Bitbucket Cloud (bitbucket.org, #175). Selection matches `publish`. The title is required, one
 line and at most 256 characters; the body is at most 65536 characters.
 
@@ -180,8 +180,34 @@ Never add a closing keyword: GH numbers share one local namespace across issue
 repositories.
 
 Created and exists return zero and print the number and URL. Every refusal and
-failure returns exit 1. Editing, merging, reviewers, labels and hosts other than
+failure returns exit 1. Editing, merging, labels and hosts other than
 github.com and bitbucket.org are out of scope.
+
+### Reviewers (#174)
+
+`--reviewer` may be repeated and takes a GitHub user login or `<org>/<team>`
+(the team slug). Values are trimmed and deduplicated case-insensitively in the
+order given; at most 15 remain. Preflight refuses, before the login is read and
+before any push, a value that is not a valid login or `org/team`, more than 15
+reviewers, a team whose org is not the base repository's owner, and any
+`--reviewer` on a bitbucket.org base: reviewers are requested only on
+github.com.
+
+Once the pull request is created or found open (including the `exists` result
+and the one more lookup after a race), request each reviewer in order with
+`POST /repos/<owner>/<repo>/pulls/<number>/requested_reviewers`, one request per
+reviewer (`reviewers` for a user, `team_reviewers` with the slug for a team),
+using the same login. Each request has the 10-second deadline, rejects
+redirects and is not retried. A reviewer already requested is requested again,
+which GitHub treats as a no-op.
+
+A failed request never changes the pull request result or exit code. Each
+failure maps to a fixed diagnostic (422 for a reviewer who cannot be requested,
+such as a non-collaborator or the author; 401; 403/429; 404/410; other
+statuses; an invalid response; the network; a timeout, which says the reviewer
+may have been requested) and is written to stderr as a warning. GitHub's
+response bodies and the token are never echoed. Successful requests are listed
+on stdout after the pull request line.
 
 ### Bitbucket Cloud (#175)
 

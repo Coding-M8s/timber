@@ -160,6 +160,14 @@ type PullRequestRecord = {
                            // or https://bitbucket.org/<workspace>/<repo>/pull-requests/<id>
   base: string | null;     // base branch as the host names it, such as "main"
   published: boolean;      // this run pushed commits to the remote
+  reviewers: ReviewerRequestRecord[]; // one per --reviewer; empty unless created or exists
+};
+
+type ReviewerRequestRecord = {
+  name: string;                 // login, or org/team for a team, as given
+  kind: "user" | "team";
+  result: "requested" | "failed";
+  diagnostic: string | null;    // fixed wording when failed; never GitHub's text
 };
 
 type BackupRestoreRecord = {
@@ -429,7 +437,7 @@ pre-push hook keeps its ordinary behavior, with closed stdin.
 ## Pull request outcome
 
 `timber pr <branch-or-worktree> --title <text> [--body <text>] [--base <ref>]
-[--draft] --result-file <path>` publishes a worktree's branch and opens a GitHub
+[--draft] [--reviewer <login|org/team>]... --result-file <path>` publishes a worktree's branch and opens a GitHub
 or Bitbucket Cloud pull request for it, so an app never calls GitHub or
 Bitbucket or pushes on its own. Each result means the same on both hosts. Target
 selection, publishing, human stdout/stderr and exit codes are the same as without
@@ -466,6 +474,14 @@ The record has `command: "pr"`, `materialized: false`, no `worktrees`, no
   base and the branch, a base branch missing on the host, or drafts unsupported)
   has a fixed `diagnostic` and never the host's own text. A creation timeout may
   have created the pull request; running `pr` again reports it as `exists`.
+- `reviewers` lists each `--reviewer` once, in the order given, after the
+  pull request is created or found, including on `exists`
+  ([Reviewers](cli-contract.md#reviewers-174)). A `failed` entry never turns
+  `created` or `exists` into a failed outcome; request that reviewer again or
+  on the host. An unusable value, more than 15 reviewers, a team outside the
+  base repository's owner, or `--reviewer` on a Bitbucket base is `refused`
+  before the login or the push. The list is empty when no pull request was
+  created or found.
 - `number` and `url` are null unless `result` is `created` or `exists`. `url`
   is built from the validated repository and number. `base` holds the base
   branch this run resolved; it is null when the run ended before a base was

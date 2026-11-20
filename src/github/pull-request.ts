@@ -11,6 +11,7 @@ import { createPullRequest, findOpenPullRequest, PullRequestFailure, type PullRe
 import { pullRequestRepositoryOfRemote, resolveGithubRepository, type GithubRepository, type PullRequestRepository } from "./repository";
 import { defaultBitbucketRuntime, type BitbucketRuntime } from "../bitbucket/client";
 import { createBitbucketPullRequest, findOpenBitbucketPullRequest } from "../bitbucket/pulls";
+import { parseReviewers, requestReviewer, type ReviewerOutcome, type ReviewerRequest } from "./review-requests";
 
 export type PullRequestResult = "created" | "exists" | "refused" | "failed";
 
@@ -24,11 +25,13 @@ export interface PullRequestReport {
   base: string | null;
   /** True only when this run pushed commits to the remote. */
   published: boolean;
+  /** Each --reviewer once a pull request was created or found; empty otherwise. */
+  reviewers: ReviewerOutcome[];
 }
 
 /** Until preflight passes, a stop is a refusal that changed nothing. */
 export function createPullRequestReport(): PullRequestReport {
-  return { result: "refused", number: null, url: null, base: null, published: false };
+  return { result: "refused", number: null, url: null, base: null, published: false, reviewers: [] };
 }
 
 export interface PullRequestOptions {
@@ -36,6 +39,8 @@ export interface PullRequestOptions {
   body?: string;
   base?: string;
   draft?: boolean;
+  /** User logins or org/team slugs to request review from on GitHub. */
+  reviewers?: string[];
 }
 
 /** Seams for tests; production uses Git, the saved base and the GitHub or Bitbucket login. */
@@ -195,6 +200,9 @@ function pullRequestHost(base: PullRequestRepository, head: PullRequestRepositor
       login: async (signal: AbortSignal) => { await runtime.login(signal); },
       find: (branch: string, baseBranch: string) => findOpenBitbucketPullRequest(base, head, branch, baseBranch, runtime),
       create: (input: CreateInput) => createBitbucketPullRequest(base, head, input, runtime),
+      // Preflight refuses --reviewer on Bitbucket, so this is never reached with reviewers.
+      requestReviewer: async (_number: number, reviewer: ReviewerRequest): Promise<ReviewerOutcome> =>
+        ({ ...reviewer, result: "failed", diagnostic: "Reviewers can be requested only on github.com." }),
     };
   }
   let token: Promise<string> | null = null;
@@ -203,6 +211,7 @@ function pullRequestHost(base: PullRequestRepository, head: PullRequestRepositor
     login: async (signal: AbortSignal) => { await runtime.token(signal); },
     find: (branch: string, baseBranch: string) => findOpenPullRequest(base, head, branch, baseBranch, runtime),
     create: (input: CreateInput) => createPullRequest(base, head, input, runtime),
+    requestReviewer: (number: number, reviewer: ReviewerRequest) => requestReviewer(base, number, reviewer, runtime),
   };
 }
 
@@ -215,6 +224,7 @@ export async function openPullRequest(
   io: CommandIO, report: PullRequestReport = createPullRequestReport(), dependencies: PullRequestDependencies = defaults,
 ): Promise<number> {
   const title = validTitle(options.title);
+  const reviewers = parseReviewers(options.reviewers);
   const description = options.body ?? "";
   if (description.length > maxBody) throw new Error(`The pull request body is longer than ${maxBody} characters.`);
   const saved = options.base === undefined ? await dependencies.readBase(repository, selected) : null;
@@ -229,6 +239,14 @@ export async function openPullRequest(
   }
   if (sameHostedRepository(baseRepository, headRepository) && base.branch === plan.branch) {
     throw new Error(`The base is the branch itself; ${baseHint} for the branch it should merge into.`);
+  }
+  if (reviewers.length > 0 && baseRepository.host !== "github") {
+    throw new Error("Reviewers can be requested only on github.com; open the pull request without --reviewer.");
+  }
+  const foreignTeam = reviewers.find(reviewer => reviewer.kind === "team"
+    && reviewer.name.split("/")[0]!.toLowerCase() !== baseRepository.owner.toLowerCase());
+  if (foreignTeam) {
+    throw new Error(`The team ${foreignTeam.name} must belong to ${baseRepository.owner}, the owner of the base repository.`);
   }
   const savedIssue = await dependencies.readIssue(repository, selected);
   if (savedIssue.kind === "invalid") {
@@ -260,11 +278,22 @@ export async function openPullRequest(
     report.url = pull.url;
     report.base = pull.base;
   };
+  // Requested one at a time after the pull request is known; a failure never changes its result.
+  const requestReviewers = async (pull: PullRequest) => {
+    for (const reviewer of reviewers) {
+      const outcome = await host.requestReviewer(pull.number, reviewer);
+      report.reviewers.push(outcome);
+      if (outcome.result === "failed") io.stderr(`warning: Could not request review from ${outcome.name}: ${outcome.diagnostic}\n`);
+    }
+    const requested = report.reviewers.filter(outcome => outcome.result === "requested").map(outcome => outcome.name);
+    if (requested.length > 0) io.stdout(`Requested review from ${requested.join(", ")}.\n`);
+    return 0;
+  };
   const existing = await host.find(plan.branch, base.branch);
   if (existing) {
     found(existing, "exists");
     io.stdout(`Pull request #${existing.number} is already open: ${existing.url}\n`);
-    return 0;
+    return requestReviewers(existing);
   }
   let created: PullRequest;
   try {
@@ -276,9 +305,9 @@ export async function openPullRequest(
     if (!raced) throw error;
     found(raced, "exists");
     io.stdout(`Pull request #${raced.number} is already open: ${raced.url}\n`);
-    return 0;
+    return requestReviewers(raced);
   }
   found(created, "created");
   io.stdout(`Created ${created.draft ? "draft " : ""}pull request #${created.number}: ${created.url}\n`);
-  return 0;
+  return requestReviewers(created);
 }

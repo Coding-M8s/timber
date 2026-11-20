@@ -34,6 +34,11 @@ function fakeGithub(token: () => Promise<string> = async () => "test-token") {
     const body = init.body === undefined ? undefined : JSON.parse(String(init.body));
     calls.push({ method: String(init.method), url, body });
     if (init.method === "GET") return Response.json(pulls);
+    if (url.endsWith("/requested_reviewers")) {
+      // A reviewer outside the repository is rejected, as GitHub does, with text Timber must not echo.
+      if (body.reviewers?.[0] === "outsider") return Response.json({ message: "Reviews may only be requested from collaborators. ghp_leak" }, { status: 422 });
+      return Response.json(pulls.at(-1), { status: 201 });
+    }
     const created = { number: 100 + pulls.length, draft: body.draft, head: { ref: String(body.head).split(":")[1]!, repo: { full_name: "acme/widgets" } }, base: { ref: body.base } };
     pulls.push(created);
     return Response.json(created, { status: 201 });
@@ -274,6 +279,54 @@ test("a missing Bitbucket login fails before any push and leaves local refs unch
     const data = await record(output);
     expect(data).toMatchObject({ outcome: "failed", exitCode: 1, pr: { result: "failed", number: null, url: null, base: "main", published: false } });
     expect(data.diagnostic).toContain("Bitbucket login is missing");
+    expect(fake.calls).toEqual([]);
+    expect(await remoteHas(remote)).toBe(false);
+    expect(await localState(primary)).toBe(before);
+  });
+});
+
+test("--reviewer requests each reviewer after creating or finding the pull request and reports them in the record", async () => {
+  await withRepository(async (primary, directory) => {
+    const { target } = await setup(primary, directory);
+    const fake = fakeGithub();
+    const run = command(primary, fake.runtime);
+    const output = join(directory, "reviewers.json");
+    const result = await run(target, "--title", "Add the feature", "--reviewer", "alice", "--reviewer", "acme/core",
+      "--reviewer", "outsider", "--result-file", output);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Requested review from alice, acme/core.");
+    expect(result.stderr).toContain("warning: Could not request review from outsider:");
+    expect(result.stderr).not.toContain("ghp_leak");
+    const data = await record(output);
+    expect(JSON.stringify(data)).not.toContain("ghp_leak");
+    expect(data).toMatchObject({ outcome: "succeeded", exitCode: 0, diagnostic: null, pr: { result: "created", number: 100, reviewers: [
+      { name: "alice", kind: "user", result: "requested", diagnostic: null },
+      { name: "acme/core", kind: "team", result: "requested", diagnostic: null },
+      { name: "outsider", kind: "user", result: "failed",
+        diagnostic: "GitHub could not request this reviewer; check that they can access the repository and are not the pull request author." },
+    ] } });
+    expect(fake.calls.filter(call => call.url.endsWith("/pulls/100/requested_reviewers")).map(call => call.body))
+      .toEqual([{ reviewers: ["alice"] }, { team_reviewers: ["core"] }, { reviewers: ["outsider"] }]);
+
+    // Already open: the reviewer is requested again on the existing pull request.
+    const again = join(directory, "again.json");
+    expect((await run(branch, "--title", "Add the feature", "--reviewer", "bob", "--result-file", again)).code).toBe(0);
+    expect(await record(again)).toMatchObject({ pr: { result: "exists", number: 100,
+      reviewers: [{ name: "bob", kind: "user", result: "requested", diagnostic: null }] } });
+  });
+});
+
+test("an unusable --reviewer is refused before any push, leaving refs and the remote untouched", async () => {
+  await withRepository(async (primary, directory) => {
+    const { remote, target } = await setup(primary, directory);
+    const fake = fakeGithub(async () => { throw new Error("the login must not be read"); });
+    const run = command(primary, fake.runtime);
+    const before = await localState(primary);
+    const output = join(directory, "refused.json");
+    const result = await run(target, "--title", "t", "--reviewer", "other-org/core", "--result-file", output);
+    expect(result.code).toBe(1);
+    expect(await record(output)).toMatchObject({ outcome: "failed", pr: { result: "refused", published: false, reviewers: [] } });
+    expect((await record(output)).diagnostic).toContain("owner of the base repository");
     expect(fake.calls).toEqual([]);
     expect(await remoteHas(remote)).toBe(false);
     expect(await localState(primary)).toBe(before);

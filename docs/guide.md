@@ -490,7 +490,10 @@ the pull request on Bitbucket Cloud with the login saved under **Connections** i
 `timber setup` (an Atlassian email and an API token with the
 `read:pullrequest:bitbucket` and `write:pullrequest:bitbucket` scopes), or
 `BITBUCKET_EMAIL` and `BITBUCKET_API_TOKEN` when set. Add `--body <text>` for a
-description and `--draft` for a draft.
+description and `--draft` for a draft. On GitHub, `--reviewer alice` or
+`--reviewer my-org/my-team` (repeat it for more) requests reviewers once the pull
+request is created or found already open; a reviewer GitHub refuses is a
+warning, and the pull request stays open.
 
 The pull request targets the worktree's saved base, such as `origin/main`
 becoming `main`. A worktree with no saved base, or with a local branch as its
