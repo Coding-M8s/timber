@@ -20,10 +20,10 @@ to describe Linux, including Orca and POSIX process-group behavior.
 
 1. Discover repositories from nested directories and linked worktrees; distinguish the current worktree root from the common Git directory.
 2. Git operations use the detected repository, not a hardcoded current directory.
-3. `new <branch...>` creates a new branch from the configured or explicit base. The CLI joins its positional words with literal spaces; if the joined input contains U+0020, trim surrounding U+0020, lowercase, and replace each internal run of U+0020 with one hyphen. If the branch exists, report it and suggest `open`. In a repository with no commits (unborn HEAD and no branches), `new` refuses with a diagnostic naming the missing initial commit, with or without `--base`, and creates nothing.
+3. `new <branch...>` creates a new branch from the configured or explicit base. The CLI joins its positional words with literal spaces; if the joined input contains U+0020, trim surrounding U+0020, lowercase, and replace each internal run of U+0020 with one hyphen. If the branch exists locally, report it and suggest `open`. After the final name is resolved (including normalization, ticket slugs and length shortening) and before any creation, `new` also guards against existing remote work; see [Existing branch guard](#existing-branch-guard). In a repository with no commits (unborn HEAD and no branches), `new` refuses with a diagnostic naming the missing initial commit, with or without `--base`, and creates nothing.
 4. `open <input>` resolves an existing worktree, exact local branch, then exact remote branch. An explicit remote such as `origin/feature/foo` selects that remote. When cached refs cannot identify one local target, `open` discovers live remote heads without changing refs, respecting the explicit/configured remote or checking all remotes. Discovery failure blocks materialization; existing local targets remain offline.
 5. A ticket prefix such as `ENG-834` may match branch names on a delimiter boundary. Multiple matches must include every distinct candidate in one chooser when interactive; mark candidates that require manual selection, and do not mutate if one is selected. Without a chooser, show at most five sorted candidates and the total, with exact manual-selection guidance. Do not use arbitrary substring matching.
-6. Refresh the selected remote before creating from a remote branch. An existing local worktree can open offline. A failed remote refresh must not be reported as success.
+6. Refresh the selected remote before creating from a remote branch. An existing local worktree can open offline. A failed remote refresh must not be reported as success. `new` contacts the eligible remotes (the configured remote, else every remote) with a bounded, non-prompting `git ls-remote`, so in a repository with remotes it needs network access; repositories without remotes stay offline.
 7. Base selection: `--base`, repository/global config, configured remote's default branch, then an unambiguous existing `main` or `master`. Never guess if resolution is ambiguous. `done` selects its integration target from `--base`, then the worktree's saved base, then repository/global config and existing default discovery. `done --base <ref>` selects an invocation-local integration target using the existing branch/ref resolver; it never writes TOML or changes a local branch tip. An explicit missing, invalid, ambiguous, or target-local-branch base fails before hooks or removal, even with verified publication or `--keep-branch`. Revalidate the same selected ref/commit before removal and branch deletion. An absent saved association preserves configured/default-base and live-publication behavior. A missing saved ref fails without fallback, even with verified publication or `--keep-branch`. Malformed/unreadable metadata blocks cleanup; stale identity metadata requires an explicit replacement. Cleanup never rewrites the saved association. Re-read the association before removal and retain its selected input for base revalidation after Git removes the metadata. No automatic parent-branch inference. Before cleanup, automatically refresh a selected remote base (explicit, saved, configured or default); explicitly selected local bases remain local. Fetch only its exact remote branch without tags, pruning, submodule recursion or destination ref, verify FETCH_HEAD against its live advertisement, then conditionally update only the selected direct remote-tracking ref without following symbolic refs. Discovery/fetch failure, a moved advertised tip or concurrent cached-ref change stops before hooks/removal with no cached fallback. Re-read worktree identity, status and the selected base after refresh; changing base selection also stops. Fetch metadata and the selected remote-tracking ref may change even if subsequent safety checks refuse cleanup. Read-only inspection does not fetch.
 8. Worktree paths default to a sibling directory, `../<repository-name>-worktrees/<safe-branch-slug>`. Resolve config paths relative to the primary repository root. Reject collisions, path traversal, and attempts to target the primary repository.
 9. `ls` lists the current repository's primary and linked worktrees, including ones created outside Timber, and identifies the primary worktree.
@@ -541,6 +541,38 @@ input in control-character diagnostics. Preserve other characters for installed
 Git to validate. Do not slugify punctuation or append suffixes. Sentence-derived
 names are truncated only when `max_generated_branch_name_length` is configured;
 inputs without U+0020 spaces remain exact regardless of this setting.
+
+### Existing branch guard
+
+For the final resolved name, `new` inspects the exact local ref, each eligible
+remote's cached remote-tracking ref, and the live remote head (`git ls-remote
+--heads` for the exact `refs/heads/<name>`; a longer ref that merely ends with the
+name never matches). It never fetches and never changes refs during the check.
+Eligible remotes follow the remote-selection rules above: `remote` from
+configuration when set (it must exist), otherwise all remotes. Absence is only
+reported when a lookup succeeds and returns no such head. A failed, timed-out or
+unparsable lookup is "unknown", never "absent".
+
+| State | Behavior |
+| --- | --- |
+| No remotes, no local branch | Create as before, no network. |
+| Every eligible remote verified missing, no cached refs | Create. |
+| Local branch exists | Refuse: `Branch <name> already exists. Use timber open instead.` with a quoted `timber open` command (the worktree path when checked out). The branch tip and upstream are untouched. |
+| Live remote branch exists, no local | Interactive: ask `Branch already exists on <remote>. Did you mean timber open?` with `Open existing branch` and `Cancel`; Cancel is the default and quit or end of input also cancels (prints `Cancelled.`, exit 0). Noninteractive: refuse with exit 1 and `timber open -- '<remote>/<name>'`. |
+| Cached and live differ, or only live exists | Same as above, plus `Cached <remote>/<name>: <12-char commit or missing>; live: <12-char commit>`. |
+| Cached ref exists but the live branch is missing | Refuse in both modes (stale tracking ref); no prompt. |
+| Any eligible remote unknown | Refuse in both modes, naming the remote; no prompt. |
+| Live branch on several remotes | One chooser listing each remote plus Cancel; noninteractive refuses listing every command. A remote is never chosen silently. |
+| `--base` with an existing local or remote branch | Refuse; `--base` is never silently ignored. |
+
+Accepting Open re-inspects the target, then requires the local branch to still be
+absent and the chosen remote's live head to equal the commit shown. Otherwise it
+refuses with `<remote>/<name> changed or disappeared after selection` and never
+falls back to creation. It then delegates to the ordinary `open` handler with the
+exact `<remote>/<name>` selector (refresh, materialize history, configure the
+upstream; no rebase onto a newer base, no base association). `--workflow`,
+`--editor`, `--agent` and `--no-setup` carry over. Refusal and cancellation run no
+hooks, editors or agents and leave files, refs and worktree registrations intact.
 
 ## Repository configuration
 

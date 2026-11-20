@@ -40,6 +40,7 @@ import { runSetup } from "./hooks";
 import { resolveBase } from "./git/branches";
 import { cleanupWorktree } from "./git/cleanup";
 import { createWorktree } from "./git/create-worktree";
+import { inspectNewBranchCollision } from "./git/new-collision";
 import { resolveOpenTarget } from "./git/open-target";
 import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
@@ -80,6 +81,21 @@ if (!completing && !machineListing) {
   await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
 }
 
+const openHandler = createOpenHandler({
+  discoverRepository,
+  loadConfig: loadRepositoryConfig,
+  resolveOpenTarget,
+  resolveGithubRepository, resolveGithubTicket,
+  resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
+  resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
+  readIssueLink, writeIssueLink,
+  createWorktree,
+  runSetup,
+  launchEditor,
+  launchAgent,
+  launchEditorTerminals,
+});
+
 process.exitCode = await runCli(process.argv.slice(2), {
   handlers: {
     ...updateHandlers,
@@ -114,22 +130,10 @@ process.exitCode = await runCli(process.argv.slice(2), {
       resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
       resolveGithubRepository, resolveGithubTicket,
       resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
-      createWorktree, writeBaseAssociation, writeIssueLink, runSetup, launchEditor, launchAgent, launchEditorTerminals,
+      createWorktree, inspectNewBranchCollision, writeBaseAssociation, writeIssueLink, runSetup, launchEditor, launchAgent, launchEditorTerminals,
+      openExisting: openHandler,
     }),
-    open: createOpenHandler({
-      discoverRepository,
-      loadConfig: loadRepositoryConfig,
-      resolveOpenTarget,
-      resolveGithubRepository, resolveGithubTicket,
-      resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
-      resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
-      readIssueLink, writeIssueLink,
-      createWorktree,
-      runSetup,
-      launchEditor,
-      launchAgent,
-      launchEditorTerminals,
-    }),
+    open: openHandler,
     list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig, readBaseAssociation, readIssueLink }),
     backupCreate: createBackupCreateHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, createBackup,

@@ -29,6 +29,13 @@ Git services then use the discovered repository and executable/argument arrays.
 Command modules receive only the services they need. Production wiring stays in
 `index.ts`; tests inject functions directly.
 
+`new` checks for existing branches through the injected
+`inspectNewBranchCollision` service (read-only; unreachable remotes are reported
+as unknown, never absent). It may materialize an existing remote branch only by
+calling the injected `openExisting` handler, which production wires to the same
+`open` handler. Tests use the service double's default (no collision) and inject
+`openExisting` where needed.
+
 Paths in domain models are absolute. `commonGitDir` identifies the repository;
 current and primary worktree roots can differ. Keep unknown, ambiguous, detached,
 and missing states explicit. A selected worktree or previous inspection never

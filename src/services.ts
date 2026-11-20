@@ -7,6 +7,7 @@ import type {
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
 import type { BaseAssociationRead } from "./git/base-metadata";
+import type { NewBranchInspection } from "./git/new-collision";
 import type { IssueLink, IssueLinkRead, IssueLinkWrite } from "./git/issue-link";
 import type { BackupListRecord } from "./backup/lifecycle";
 import type { RebaseReport } from "./git/rebase";
@@ -53,6 +54,8 @@ export interface CommandServices {
    * Default path: ../<repository-name>-worktrees/<safe-branch-slug>.
    */
   createWorktree(repository: RepositoryContext, request: CreateWorktreeRequest, config: RepositoryConfig): Promise<Worktree>;
+  /** Read-only local, cached and live remote state for a final new-branch name; unreachable remotes are `unknown`, never absent. */
+  inspectNewBranchCollision(repository: RepositoryContext, name: string, config: RepositoryConfig): Promise<NewBranchInspection>;
   readBaseAssociation(repository: RepositoryContext, worktree: Worktree, phase?: WorktreeReadPhase): Promise<BaseAssociationRead>;
   writeBaseAssociation(repository: RepositoryContext, worktree: Worktree, ref: string): Promise<void>;
   /** Offline; reports damaged metadata as a value and never throws. */

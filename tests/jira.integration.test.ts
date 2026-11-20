@@ -10,6 +10,7 @@ import { loadRepositoryConfig } from "../src/config";
 import { launchEditor } from "../src/editor";
 import { resolveBase } from "../src/git/branches";
 import { createWorktree } from "../src/git/create-worktree";
+import { inspectNewBranchCollision } from "../src/git/new-collision";
 import { resolveOpenTarget } from "../src/git/open-target";
 import { discoverRepository } from "../src/git/repository";
 import { runSetup } from "../src/hooks";
@@ -60,6 +61,37 @@ test("open discovers an unfetched remote ticket branch and tracks its commits wi
     expect(await readFile(join(primary, ".env"), "utf8")).toBe("ignored primary\n");
     expect(lifecycle.setup).toBe(1);
     expect(harness.requests).toHaveLength(0);
+  });
+});
+
+test("new resolving to an existing remote ticket branch refuses unattended and opens the pushed history when chosen", async () => {
+  await withRepository(async (primary, directory) => {
+    await configureJira(primary, ["", "[hooks]", 'post_create = ["touch setup-sentinel.txt"]']);
+    const name = "ENG-834-original-title";
+    const { remote, producer } = await publishRemoteBranches(primary, directory, [name]);
+    const tip = await git(producer, "rev-parse", name);
+    const harness = jiraHarness(() => successfulIssue("Original title"));
+    const refs = await git(primary, "show-ref");
+    const remoteRefs = await git(remote, "show-ref");
+    const lifecycle = { setup: 0, editor: 0 };
+
+    const refused = await command(primary, handlersFor(harness.runtime, lifecycle), "new", "ENG-834", "--no-editor");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(`timber open -- 'origin/${name}'`);
+    expect(await git(primary, "show-ref")).toBe(refs);
+    expect(lifecycle).toEqual({ setup: 0, editor: 0 });
+
+    const cancelled = await commandWithChooser(primary, handlersFor(harness.runtime, lifecycle), async () => null, "new", "ENG-834", "--no-editor");
+    expect(cancelled).toEqual({ code: 0, stdout: "Cancelled.\n", stderr: "" });
+    expect(await git(primary, "show-ref")).toBe(refs);
+
+    const opened = await commandWithChooser(primary, handlersFor(harness.runtime, lifecycle),
+      async (_message, choices) => choices.find(choice => choice.label === "Open existing branch")!.value, "new", "ENG-834", "--no-editor");
+    const target = join(directory, "primary repo-worktrees", name);
+    expect(opened.code).toBe(0);
+    expect(await git(target, "rev-parse", "HEAD")).toBe(tip);
+    expect(await git(target, "rev-parse", "--symbolic-full-name", "@{upstream}")).toBe(`refs/remotes/origin/${name}`);
+    expect(await git(remote, "show-ref")).toBe(remoteRefs);
   });
 });
 
@@ -208,18 +240,21 @@ function handlersFor(
     },
     launchAgent: async () => ({ kind: "skipped" } as const),
   };
+  const open = createOpenHandler({
+    ...shared,
+    resolveOpenTarget,
+  });
   return {
     ...placeholderHandlers,
     new: createNewHandler({ ...createServiceDouble(),
       ...shared,
       resolveBase,
+      inspectNewBranchCollision,
+      openExisting: open,
       resolveJiraTicket: (config, key) => resolveJiraTicket(config, key, runtime),
       findJiraSuggestions: (config, key) => findJiraSuggestions(config, key, runtime),
     }),
-    open: createOpenHandler({
-      ...shared,
-      resolveOpenTarget,
-    }),
+    open,
   };
 }
 
