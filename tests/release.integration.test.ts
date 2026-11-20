@@ -38,7 +38,7 @@ test("installed standalone resolves Jira using saved credentials without .env or
     const store = await readCredentialStore(env);
     store.set({ siteUrl: "https://example.atlassian.net" }, { email: "standalone@example.invalid", token: "STANDALONE_SYNTHETIC" });
     await withCredentialSave(store, async () => {});
-    await writeFile(join(primary, ".timber.toml"), '[jira]\nsite_url = "https://example.atlassian.net"\n');
+    await writeFile(join(primary, ".timber.toml"), 'default_tracker = "jira"\n[jira]\nsite_url = "https://example.atlassian.net"\n');
     const key = join(workspace, "test-tls.key"); const cert = join(workspace, "test-tls.pem");
     await execa("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert,
       "-subj", "/CN=example.atlassian.net", "-addext", "subjectAltName=DNS:example.atlassian.net", "-days", "1"]);
