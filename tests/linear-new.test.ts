@@ -34,7 +34,7 @@ for (const orca of [false, true]) {
 
 test("Linear malformed selectors and GitHub-only remote refuse before lookup", async () => {
   const handler = createNewHandler(createServiceDouble({ discoverRepository: async () => repositoryFixture(), loadConfig: async () => config }));
-  for (const input of ["linear:", "linear:eng-123", "linear:ENG-123 extra", "linear:ENG-123 "]) {
+  for (const input of ["linear:", "linear:eng", "linear:ENG-123 extra", "linear:ENG-123 "]) {
     await expect(handler(input, {}, { cwd: "/repo", io })).rejects.toThrow("Invalid Linear issue selector");
   }
   for (const options of [{ remote: "origin" }]) {
@@ -55,11 +55,11 @@ test("Linear invalid base and failed lookup never create or launch", async () =>
 });
 
 for (const jira of [false, true]) {
-  test(`bare ticket preserves existing Jira/literal behavior (Jira=${jira})`, async () => {
+  test(`bare ticket without a default tracker is a literal branch (Jira=${jira})`, async () => {
     const handler = createNewHandler(createServiceDouble({ discoverRepository: async () => repositoryFixture(),
       loadConfig: async () => ({ ...config, ...(jira ? { jira: { siteUrl: "https://example.atlassian.net" } } : {}) }), resolveBase: async () => base,
-      resolveJiraTicket: async () => ({ key: "ENG-123", title: "Jira title", url: "https://example.atlassian.net/browse/ENG-123" }),
-      createWorktree: async (_repo, request) => { expect(request.branch).toBe(jira ? "ENG-123-jira-title" : "ENG-123"); return worktreeFixture(); },
+      resolveJiraTicket: async () => { throw new Error("unexpected Jira lookup"); },
+      createWorktree: async (_repo, request) => { expect(request.branch).toBe("ENG-123"); return worktreeFixture(); },
       launchEditor: async () => ({ kind: "skipped" }),
     }));
     await handler("ENG-123", {}, { cwd: "/repo", io });

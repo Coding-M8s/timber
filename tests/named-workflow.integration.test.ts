@@ -45,8 +45,7 @@ test("new and repeated open apply a workflow only when it is named, with global 
       launchAgent: async (_tree: unknown, command: { command: string } | null) => {
         agents.push(command?.command ?? "off"); return { kind: "exited" as const, exitCode: 0, signal: null };
       } };
-    const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, ...shared, resolveBase, resolveJiraTicket: async () => { throw new Error("unexpected Jira"); },
-      findJiraSuggestions: async () => [] });
+    const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, ...shared, resolveBase, resolveJiraTicket: async () => { throw new Error("unexpected Jira"); } });
     await create("review", { workflow: "review", base: "trunk" }, context(primary));
     const repository = await discoverRepository(primary);
     const tree = (await listWorktrees(repository)).find(item => item.branch === "review")!;
@@ -108,7 +107,7 @@ test("failed workflow setup retains refs and files; ordinary open never retries 
       launchEditor: async () => { editors++; return { kind: "launched" as const }; },
       launchAgent: async () => ({ kind: "skipped" as const }) };
     const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, ...shared, resolveBase,
-      resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [] });
+      resolveJiraTicket: async () => { throw new Error("unexpected Jira"); } });
     await expect(create("review", { base: "trunk", workflow: "review" }, context(primary)))
       .rejects.toThrow(/workflow post_create step 2 failed.*timber open --setup --workflow review -- '/s);
     const repository = await discoverRepository(primary);
@@ -133,7 +132,7 @@ test("workflow creation in CI skips implicit agent and explicit agent fails befo
     let agentCalls = 0;
     const create = createNewHandler({ ...createServiceDouble(), writeBaseAssociation, discoverRepository, loadConfig: loadRepositoryConfig,
       resolveBase, createWorktree, runSetup,
-      resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [],
+      resolveJiraTicket: async () => { throw new Error("unexpected Jira"); },
       launchEditor: async () => ({ kind: "skipped" }),
       launchAgent: async () => { agentCalls++; return { kind: "skipped" }; } });
     const unattended = { ...context(primary), interactive: false };

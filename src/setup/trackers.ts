@@ -28,8 +28,8 @@ export async function editDefaultTracker(file: ConfigFile, target: SetupTarget, 
   const global = target.scope === "repository" ? target.scopes.global.values.default_tracker : undefined;
   const choices: ChoiceOption[] = Object.entries(trackerNames).map(([value, label]) => ({ value, label }));
   choices.push({ value: "inherit", label: target.scope === "repository"
-    ? `Inherit machine default (${global ? trackerNames[global] : "existing Jira/literal behavior"})`
-    : "No default (existing Jira/literal behavior)" });
+    ? `Inherit machine default (${global ? trackerNames[global] : "literal branch names"})`
+    : "No default (literal branch names)" });
   const choice = await select(prompt, "Which issue tracker do you use?", choices, file.default_tracker ?? "inherit");
   if (choice === "inherit") { delete file.default_tracker; return; }
   const provider = choice as keyof typeof trackerNames;

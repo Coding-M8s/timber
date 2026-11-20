@@ -7,6 +7,17 @@ export function isJiraTicketKey(input: string): boolean {
   return jiraTicketKeyPrefix.exec(input)?.[0] === input;
 }
 
+const anyCaseTicketKey = /^[A-Za-z][A-Za-z0-9]*-[0-9]+$/;
+
+/**
+ * Read a typed Jira or Linear key in any case and return it uppercase, or null.
+ * The grammar is checked on the ASCII input first, so characters such as U+FB01
+ * that only uppercase into ASCII never become keys.
+ */
+export function normalizeTicketKey(input: string): string | null {
+  return anyCaseTicketKey.test(input) ? input.toUpperCase() : null;
+}
+
 export interface GeneratedTicketBranch {
   name: string;
   /** The uncapped generated name, present only when a configured limit shortened it. */

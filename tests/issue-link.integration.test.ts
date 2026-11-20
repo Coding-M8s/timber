@@ -82,15 +82,21 @@ test.each([
   ["7", { defaultTracker: "github" as const }, { tracker: "github", key: "7", url: githubUrl(7) }],
   ["jira:ENG-12", {}, { tracker: "jira", key: "ENG-12", url: jiraUrl("ENG-12") }],
   ["ENG-12", { defaultTracker: "jira" as const }, { tracker: "jira", key: "ENG-12", url: jiraUrl("ENG-12") }],
-  ["ENG-12", {}, { tracker: "jira", key: "ENG-12", url: jiraUrl("ENG-12") }],
+  ["jira:eng-12", {}, { tracker: "jira", key: "ENG-12", url: jiraUrl("ENG-12") }],
+  ["eng-12", { defaultTracker: "jira" as const }, { tracker: "jira", key: "ENG-12", url: jiraUrl("ENG-12") }],
+  ["linear:Eng-12", {}, { tracker: "linear", key: "ENG-12", url: linearUrl("ENG-12") }],
+  ["eng-12", { defaultTracker: "linear" as const }, { tracker: "linear", key: "ENG-12", url: linearUrl("ENG-12") }],
   ["linear:ENG-12", {}, { tracker: "linear", key: "ENG-12", url: linearUrl("ENG-12") }],
   ["ENG-12", { defaultTracker: "linear" as const }, { tracker: "linear", key: "ENG-12", url: linearUrl("ENG-12") }],
 ])("new from %p with %p saves the issue link and ls --json reports it", async (input, extra, expected) => {
   await withRepository(async (primary, directory) => {
-    await createNewHandler(services(config(directory, extra)))(input, {}, { cwd: primary, io });
+    const lookups: string[] = [];
+    await createNewHandler(services(config(directory, extra), lookups))(input, {}, { cwd: primary, io });
+    expect(lookups).toEqual([`${expected.tracker}:${expected.key}`]);
     const { rows } = await listed(primary);
     const created = rows.find(row => !row.path.endsWith("primary repo"))!;
     expect(created.issue).toEqual({ kind: "linked", ...expected });
+    expect(created.branch).toBe(expected.tracker === "github" ? `GH-${expected.key}-synthetic-issue` : `${expected.key}-synthetic-issue`);
     expect(rows.find(row => row.path.endsWith("primary repo"))!.issue).toEqual({ kind: "none" });
   });
 }, 30_000);
@@ -123,15 +129,18 @@ test("open --issue attaches a link, keeps a matching link, and refuses a conflic
     const output: string[] = [];
     const context = { cwd: primary, io: { stdout: (text: string) => { output.push(text); }, stderr() {} } };
 
-    await open(path, { issue: "jira:ENG-5", editor: false, agent: false }, context);
+    // The key may be typed in any case; the lookup and the saved link use it uppercase.
+    await open(path, { issue: "jira:eng-5", editor: false, agent: false }, context);
     expect(lookups).toEqual(["jira:ENG-5"]);
     expect(output.join("")).toContain(`Linked jira:ENG-5: ${jiraUrl("ENG-5")}`);
     const linked = { kind: "linked", tracker: "jira", key: "ENG-5", url: jiraUrl("ENG-5") } as const;
     expect(await readIssueLink(await discoverRepository(primary), await tree(primary, path))).toEqual(linked);
 
-    await open(path, { issue: "jira:ENG-5", editor: false, agent: false }, context);
-    expect(lookups).toEqual(["jira:ENG-5"]);
-    expect(output.join("")).toContain("Already linked to jira:ENG-5");
+    for (const issue of ["jira:ENG-5", "jira:Eng-5"]) {
+      await open(path, { issue, editor: false, agent: false }, context);
+      expect(lookups).toEqual(["jira:ENG-5"]);
+      expect(output.join("")).toContain("Already linked to jira:ENG-5");
+    }
 
     const file = await issueFile(primary, path);
     const bytes = await readFile(file, "utf8");

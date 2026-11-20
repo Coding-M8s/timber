@@ -34,7 +34,7 @@ test.each([false, true])("real Git creation retains setup edits, workflow and re
         }, select: async () => {} }) });
     const services = { ...createServiceDouble(), discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, createWorktree, writeBaseAssociation,
       resolveOpenTarget, listBranches, readBaseAssociation,
-      resolveJiraTicket: async () => { throw new Error("unexpected Jira"); }, findJiraSuggestions: async () => [],
+      resolveJiraTicket: async () => { throw new Error("unexpected Jira"); },
       runSetup: async () => { throw new Error("foreground fallback"); },
       launchEditor: async () => { throw new Error("generic fallback"); },
       launchAgent: async () => { throw new Error("foreground fallback"); }, launchEditorTerminals };

@@ -51,7 +51,7 @@ import { discoverRepository } from "./git/repository";
 import { listWorktrees } from "./git/worktrees";
 import { clearBaseAssociation, readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
 import { readIssueLink, writeIssueLink } from "./git/issue-link";
-import { findJiraSuggestions, resolveJiraTicket } from "./jira/client";
+import { resolveJiraTicket } from "./jira/client";
 import { resolveGithubRepository } from "./github/repository";
 import { resolveLinearTicket } from "./linear/client";
 import { resolveGithubTicket } from "./github/client";
@@ -145,7 +145,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
       bitbucket: createBitbucketSetupSession,
       prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
     new: createNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase, findJiraSuggestions,
+      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase,
       resolveJiraTicket: (config, key, allowClosed) => resolveJiraTicket(config, key, undefined, allowClosed),
       resolveGithubRepository, resolveGithubTicket,
       resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),

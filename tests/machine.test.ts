@@ -7,7 +7,6 @@ import { createOpenHandler } from "../src/commands/open";
 import { createWorktree } from "../src/git/create-worktree";
 import { discoverRepository } from "../src/git/repository";
 import { listWorktrees } from "../src/git/worktrees";
-import { JiraLookupFailure } from "../src/jira/client";
 import { createServiceDouble } from "./helpers/services";
 import { git, withRepository } from "./helpers/git";
 import type { CommandContext } from "../src/services";
@@ -20,10 +19,11 @@ for (const command of ["new", "open"] as const) {
       const repository = await discoverRepository(primary);
       const trees = await listWorktrees(repository);
       const services = createServiceDouble({ discoverRepository: async () => repository,
-        loadConfig: async () => ({ ...config, jira: { siteUrl: "https://example.atlassian.net" } }),
+        loadConfig: async () => config,
         resolveBase: async () => ({ ref: "refs/heads/trunk", commit: (await git(primary, "rev-parse", "HEAD")), source: "explicit" }),
-        resolveJiraTicket: async () => { throw new JiraLookupFailure("No exact issue", "not-found"); },
-        findJiraSuggestions: async () => [{ key: "TIM-421", title: "one", url: "https://example.invalid/1" }],
+        // A branch already on a remote makes `new` offer to open it instead.
+        inspectNewBranchCollision: async (_repository, name) => ({ name, local: null, remotes: [
+          { remote: "origin", cached: "a".repeat(40), live: { kind: "present", commit: "a".repeat(40) }, selectorSafe: true }] }),
         resolveOpenTarget: async () => ({ kind: "ambiguous", candidates: trees.map(worktree => ({ kind: "worktree", worktree })) }),
       });
       let stdout = "";

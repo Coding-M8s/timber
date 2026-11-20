@@ -1090,8 +1090,8 @@ else; `github = false` or `linear = false` clears them. See
 
 Optional `default_tracker = "github"`, `"linear"`, `"jira"`, or `"none"` selects
 unprefixed lookup. Repository settings override machine defaults. Absence inherits;
-absence in both scopes preserves legacy configured-Jira/literal behavior, including
-legacy Jira suggestions. An explicitly saved global default applies to repositories
+absence in both scopes makes all unprefixed names literal, even with Jira site
+settings. An explicitly saved global default applies to repositories
 without a local preference. Repository `"none"` overrides it without removing Jira
 site settings or any provider credentials. None makes all unprefixed names literal.
 
@@ -1101,10 +1101,15 @@ settings and credentials, and cannot override `jira = false`. Malformed explicit
 selectors fail before lookup/mutation. No explicit selector falls back or suggests.
 
 With GitHub selected, a raw whole positive decimal matching the explicit GitHub
-number grammar is an issue selector. With Linear/Jira selected, raw uppercase
-keys matching `^[A-Z][A-Z0-9]*-[0-9]+$` select that provider. All other inputs remain
-ordinary branches; do not trim, normalize, search, or probe providers to find an
-issue. Existing sentence normalization applies only to the eventual literal branch.
+number grammar is an issue selector. With Linear/Jira selected, raw keys matching
+`^[A-Za-z][A-Za-z0-9]*-[0-9]+$` select that provider. All other inputs remain
+ordinary branches; do not trim, search, or probe providers to find an issue.
+
+Jira and Linear keys, bare or after `jira:`/`linear:`, are case-insensitive. Match the
+ASCII grammar above on the input as typed, then uppercase it once in issue input
+resolution. Lookups, generated branch names and saved issue links see only the
+uppercase key (`eng-42` becomes `ENG-42`). The `github:`, `jira:` and `linear:`
+prefixes stay lowercase and exact. Existing sentence normalization applies only to the eventual literal branch.
 
 For a default-origin lookup only, an exact missing result prints a safe notice
 before creating the original literal branch, such as `Jira ticket ENG-123 was not
@@ -1120,8 +1125,7 @@ creation, scripts or launches. A Git creation failure never retries with a liter
 `-c` allows known terminal issues for every provider without reopening/updating them:
 GitHub closed, Jira done, Linear completed/canceled/duplicate. Unknown or deleted
 states always fail. Without `-c`, known terminal issues refuse with flag guidance;
-new explicit/default flows never offer Jira suggestions. Legacy bare Jira with `-c`
-is exact, without suggestions or missing fallback. `--remote` stays GitHub-only;
+no flow offers Jira suggestions. `--remote` stays GitHub-only;
 issue-only flags fail on literal routes, including None. Valid default lookups may
 still fall back on missing with those flags. Base selection remains independent and
 finishes before credentials/HTTP. Canonical key/title/browse URL are safely displayed
@@ -1213,10 +1217,10 @@ See [GitHub CLI token](https://cli.github.com/manual/gh_auth_token),
 ## Linear issue lookup (#97)
 
 `timber new linear:ENG-123` resolves an exact Linear issue without TOML
-configuration. Recognize explicit raw whole-input `linear:<KEY>` using the existing
-uppercase ticket-key grammar. Reject malformed inputs beginning with `linear:`
+configuration. Recognize explicit raw whole-input `linear:<KEY>` using the
+case-insensitive ticket-key grammar. Reject malformed inputs beginning with `linear:`
 before lookup or mutation. Bare `ENG-123` uses Linear when selected as the default;
-without a default it retains configured Jira/literal behavior.
+without a default it is a literal branch.
 No URL selectors, search, provider inference, OAuth or issue updates. `--remote`
 remains GitHub-only; `-c` permits known terminal Linear issues.
 
@@ -1304,10 +1308,11 @@ before Timber starts unless disabled. To run a source checkout without Bun loadi
 them, use `bun --no-env-file src/index.ts ...`. An absent effective `[jira]` (including local `jira = false`) disables lookup
 even if the environment contains credentials.
 
-Only a whole input matching `^[A-Z][A-Z0-9]*-[0-9]+$` is recognized as a ticket,
-and only in a Jira-enabled repository. Do not trim or change case. Inputs such as
-`feature/foo`, `ENG-834-fix`, and `eng-834` remain literal branch names; a
-ticket-looking literal can be named explicitly as `feature/ENG-834`.
+Only `jira:<KEY>`, or a bare whole key with `default_tracker = "jira"`, is a Jira
+ticket (see [Default issue tracker](#default-issue-tracker) for the grammar and
+case rules). Do not trim. Inputs such as `feature/foo` and `ENG-834-fix` remain
+literal branch names; a ticket-looking literal can be named explicitly as
+`feature/ENG-834`.
 
 Lookup uses Basic authentication with the Atlassian account email and API token,
 `Accept: application/json`, and one
@@ -1337,35 +1342,7 @@ only after creation succeeds. The title contributes to a public-looking Git bran
 so use a literal branch when a title is sensitive. If a title changes, `new` may name
 a different branch; use `open ENG-834` to resume an existing ticket branch offline.
 
-Only legacy unprefixed Jira, without an explicit default or `-c`, offers suggestions.
-In that flow, an exact issue 404 or a `done` status-category result enables suggestions. The
-read-only [enhanced JQL search endpoint](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/)
-uses the requested key's project and the fixed query
-`project = "<project-key>" AND statusCategory != Done ORDER BY key ASC`, requests
-`summary,status` with up to 100 results per page, and follows `nextPageToken` until
-`isLast` is true. Every page shares one 10-second deadline. Reject redirects, do not
-retry, and treat missing or repeated continuation tokens as an incomplete search.
-Filter results locally to valid keys whose full key starts with the requested key;
-exclude the exact key and any issue without a known active category (`new` or
-`indeterminate`). Deduplicate and sort by key before showing the exact eligible
-count. Do not accept user-supplied JQL. If any page fails or is malformed, stop
-without displaying a partial list and preserve the original missing/complete reason
-with a safe suggestions-failed diagnostic.
-
-When suggestions exist, include the original safe missing/complete diagnostic in
-the chooser prompt and ask for an explicit choice, even for one result. The chooser
-is available only when stdin and stdout are TTYs and `CI` is unset or equals
-`false` case-insensitively; it starts with five options and shows all matches only
-after an explicit warning and confirmation. Cancelling the Jira, `open`, or `done`
-chooser prints `Cancelled.` to stdout, exits successfully, and makes no Git, hook, or editor
-changes. Without a chooser, report at most the first five sorted key/title labels,
-the exact count, and guidance to run a candidate key explicitly or rerun in an
-interactive terminal. Validate the chooser's returned stable value against the
-offered results, then fetch the chosen exact issue again and use its current
-canonical key and summary. If it became missing or complete, fail without another
-suggestion search. Authentication, missing credentials, permission, rate-limit,
-server, timeout, network, redirect, malformed-response, and unknown-status failures
-do not trigger suggestions. All diagnostics omit credentials, response bodies, raw
+All Jira diagnostics omit credentials, response bodies, raw
 transport exceptions, and config values. `open`, `ls`, and `done` do not call Jira
 and do not require credentials. Jira URL inputs and OAuth login are outside this
 integration.
