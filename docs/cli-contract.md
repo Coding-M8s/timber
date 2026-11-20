@@ -1057,7 +1057,7 @@ hooks, editors or agents and leave files, refs and worktree registrations intact
 Read `.timber.toml` from the primary worktree root and Linux machine defaults from `${XDG_CONFIG_HOME:-$HOME/.config}/timber/config.toml`. Empty or relative XDG paths use the HOME fallback. Do not search nested or linked-worktree configuration. Validate both existing files independently; unknown keys, unreadable files, and invalid values are errors even when overridden in the other scope. Missing files use defaults.
 
 Core configuration keys are `base_branch`, `remote`, `worktree_dir`,
-`max_generated_branch_name_length`, `update_check`, `backup_retention_days`, `backup_storage_warning` ([backups](#backup-retention-and-storage-warning-121)), `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below. The top-level `[agent]` (not workflow agents) also accepts `resolve_handoff` (`"codex"`, `"claude"`, `"cursor"` or `"wrapper"`) and `resolve_instructions` (nonempty text, at most 4000 characters) for [assisted conflict resolution](#assisted-conflict-resolution-59). Because tables replace whole, a repository `[agent]` without them disables `--resolve` handoff from machine defaults. Older Timber releases reject these keys, so prefer machine defaults for shared repositories.
+`max_generated_branch_name_length`, `update_check`, `backup_retention_days`, `backup_storage_warning` ([backups](#backup-retention-and-storage-warning-121)), `[editor]`, and `[agent]`. `base_branch` and `remote` default to absent. `worktree_dir` defaults to absent and, when relative, resolves against the primary root. `[editor]` requires a non-empty executable `command`; `args` is a string array defaulting to `[]`, and boolean `enabled` defaults to `false`. `[agent]` also requires `command` and accepts `args` defaulting to `[]` plus boolean `enabled` defaulting to `false`. Editor tables additionally accept `integration = "orca"` or `integration = "vscode"`; agent tables accept boolean `wait_for_setup` (default false), as specified in TIM-27 below. The top-level `[agent]` (not workflow agents) also accepts `resolve_handoff` (`"codex"`, `"claude"`, `"cursor"` or `"wrapper"`) and `resolve_instructions` (nonempty text, at most 4000 characters) for [assisted conflict resolution](#assisted-conflict-resolution-59). Because tables replace whole, a repository `[agent]` without them disables `--resolve` handoff from machine defaults. Older Timber releases reject these keys, so prefer machine defaults for shared repositories.
 
 Precedence is explicit CLI options > repository TOML > global TOML > built-in defaults. Absent keys inherit. Present optional tables replace the whole lower-scope table: executable/argument combinations stay together, and argument arrays and hook lists never concatenate. Relative `worktree_dir` in either scope resolves against the current repository's primary root. Root-level `editor = false`, `agent = false`, `hooks = false`, or `jira = false` explicitly disables that inherited integration; `true` is invalid. Editor and agent tables with a command and `enabled = false` still support explicit `--editor` and `--agent`, respectively; root-level `false` removes the inherited command. Diagnostics identify the config file and invalid field without printing config values. Do not store credentials or other secrets in this file; use environment variables or a secret store. Hooks and Jira are optional integrations described below.
 
@@ -1502,8 +1502,8 @@ submodules. Git stat-cache refreshes alone do not invalidate discard authorizati
 
 ## Editor terminals (TIM-27)
 
-Ordinary and workflow editor tables accept optional `integration = "orca"`.
-Omission keeps the generic editor launcher. The command names the local Orca CLI
+Ordinary and workflow editor tables accept optional `integration = "orca"` or
+`integration = "vscode"`. Omission keeps the generic editor launcher. The command names the local Orca CLI
 (e.g. `orca-ide`), with literal args separate from agent args. Require a running
 local Orca window, registered repository and visible external worktrees. Never
 start another window/runtime. Remote routing is unsupported. Runner portability
@@ -1512,25 +1512,42 @@ microsecond process start identity and the same private request protocol. Lookup
 failure must fail closed. macOS releases are beta, with native release checks;
 desktop integration and broader OS compatibility remain under test. Stable macOS
 support and a minimum OS version are not claimed. See [macOS beta](releases.md#macos-beta).
-Editor-owned terminals currently support only `orca-ide`. Zed and VS Code (`code`) use the
-generic editor launcher (window open only); in-panel terminals for those editors
-are deferred until a demonstrated external bridge exists (see #61 for VS Code).
+Zed and VS Code without an integration use the generic editor launcher (window
+open only).
+
+With `integration = "vscode"` (#75), the command names the local VS Code CLI
+(e.g. `code`). Require the Timber Terminals extension
+`coding-m8s.timber-terminals` at or above the CLI's minimum version (0.1.0),
+checked with `--list-extensions --show-versions` before opening anything, and
+never install it. Refuse `--remote`, `--folder-uri` and `--file-uri` editor args.
+Open the exact worktree, then exchange requests through a private per-user spool
+(`/tmp/timber-vscode-<uid>`, user-owned 0700, files 0600, no symlinks). A hello
+must be claimed and acknowledged by a local window whose workspace folder
+resolves to the worktree, reporting protocol 1 and its version; terminal
+requests are pinned to that window, expire, and carry only the generated runner
+path and argv. The extension claims and Timber fences each request with the same
+atomic rename. The extension accepts only the runner argv and starts it with
+`createTerminal({ cwd, shellPath, shellArgs })`. Because VS Code closes a
+terminal when its process exits, the runner then holds the terminal with the
+user's shell, keeping the task exit code. The extension adds no commands, views,
+settings or tasks and never sends keystrokes.
 
 Ordinary and workflow agent tables accept boolean `wait_for_setup`, default false.
 Whole-table replacement applies; explicit workflow agents default independently,
 while omitted workflow agents inherit the entire ordinary configuration. Guided
-setup offers an Orca editor preset and asks for `wait_for_setup` whenever the
-effective editor is Orca; it never writes the key for other editors unless kept.
+setup offers Orca and VS Code terminal editor presets and asks for `wait_for_setup`
+whenever the effective editor has an integration; it never writes the key for
+other editors unless kept.
 For inherited agents, an unchanged dependency preference preserves inheritance;
 a changed preference copies the complete effective agent table into this scope.
 
-In enabled Orca mode, establish bounded exact-worktree readiness, then run ordinary
+In enabled editor terminal mode (Orca or VS Code), establish bounded exact-worktree readiness, then run ordinary
 and workflow setup sequentially in one terminal and an independently enabled agent
 in another. Both use the selected absolute cwd. Start the agent in parallel by
 default; `wait_for_setup = true` requires setup success first. Agent-only opens do
 not force setup. Existing opens with any enabled editor never implicitly restart
 agents. Editor-disabled behavior stays unchanged, including foreground execution.
-Flags and workflows continue to apply before mutation. An enabled, selected Orca
+Flags and workflows continue to apply before mutation. An enabled, selected editor
 integration hosts the agent in its own terminal, so the invoking process does not
 require stdin/stdout terminals or CI off. Without that integration, foreground
 agent CI/TTY restrictions still apply, including with `--no-editor`.
@@ -1551,11 +1568,11 @@ Definitive setup retry: `timber open --editor --setup --no-agent -- '<absolute-p
 Definitive agent retry: `timber open --editor --agent -- '<absolute-path>'`.
 Definitive failures before a step's runner claims its request print one retry for
 everything not yet started, e.g. `timber open --editor --setup --agent -- '<absolute-path>'`.
-Safely render these display commands. See [Orca integration](editor-terminals.md).
+Safely render these display commands. See [editor terminals](editor-terminals.md).
 
 ## Interactive agent launching (0.2)
 
-The following foreground behavior applies outside enabled Orca integration;
+The following foreground behavior applies outside an enabled editor integration;
 TIM-27 takes precedence in editor terminal mode.
 
 `new` and `open` accept `--agent` and `--no-agent`. Omission defers to
