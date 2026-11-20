@@ -179,12 +179,15 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--body <text>", "Pull request description")
     .option("--base <ref>", "Base branch (remote/branch or branch name); defaults to the worktree's saved base")
     .option("--draft", "Open the pull request as a draft")
+    .option("--reviewer <login|org/team>", "Request review from a GitHub user or team; repeat for more",
+      (value: string, previous: string[] | undefined) => [...previous ?? [], value])
     .option("--result-file <path>", "Write an experimental v1 JSON outcome to a new file")
-    .addHelpText("after", "\nPublishes the branch first with the rules of timber publish, then opens the pull request on github.com\nwith your GitHub CLI login or GH_TOKEN, or on bitbucket.org with BITBUCKET_EMAIL and BITBUCKET_API_TOKEN\nor the login saved by timber setup. Reports an already open pull request instead of creating another.\nThe worktree's linked issue, or one its branch is named for (GH-123-...), is mentioned in the body. Never prompts for credentials.")
-    .action(async (input: string, options: { title?: string; body?: string; base?: string; draft?: boolean; resultFile?: string }) => {
+    .addHelpText("after", "\nPublishes the branch first with the rules of timber publish, then opens the pull request on github.com\nwith your GitHub CLI login or GH_TOKEN, or on bitbucket.org with BITBUCKET_EMAIL and BITBUCKET_API_TOKEN\nor the login saved by timber setup. Reports an already open pull request instead of creating another.\nThe worktree's linked issue, or one its branch is named for (GH-123-...), is mentioned in the body. Never prompts for credentials.\nOn GitHub, --reviewer requests review from a user login or org/team after the pull request is created or found.")
+    .action(async (input: string, options: { title?: string; body?: string; base?: string; draft?: boolean; reviewer?: string[]; resultFile?: string }) => {
       const pr = handlers.pr;
       if (!pr) throw new Error("Pull request handler is unavailable in this embedding.");
-      const { resultFile, ...rest } = options;
+      const { resultFile, reviewer, ...named } = options;
+      const rest = { ...named, reviewers: reviewer };
       const normalized = Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined));
       onExitCode(resultFile === undefined
         ? await pr(input, normalized, context)
