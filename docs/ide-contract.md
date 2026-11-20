@@ -48,6 +48,10 @@ and its marker write. Inventory remains offline, validates ordinary configuratio
 and includes manual Git worktrees. Sort primary first, then by registered path.
 Unknown status or invalid saved metadata never hides a Git worktree row. Each row
 carries its saved `base`; the matching stderr warning for invalid metadata remains.
+`ls --json` does not read ignored files: every `ls` row's `status.ignored` is `[]`,
+which means "not inspected", not "none". Its `modified` and `untracked` lists are
+complete. Statuses run a few worktrees at a time. Records from `new`, `open` and
+`__ide-done preview` still list ignored files.
 
 `new` and `open` accept `--result-file <path>`. Both explicit `--no-editor` and
 `--no-agent` are required, even when configuration has no launchers. Positive and
@@ -132,7 +136,7 @@ type WorktreeRecord = {
   locked: { reason: string | null } | null;
   prunable: { reason: string | null } | null;
   status:
-    | { kind: "known"; modified: string[]; untracked: string[]; ignored: string[] }
+    | { kind: "known"; modified: string[]; untracked: string[]; ignored: string[] } // ignored is [] in ls --json
     | { kind: "unknown"; reason: string };
   base:                      // saved base this worktree rebases onto and is cleaned up against
     | { kind: "assigned"; ref: string } // canonical refs/remotes/... or refs/heads/...

@@ -76,7 +76,7 @@ wc -l < "$WORKFLOW_TREE/.setup-log"
 wc -l < "$WORKFLOW_TREE/.setup-log"
 ```
 
-List from the primary root, its nested directory, and the linked worktree. The output should be identical from all three locations, identify the primary row, and show one ignored file in the linked row.
+List from the primary root, its nested directory, and the linked worktree. The output should be identical from all three locations, identify the primary row, and not mention ignored files.
 
 ```bash
 (cd "$PRIMARY" && timber_cli ls)

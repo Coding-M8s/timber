@@ -19,9 +19,7 @@ function statusSummary(tree: Worktree): string {
   } else {
     const modified = new Set(tree.status.modified).size;
     const untracked = new Set(tree.status.untracked).size;
-    const ignored = new Set(tree.status.ignored).size;
     parts.push(modified || untracked ? `dirty (${modified} modified, ${untracked} untracked)` : "clean");
-    if (ignored) parts.push(`${ignored} ignored`);
   }
   if (!tree.pathExists) parts.push("missing");
   if (tree.locked) parts.push("locked");
@@ -37,7 +35,8 @@ export function createListHandler(
     await context.machine?.repository(repository);
     await services.loadConfig(repository);
     const phase = new WorktreeReadPhase(repository);
-    const trees = await services.listWorktrees(repository, { phase });
+    // Listing never reads ignored files: large ignored folders made every run slow.
+    const trees = await services.listWorktrees(repository, { phase, includeIgnored: false });
     if (trees.length === 0 && !context.machine) {
       context.io.stdout("No worktrees found.\n");
       return;

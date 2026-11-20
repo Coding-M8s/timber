@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { discoverRepository } from "../src/git/repository";
-import { assertOpenableWorktree, assertWorktreeIdentity, listWorktrees } from "../src/git/worktrees";
+import {
+  assertOpenableWorktree, assertWorktreeIdentity, listWorktrees, mapWithLimit, WORKTREE_INSPECTION_LIMIT,
+} from "../src/git/worktrees";
 import { git, withRepository } from "./helpers/git";
 
 test("reads all Git worktrees, counts filenames once, and preserves stale entries and repository state", async () => {
@@ -240,3 +242,99 @@ for (const replacement of ["unrelated repository", "symlink", "copied gitfile", 
     });
   });
 }
+
+test("listing without ignored files reports the same modified and untracked files and skips ignored content", async () => {
+  await withRepository(async (primary, directory) => {
+    const linked = join(directory, "linked");
+    await git(primary, "worktree", "add", "-b", "feature/listing", linked);
+    await writeFile(join(linked, "tracked.txt"), "staged\n");
+    await git(linked, "add", "tracked.txt");
+    await writeFile(join(linked, "tracked.txt"), "staged and unstaged\n");
+    await git(linked, "mv", "old name.txt", "renamed.txt");
+    await writeFile(join(linked, "untracked.txt"), "keep\n");
+    await mkdir(join(linked, "new folder", "deep"), { recursive: true });
+    await writeFile(join(linked, "new folder", "deep", "file.txt"), "keep\n");
+    await writeFile(join(linked, ".gitignore"), ".env\nnode_modules/\n");
+    await mkdir(join(linked, "node_modules", "package"), { recursive: true });
+    await writeFile(join(linked, "node_modules", "package", "index.js"), "ignored\n");
+    await writeFile(join(linked, ".env"), "ignored\n");
+    const repository = await discoverRepository(linked);
+
+    const full = (await listWorktrees(repository)).find(tree => tree.path === linked)!;
+    const listing = (await listWorktrees(repository, { includeIgnored: false })).find(tree => tree.path === linked)!;
+
+    expect(full.status.kind).toBe("known");
+    expect(listing.status.kind).toBe("known");
+    if (full.status.kind !== "known" || listing.status.kind !== "known") return;
+    expect([...full.status.ignored].sort()).toEqual([".env", "node_modules/package/index.js"]);
+    expect(listing.status.ignored).toEqual([]);
+    expect([...listing.status.modified].sort()).toEqual([".gitignore", "renamed.txt", "tracked.txt"]);
+    expect([...listing.status.modified].sort()).toEqual([...full.status.modified].sort());
+    expect([...listing.status.untracked].sort()).toEqual(["new folder/deep/file.txt", "untracked.txt"]);
+    expect([...listing.status.untracked].sort()).toEqual([...full.status.untracked].sort());
+  });
+});
+
+test("mapWithLimit keeps input order, never exceeds its limit, and passes failures on", async () => {
+  let active = 0;
+  let peak = 0;
+  const results = await mapWithLimit([5, 1, 4, 2, 3, 0, 6, 1, 2], 3, async delay => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(done => setTimeout(done, delay * 2));
+    active--;
+    return delay * 10;
+  });
+  expect(results).toEqual([50, 10, 40, 20, 30, 0, 60, 10, 20]);
+  expect(peak).toBe(3);
+  expect(await mapWithLimit([], 3, async () => 1)).toEqual([]);
+  const started: number[] = [];
+  await expect(mapWithLimit([1, 2, 3, 4], 1, async item => {
+    started.push(item);
+    if (item === 2) throw new Error("boom");
+    return item;
+  })).rejects.toThrow("boom");
+  expect(started).toEqual([1, 2]);
+  expect(() => mapWithLimit([1], 0, async item => item)).toThrow(RangeError);
+});
+
+test("listWorktrees inspects at most the fixed number of worktrees at once", async () => {
+  expect(WORKTREE_INSPECTION_LIMIT).toBe(4);
+  await withRepository(async (primary, directory) => {
+    const log = join(directory, "status.log");
+    // A slow clean filter on a file with stale times makes each status long enough to overlap.
+    await writeFile(join(primary, ".gitattributes"), "tracked.txt filter=slow\n");
+    await git(primary, "add", ".gitattributes");
+    await git(primary, "-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "commit", "-m", "filter");
+    await git(primary, "config", "filter.slow.clean", "sleep 0.3; cat");
+    const trees = [primary];
+    for (let i = 0; i < 8; i++) {
+      trees.push(join(directory, `many-${i}`));
+      await git(primary, "worktree", "add", "-b", `many-${i}`, trees.at(-1)!);
+    }
+    const later = new Date(Date.now() + 60_000);
+    for (const tree of trees) await utimes(join(tree, "tracked.txt"), later, later);
+    const repository = await discoverRepository(primary);
+    process.env.GIT_TRACE2_EVENT = log;
+    try {
+      const listed = await listWorktrees(repository, { includeIgnored: false });
+      expect(listed.map(tree => tree.status)).toEqual(trees.map(() => ({ kind: "known", modified: [], untracked: [], ignored: [] })));
+    } finally {
+      delete process.env.GIT_TRACE2_EVENT;
+    }
+    const events = (await readFile(log, "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
+    const status = new Set(events.filter(event => event.event === "start" && event.argv?.includes("status")).map(event => event.sid));
+    // Exits sort before starts at the same instant, so ties never inflate the count.
+    const timeline = events.filter(event => status.has(event.sid) && (event.event === "start" || event.event === "exit"))
+      .sort((a, b) => Date.parse(a.time) - Date.parse(b.time) || (a.event === "exit" ? -1 : 1));
+    expect(status.size).toBe(9);
+    let running = 0;
+    let peak = 0;
+    for (const event of timeline) {
+      running += event.event === "start" ? 1 : -1;
+      peak = Math.max(peak, running);
+    }
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(WORKTREE_INSPECTION_LIMIT);
+  });
+});

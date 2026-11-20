@@ -48,7 +48,7 @@ test("list marks the primary, shows branches and paths, and deduplicates Git sta
   expect(result.stdout).not.toContain("WORKFLOW");
   expect(result.stdout).toMatch(/primary\s+main\s+-\s+clean\s+\/repo\n/);
   expect(result.stdout).toMatch(/linked\s+\(detached HEAD\)\s+-\s+clean\s+\/manual tree\n/);
-  expect(result.stdout).toMatch(/linked\s+feature\/z\s+-\s+dirty \(2 modified, 1 untracked\); 1 ignored\s+\/repo-worktrees\/z-last\n/);
+  expect(result.stdout).toMatch(/linked\s+feature\/z\s+-\s+dirty \(2 modified, 1 untracked\)\s+\/repo-worktrees\/z-last\n/);
   expect(trees[0]?.path).toBe("/repo-worktrees/z-last");
 });
 
@@ -65,15 +65,25 @@ test("unknown, missing, locked, and prunable rows remain visible without looking
   expect(result.stdout).toMatch(/linked\s+\(detached HEAD\)\s+-\s+unknown \(path missing\); missing; prunable\s+\/missing\n/);
 });
 
-test("untracked files make a worktree dirty while ignored files remain explicitly visible", async () => {
+test("untracked files make a worktree dirty and ignored files never affect the listing", async () => {
   const result = await list([
     worktreeFixture({ status: { kind: "known", modified: [], untracked: ["new"], ignored: [] } }),
     worktreeFixture({ path: "/ignored", isPrimary: false,
       status: { kind: "known", modified: [], untracked: [], ignored: [".env", ".env"] } }),
   ]);
   expect(result.stdout).toContain("dirty (0 modified, 1 untracked)");
-  expect(result.stdout).toContain("clean; 1 ignored");
+  expect(result.stdout).toMatch(/linked\s+main\s+-\s+clean\s+\/ignored\n/);
+  expect(result.stdout).not.toMatch(/\d ignored/);
   expect(result.exitCode).toBe(0);
+});
+
+test("list asks for worktree status without ignored files", async () => {
+  const requests: unknown[] = [];
+  const result = await list([], {
+    listWorktrees: async (_repository, options) => { requests.push(options?.includeIgnored); return []; },
+  });
+  expect(result.exitCode).toBe(0);
+  expect(requests).toEqual([false]);
 });
 
 test("control characters in paths and status reasons cannot forge additional rows", async () => {
@@ -132,7 +142,7 @@ test("every list column aligns for full mixed status, Unicode, base, and escaped
     ["linked", "(detached HEAD)", "-", "clean", "/a detached"],
     ["linked", "界e\u0301", "?", "unknown (path missing); missing; locked; prunable", "/b 界e\u0301"],
     ["linked", '"control\\nbranch"', "-", 'unknown ("failure\\n\\u001b[2J")', '"/c\\n\\t\\u001b[2J"'],
-    ["linked", "🇺🇸1️⃣", "origin/main", "dirty (1 modified, 1 untracked); 1 ignored", "/z flag 🇺🇸1️⃣"],
+    ["linked", "🇺🇸1️⃣", "origin/main", "dirty (1 modified, 1 untracked)", "/z flag 🇺🇸1️⃣"],
   ];
   const widths = cells.map(row => row.map(cell => cell.length));
   widths[3]![1] = 3;
