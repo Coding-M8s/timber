@@ -966,7 +966,10 @@ If neither scope has a preference, unprefixed names are literal branches.
 Explicit `github:97`, `linear:ENG-123`, and `jira:ENG-123` override the default,
 including None. Jira and Linear keys may be typed in any case, prefixed or bare:
 `jira:eng-123` and, with Jira as the default, `eng-123` both mean `ENG-123`.
-Branch names, lookups and saved issue links always use the uppercase key. Jira needs effective site settings; `jira = false` disables it.
+Branch names, lookups and saved issue links always use the uppercase key.
+With a Jira or Linear default, a name such as `fix-2` is also read as a key;
+use `feature/fix-2` when you want a plain branch without a lookup.
+Jira needs effective site settings; `jira = false` disables it.
 After creating an issue-named branch, Timber displays the canonical key, title,
 and link before running setup scripts. This does not create new saved issue metadata.
 
