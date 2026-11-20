@@ -200,10 +200,11 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .description("Create, list, restore and delete private recovery backups of a worktree, including ignored files");
   backup.command("create <branch-or-worktree>")
     .description("Snapshot a worktree's commit and files, including modified, untracked and ignored files")
-    .addHelpText("after", "\nStored privately in the repository's Git directory, so removing the worktree keeps the backup.\nIgnored files such as .env are copied. The Git index and in-progress operations are not captured.\nRefuses worktrees with an in-progress rebase, merge or similar operation. Never runs hooks, editors or agents.")
-    .action(async (input: string) => {
+    .option("--keep", "Keep this backup indefinitely instead of applying backup_retention_days")
+    .addHelpText("after", "\nStored privately in the repository's Git directory, so removing the worktree keeps the backup.\nIgnored files such as .env are copied. The Git index and in-progress operations are not captured.\nRefuses worktrees with an in-progress rebase, merge or similar operation. Never runs hooks, editors or agents.\nFirst deletes expired, unprotected backups. Backups expire after backup_retention_days (default 7);\nwarns before backups exceed backup_storage_warning (default 5GiB) and refuses without a terminal.")
+    .action(async (input: string, options: { keep?: boolean }) => {
       if (!handlers.backupCreate) throw new Error("Backup handler is unavailable in this embedding.");
-      onExitCode(await handlers.backupCreate(input, context));
+      onExitCode(await handlers.backupCreate(input, context, { keep: options.keep === true }));
     });
   backup.command("restore <id> <destination>")
     .description("Recover a backup into a new directory on branch recovery/<id>")
@@ -223,6 +224,25 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .action(async (options: { json?: boolean }) => {
       if (!handlers.backupList) throw new Error("Backup handler is unavailable in this embedding.");
       onExitCode(await handlers.backupList(context, { json: options.json === true }));
+    });
+  backup.command("cleanup")
+    .description("Delete expired backups that are not protected, without asking")
+    .addHelpText("after", "\nNever deletes kept, unexpired, protected or unusable backups. Each deletion rechecks the backup first.\nThe retention policy is captured in each backup when it is created.")
+    .action(async () => {
+      if (!handlers.backupCleanup) throw new Error("Backup handler is unavailable in this embedding.");
+      onExitCode(await handlers.backupCleanup(context));
+    });
+  backup.command("keep <id>")
+    .description("Keep a backup indefinitely so expiry cleanup never deletes it")
+    .action(async (id: string) => {
+      if (!handlers.backupKeep) throw new Error("Backup handler is unavailable in this embedding.");
+      onExitCode(await handlers.backupKeep(id, true, context));
+    });
+  backup.command("unkeep <id>")
+    .description("Restore a kept backup's original retention; it may then be expired")
+    .action(async (id: string) => {
+      if (!handlers.backupKeep) throw new Error("Backup handler is unavailable in this embedding.");
+      onExitCode(await handlers.backupKeep(id, false, context));
     });
   backup.command("done")
     .description("Review backups one at a time and delete each only after y then Enter")

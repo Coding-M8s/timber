@@ -22,8 +22,11 @@ import { launchAgent } from "./agent";
 import { runCli } from "./cli";
 import { notifyAfterCommand, updateHandlers } from "./update/runtime";
 import { createRebaseHandler } from "./commands/rebase";
-import { createBackupCreateHandler, createBackupDoneHandler, createBackupListHandler, createBackupRestoreHandler } from "./commands/backup";
-import { listBackups, readBackupList, retainedBackups, reviewBackupDeletion } from "./backup/lifecycle";
+import {
+  createBackupCleanupHandler, createBackupCreateHandler, createBackupDoneHandler, createBackupKeepHandler, createBackupListHandler,
+  createBackupRestoreHandler,
+} from "./commands/backup";
+import { cleanupBackups, listBackups, readBackupList, retainedBackups, reviewBackupDeletion, setBackupKeep } from "./backup/lifecycle";
 import { createBackup, restoreBackup } from "./backup/service";
 import { rebaseWorktree, resolveRebaseTarget } from "./git/rebase";
 import { createPublishHandler } from "./commands/publish";
@@ -147,6 +150,8 @@ process.exitCode = await runCli(process.argv.slice(2), {
     backupRestore: createBackupRestoreHandler({ discoverRepository, restoreBackup }),
     backupList: createBackupListHandler({ discoverRepository, listBackups, readBackupList }),
     backupDone: createBackupDoneHandler({ discoverRepository, reviewBackupDeletion }),
+    backupCleanup: createBackupCleanupHandler({ discoverRepository, cleanupBackups: (repository, io) => cleanupBackups(repository, io) }),
+    backupKeep: createBackupKeepHandler({ discoverRepository, setBackupKeep: (repository, id, keep, io) => setBackupKeep(repository, id, keep, io) }),
     rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree }),
     // Shares rebase selection so a paused rebase's branch reports its detached worktree.
     publish: createPublishHandler({

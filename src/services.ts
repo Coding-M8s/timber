@@ -1,3 +1,4 @@
+import type { BackupCreateOptions } from "./backup/service";
 import type { WorktreeReadPhase } from "./git/worktree-read-phase";
 import type { MachineReporter } from "./machine";
 import type { ArenaNewOptions, ArenaResumeOptions, ArenaPickOptions } from "./arena/types";
@@ -72,7 +73,11 @@ export interface CommandServices {
   openPullRequest(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
     options: PullRequestOptions, io: CommandIO, report?: PullRequestReport): Promise<number>;
   /** Snapshot a verified, idle registered worktree into private Git-directory storage; never changes the source. */
-  createBackup(repository: RepositoryContext, worktree: Worktree, io: CommandIO): Promise<number>;
+  createBackup(repository: RepositoryContext, worktree: Worktree, io: CommandIO, options: BackupCreateOptions): Promise<number>;
+  /** Delete expired, usable, unprotected backups through the confirmed-deletion checks; no prompt. */
+  cleanupBackups(repository: RepositoryContext, io: CommandIO): Promise<number>;
+  /** Keep one backup indefinitely, or restore its captured retention. */
+  setBackupKeep(repository: RepositoryContext, id: string, keep: boolean, io: CommandIO): Promise<number>;
   /** Recover a verified backup into a new worktree and recovery branch; never overwrites or runs repository code. */
   restoreBackup(
     repository: RepositoryContext, id: string, destination: string, cwd: string, io: CommandIO, report?: BackupRestoreReport,
@@ -83,8 +88,8 @@ export interface CommandServices {
   readBackupList(cwd: string, discover: (cwd: string) => Promise<RepositoryContext>): Promise<BackupListRecord>;
   /** Interactive deletion; requires the text prompt and `y` then Enter per decision. */
   reviewBackupDeletion(repository: RepositoryContext, options: { all: boolean }, io: CommandIO, ask: TerminalTextPrompt | undefined): Promise<number>;
-  /** IDs of valid backups recorded from a worktree path; optional so embedders without backups keep `done` unchanged. */
-  retainedBackups?(repository: RepositoryContext, worktreePath: string): Promise<readonly string[]>;
+  /** Valid backups recorded from a worktree path, with size and retention; optional so embedders without backups keep `done` unchanged. */
+  retainedBackups?(repository: RepositoryContext, worktreePath: string): Promise<readonly { id: string; detail: string }[]>;
   /** Inspect all file classes and publication/validated-base integration. */
   inspectCleanup(repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig): Promise<CleanupInspection>;
   /** Recheck identity and safety at mutation time. Confirmed upstream absence or
@@ -168,7 +173,9 @@ export interface CommandHandlers {
   /** Optional for existing embedders; production entry point wires pull requests. */
   pr?(input: string, options: PullRequestOptions, context: CommandContext): Promise<number>;
   /** Optional for existing embedders; production entry point wires backups. */
-  backupCreate?(input: string, context: CommandContext): Promise<number>;
+  backupCreate?(input: string, context: CommandContext, options?: { keep: boolean }): Promise<number>;
+  backupCleanup?(context: CommandContext): Promise<number>;
+  backupKeep?(id: string, keep: boolean, context: CommandContext): Promise<number>;
   backupRestore?(id: string, destination: string, context: CommandContext): Promise<number>;
   backupList?(context: CommandContext, options?: { json?: boolean }): Promise<number>;
   backupDone?(options: { all: boolean }, context: CommandContext): Promise<number>;

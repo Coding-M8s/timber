@@ -10,7 +10,7 @@ import { git, withRepository } from "./helpers/git";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (cwd: string, ...args: string[]) => execa(process.execPath, ["--no-env-file", entry, ...args], {
-  cwd, reject: false, timeout: 15_000, env: { CI: "true", GIT_EDITOR: "false" },
+  cwd, reject: false, timeout: 15_000, env: { CI: "true", GIT_EDITOR: "false", XDG_CONFIG_HOME: "/nonexistent/timber-test-config" },
 });
 const secret = "SYNTHETIC_TOKEN=lifecycle-not-a-real-secret\n";
 const identity = ["-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid"];
@@ -124,7 +124,7 @@ test("list shows backups with branch, time, size, protection and expiry, and rep
     expect(listed.stdout).toContain(`${id}\n  Branch: feature/lifecycle\n  Created: `);
     expect(listed.stdout).toMatch(/ {2}Size: \d+(\.\d)? (B|KiB), \d+ entries/u);
     expect(listed.stdout).toContain("  Protection: none");
-    expect(listed.stdout).toContain("  Expiry: none, no retention policy; kept until deleted");
+    expect(listed.stdout).toMatch(/ {2}Retention: expires \S+Z \(7 days\)\n/u);
     expect(listed.stdout).toContain("20260101T000000Z-00000001: Backup record or manifest is missing, unreadable or not private");
     expect(listed.stdout).toContain("\"evil\\nname\": unrecognized entry");
     expect(listed.stdout).not.toContain("evil\nname");
@@ -417,7 +417,7 @@ test("timber done keeps the backup, reports it, and the backup restores after th
     expect(done.stderr).toBe("");
     expect(done.exitCode).toBe(0);
     expect(done.stdout).toContain(`Removed worktree at ${target}`);
-    expect(done.stdout).toContain(`Kept 1 recovery backup of this worktree: ${id}`);
+    expect(done.stdout).toMatch(new RegExp(`Kept 1 recovery backup of this worktree:\\n {2}${id} \\(\\d+ B, expires \\S+Z\\)\\n`, "u"));
     expect(done.stdout).toContain("can still contain copies of ignored files, including secrets such as .env");
     expect(done.stdout).toContain("delete with timber backup done");
     await expect(fs.lstat(target)).rejects.toThrow();

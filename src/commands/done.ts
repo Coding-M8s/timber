@@ -107,7 +107,7 @@ export function createDoneHandler(
     }
     if (!services.retainedBackups) return;
     // Cleanup already succeeded; a backup read failure only changes this report.
-    let kept: readonly string[];
+    let kept: readonly { id: string; detail: string }[];
     try { kept = await services.retainedBackups(repository, result.removedWorktreePath); }
     catch {
       context.io.stdout("Could not check for recovery backups of this worktree; review them with timber backup list.\n");
@@ -115,9 +115,11 @@ export function createDoneHandler(
     }
     if (!kept.length) return;
     context.io.stdout([
-      `Kept ${kept.length} recovery backup${kept.length === 1 ? "" : "s"} of this worktree: ${kept.join(", ")}`,
+      `Kept ${kept.length} recovery backup${kept.length === 1 ? "" : "s"} of this worktree:`,
+      ...kept.map(backup => `  ${backup.id} (${backup.detail})`),
       "Backups are not removed by timber done and can still contain copies of ignored files, including secrets such as .env.",
       "Review with timber backup list, restore with timber backup restore <id> <new-directory>, delete with timber backup done.",
+      "Expired backups are deleted by a later timber backup create or timber backup cleanup; keep one with timber backup keep <id>.",
       "",
     ].join("\n"));
   };

@@ -30,6 +30,8 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     publishWorktree: unexpected("publishWorktree"),
     openPullRequest: unexpected("openPullRequest"),
     createBackup: unexpected("createBackup"),
+    cleanupBackups: unexpected("cleanupBackups"),
+    setBackupKeep: unexpected("setBackupKeep"),
     restoreBackup: unexpected("restoreBackup"),
     listBackups: unexpected("listBackups"),
     readBackupList: unexpected("readBackupList"),

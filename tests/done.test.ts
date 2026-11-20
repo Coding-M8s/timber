@@ -291,11 +291,12 @@ test("done reports retained backups after cleanup and never fails cleanup over a
     retainedBackups: async (actual, path) => {
       expect(actual).toBe(repository);
       expect(path).toBe(tree.path);
-      return ["20261115T090807Z-0123abcd"];
+      return [{ id: "20261115T090807Z-0123abcd", detail: "1.0 KiB, expires 2026-11-22T09:08:07.000Z" }];
     },
   }));
   expect(reported.exitCode).toBe(0);
-  expect(reported.stdout).toContain("Kept 1 recovery backup of this worktree: 20261115T090807Z-0123abcd\n");
+  expect(reported.stdout).toContain("Kept 1 recovery backup of this worktree:\n  20261115T090807Z-0123abcd (1.0 KiB, expires 2026-11-22T09:08:07.000Z)\n");
+  expect(reported.stdout).toContain("keep one with timber backup keep <id>");
   expect(reported.stdout).toContain("can still contain copies of ignored files");
 
   const none = await invoke(services({ cleanupWorktree, retainedBackups: async () => [] }));

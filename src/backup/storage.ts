@@ -10,7 +10,7 @@ export type ManifestEntry =
   | { path: string; type: "file"; mode: number; size: number; sha256: string; blob: string }
   | { path: string; type: "symlink"; target: string };
 
-export interface BackupRecord {
+export interface BackupRecordV1 {
   version: 1;
   id: string;
   createdAt: string;
@@ -25,6 +25,20 @@ export interface BackupRecord {
   bytes: number;
   manifestSha256: string;
 }
+
+/** Version 2 captures the retention policy at creation; version 1 records have none and never expire. */
+export interface BackupRecordV2 extends Omit<BackupRecordV1, "version"> {
+  version: 2;
+  origin: "manual";
+  /** Captured `backup_retention_days`; null means kept until deleted. */
+  retentionDays: number | null;
+  /** True while kept indefinitely with `timber backup keep`. */
+  keep: boolean;
+}
+
+export type BackupRecord = BackupRecordV1 | BackupRecordV2;
+
+export const maxRetentionDays = 36500;
 
 export const backupIdPattern = /^\d{8}T\d{6}Z-[0-9a-f]{8}$/u;
 const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -118,7 +132,12 @@ function mode(value: unknown): value is number {
 export function validateRecord(value: unknown, id: string): BackupRecord {
   const keys = ["version", "id", "createdAt", "commonGitDir", "worktreePath", "worktreeGitDir", "branch", "commit", "ref",
     "entries", "bytes", "manifestSha256"];
-  if (!isRecord(value) || !exactKeys(value, keys) || value.version !== 1 || value.id !== id
+  const version2 = isRecord(value) && value.version === 2;
+  if (!isRecord(value) || !exactKeys(value, version2 ? [...keys, "origin", "retentionDays", "keep"] : keys)
+    || (value.version !== 1 && !version2) || value.id !== id
+    || (version2 && (value.origin !== "manual" || typeof value.keep !== "boolean"
+      || !(value.retentionDays === null || (typeof value.retentionDays === "number" && Number.isSafeInteger(value.retentionDays)
+        && value.retentionDays >= 1 && value.retentionDays <= maxRetentionDays))))
     || typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt))
     || typeof value.commonGitDir !== "string" || !isAbsolute(value.commonGitDir)
     || typeof value.worktreePath !== "string" || !isAbsolute(value.worktreePath)

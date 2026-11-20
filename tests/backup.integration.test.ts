@@ -7,7 +7,7 @@ import { git, withRepository } from "./helpers/git";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (cwd: string, ...args: string[]) => execa(process.execPath, ["--no-env-file", entry, ...args], {
-  cwd, reject: false, timeout: 15_000, env: { CI: "true", GIT_EDITOR: "false" },
+  cwd, reject: false, timeout: 15_000, env: { CI: "true", GIT_EDITOR: "false", XDG_CONFIG_HOME: "/nonexistent/timber-test-config" },
 });
 
 const secret = "SYNTHETIC_TOKEN=not-a-real-secret\n";
@@ -167,6 +167,10 @@ test("unsupported files and storage failures never publish a backup or change so
     expect(await refs(primary)).toBe(before);
     await execa("rm", [join(target, "pipe")]);
 
+    // Unsupported files now refuse before storage exists; create it so the permission failure is exercised.
+    expect(await lstat(join(primary, ".git/timber")).then(() => true, () => false)).toBe(false);
+    await mkdir(join(primary, ".git/timber/backups"), { recursive: true, mode: 0o700 });
+    await chmod(join(primary, ".git/timber"), 0o700);
     if (process.getuid?.() === 0) return; // Root ignores directory permissions.
     await chmod(join(primary, ".git/timber/backups"), 0o500);
     try {
