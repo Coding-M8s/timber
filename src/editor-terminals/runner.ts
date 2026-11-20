@@ -1,12 +1,29 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { runSetupTask, SetupFailure, taskEnvironment } from "../hooks";
 import { assertPrivate, processIdentity, publish, taskSchema } from "./protocol";
 
+/** Keep an editor terminal open after the task, with the environment the terminal started with. */
+async function holdTerminal(cwd: string, env: NodeJS.ProcessEnv, code: number): Promise<number> {
+  const shell = env.SHELL !== undefined && isAbsolute(env.SHELL) ? env.SHELL : "/bin/sh";
+  process.stdout.write(`\nTimber task ${code === 0 ? "finished" : `exited with code ${code}`}. This terminal stays open; type exit to close it.\n`);
+  // The shell owns Ctrl-C now; the runner must survive it so the terminal stays open.
+  const ignore = () => {};
+  process.on("SIGINT", ignore);
+  try {
+    const child = spawn(shell, [], { cwd, env, shell: false, stdio: "inherit" });
+    await new Promise<void>(resolve => { child.once("error", () => resolve()); child.once("close", () => resolve()); });
+  } catch {
+    // The task outcome is already published; a missing shell only closes the terminal sooner.
+  } finally { process.removeListener("SIGINT", ignore); }
+  return code;
+}
+
 /** Private internal dispatch: no config, Git discovery, installation hints or shell evaluation. */
 export async function runEditorTask(directory: string): Promise<number> {
+  const inherited = { ...process.env };
   let claimed = false;
   let agentSpawned = false;
   try {
@@ -29,12 +46,12 @@ export async function runEditorTask(directory: string): Promise<number> {
       try {
         await runSetupTask(task, { stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
         await publish(directory, "result.json", { kind: "setup-complete" });
-        return 0;
+        return task.hold ? await holdTerminal(task.cwd, inherited, 0) : 0;
       } catch (error) {
         if (!(error instanceof SetupFailure)) throw error;
         process.stderr.write(`Setup ${error.phase} post_create step ${error.step} failed (${error.reason}). Workspace retained.\n`);
         await publish(directory, "result.json", { kind: "setup-failed", step: error.step, phase: error.phase, reason: error.reason });
-        return 1;
+        return task.hold ? await holdTerminal(task.cwd, inherited, 1) : 1;
       }
     }
     const child = spawn(task.command, task.args, { cwd: task.cwd, shell: false, stdio: "inherit" });
@@ -50,13 +67,15 @@ export async function runEditorTask(directory: string): Promise<number> {
     const interrupt = () => { if (!process.stdin.isTTY) child.kill("SIGINT"); };
     process.on("SIGTERM", terminate);
     process.on("SIGINT", interrupt);
+    let code: number;
     try {
       await publish(directory, "started.json", { kind: "spawned", identity });
-      return await finished;
+      code = await finished;
     } finally {
       process.removeListener("SIGTERM", terminate);
       process.removeListener("SIGINT", interrupt);
     }
+    return task.hold ? await holdTerminal(task.cwd, inherited, code) : code;
   } catch {
     if (claimed && !agentSpawned) await publish(directory, "result.json", { kind: "startup-failed" }).catch(() => {});
     process.stderr.write("Could not use private editor runner data; inspect the editor terminal and retained workspace.\n");

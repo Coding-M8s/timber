@@ -46,7 +46,9 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
         `--editor${needsSetup ? " --setup" : ""}${agent ? " --agent" : needsSetup ? " --no-agent" : ""}`)}`);
     }
     const context = { cwd: worktree.path, repositoryRoot: repository.primaryWorktreeRoot, branch: worktree.branch,
-      ...(launch.workflowName === undefined ? {} : { workflow: launch.workflowName }) };
+      ...(launch.workflowName === undefined ? {} : { workflow: launch.workflowName }),
+      // VS Code closes a terminal when its process exits; Orca's terminals already return to a shell.
+      ...(integration === "vscode" ? { hold: true as const } : {}) };
     const errors: string[] = [];
     const handles = new WeakMap<TerminalRequest, string>();
     async function start(task: TerminalTask): Promise<TerminalRequest> {

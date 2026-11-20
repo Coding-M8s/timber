@@ -66,6 +66,7 @@ test("parallel mode hands off agent before required setup completes and passes e
   expect(h.payloads[0]).toEqual({ kind: "setup", cwd: "/repo", repositoryRoot: "/repo", branch: "main",
     workflow: "review", hooks: ["ordinary"], workflowHooks: ["workflow"] });
   expect(h.payloads[1]).toMatchObject({ kind: "agent", cwd: "/repo", command: "claude", args: ["literal prompt"] });
+  expect(h.payloads[1]).not.toHaveProperty("hold");
   h.completed.resolve({ kind: "setup-complete" });
   await h.run;
 });
@@ -207,6 +208,7 @@ test("VS Code integration reuses the same lifecycle, passes literal argv and nam
     ["/tmp/generated/runtime", "__editor-task", "/tmp/generated"],
   ]);
   expect(h.output.join("")).toContain("Agent handed off to VS Code terminal term_2.");
+  expect(h.payloads.map(task => task.hold)).toEqual([true, true]);
 });
 
 test("VS Code readiness failure names VS Code and retries everything that was requested", async () => {

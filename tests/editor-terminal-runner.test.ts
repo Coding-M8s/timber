@@ -144,3 +144,24 @@ test("claim and cancellation race never executes an agent after successful fenci
     }
   } finally { await rm(cwd, { recursive: true, force: true }); }
 });
+
+test.each(["setup", "agent"] as const)("a held %s terminal opens the user's shell afterwards and keeps the task exit code", async kind => {
+  const cwd = await realpath(await mkdtemp("/tmp/timber-runner-hold-"));
+  const shell = join(cwd, "fake-shell");
+  await writeFile(shell, '#!/bin/sh\nprintf "%s:%s" "$PWD" "${TIMBER_WORKTREE-unset}" > held\n');
+  await chmod(shell, 0o755);
+  const context = { cwd, repositoryRoot: cwd, branch: null, hold: true as const };
+  const request = await createTerminalRequest(kind === "setup"
+    ? { ...context, kind, hooks: ["exit 3"], workflowHooks: [] }
+    : { ...context, kind, command: "/bin/sh", args: ["-c", "exit 4"] }, self);
+  const child = execa("/bin/sh", ["-c", request.bootstrap], { env: { SHELL: shell }, reject: false });
+  try {
+    await request.waitStarted(3000);
+    if (kind === "setup") expect(await request.waitSetup()).toMatchObject({ kind: "setup-failed", step: 1 });
+    const result = await child;
+    expect(result.exitCode).toBe(kind === "setup" ? 1 : 4);
+    expect(result.stdout).toContain("This terminal stays open");
+    // The held shell gets the terminal's original environment, not the task context.
+    expect(await readFile(join(cwd, "held"), "utf8")).toBe(`${cwd}:unset`);
+  } finally { await request.cleanup(); await rm(cwd, { recursive: true, force: true }); }
+});
