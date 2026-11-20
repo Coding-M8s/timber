@@ -115,6 +115,10 @@ export interface RepositoryConfig {
   defaultTracker?: IssueTracker;
   /** Total character cap for issue and sentence generated names; absent retains legacy limits. */
   maxGeneratedBranchNameLength?: number;
+  /** Present only when configured; null keeps new backups until deleted. */
+  backupRetentionDays?: number | null;
+  /** Present only when configured; null turns the storage warning off. */
+  backupStorageWarningBytes?: number | null;
   /** Optional named executable presets for arena attempts. */
   arena?: ArenaConfig;
   baseBranch: string | null;

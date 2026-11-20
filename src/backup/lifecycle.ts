@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { lstat, readdir, readFile, realpath, rename, rmdir, unlink } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { FormattedError, safeDiagnostic, safeDisplay, shellQuoteForDisplay } from "../display";
@@ -7,13 +8,15 @@ import type { CommandIO } from "../services";
 import type { TerminalTextPrompt } from "../selection";
 import type { RepositoryContext } from "../types";
 import { backupGit } from "./git";
+import { describeRetention, isExpired, retentionOf, type Retention } from "./retention";
 import {
   BackupRecordError, backupIdPattern, backupRef, backupsRoot, digest, formatBytes, readBackupAt, readPrivateBytes, validateManifest,
-  validateRecord, type BackupRecord, type PublishedBackup,
+  validateRecord, writePrivateFile, type BackupRecord, type PublishedBackup,
 } from "./storage";
 
 const deletingPrefix = ".deleting-";
 const incompletePrefix = ".incomplete-";
+const retainPrefix = ".retain-";
 const blobPattern = /^\d{6,}$/u;
 
 export type Protection = { protected: false } | { protected: true; reason: string };
@@ -177,6 +180,10 @@ export async function readInventory(repository: RepositoryContext): Promise<Back
       items.push({ kind: "problem", name, reason: "incomplete creation left by an interrupted backup; not a usable backup" });
       continue;
     }
+    if (name.startsWith(retainPrefix)) {
+      items.push({ kind: "problem", name, reason: "temporary record left by an interrupted keep or unkeep; inspect and remove it manually" });
+      continue;
+    }
     if (!backupIdPattern.test(name)) {
       items.push({ kind: "problem", name, reason: "unrecognized entry in backup storage" });
       continue;
@@ -201,7 +208,7 @@ export async function readInventory(repository: RepositoryContext): Promise<Back
   return { commonGitDir, root, items };
 }
 
-function backupLines(backup: EligibleBackup): string[] {
+function backupLines(backup: EligibleBackup, now: Date): string[] {
   const { record } = backup;
   return [
     record.id,
@@ -210,8 +217,9 @@ function backupLines(backup: EligibleBackup): string[] {
     `  Size: ${formatBytes(record.bytes)}, ${record.entries} entries`,
     `  Source worktree: ${safeDisplay(record.worktreePath)}`,
     `  Protection: ${backup.protection.protected ? `protected, ${backup.protection.reason}` : "none"}`,
-    // Version 1 records carry no retention policy; expiry belongs to #121.
-    "  Expiry: none, no retention policy; kept until deleted",
+    // Version 1 records carry no retention policy and keep their original line.
+    record.version === 1 ? "  Expiry: none, no retention policy; kept until deleted"
+      : `  Retention: ${describeRetention(record, now, backup.protection.protected)}`,
   ];
 }
 
@@ -236,7 +244,7 @@ function partitionInventory(items: readonly BackupItem[]): BackupListing {
 }
 
 /** `timber backup list`: read-only and safe to run anywhere. */
-export async function listBackups(repository: RepositoryContext, io: CommandIO): Promise<number> {
+export async function listBackups(repository: RepositoryContext, io: CommandIO, now: Date = new Date()): Promise<number> {
   const { items } = await readInventory(repository);
   const { backups, unfinished, problems, total } = partitionInventory(items);
   if (!items.length) {
@@ -245,7 +253,7 @@ export async function listBackups(repository: RepositoryContext, io: CommandIO):
   }
   const lines: string[] = [];
   lines.push(`Recovery backups: ${backups.length} (${formatBytes(total)})`);
-  for (const backup of backups) lines.push(...backupLines(backup));
+  for (const backup of backups) lines.push(...backupLines(backup, now));
   if (unfinished.length) {
     lines.push("Unfinished deletions (finish with timber backup done):");
     for (const item of unfinished) lines.push(`  ${item.id}: deletion did not complete; ${safeDisplay(item.directory)} remains`);
@@ -256,7 +264,9 @@ export async function listBackups(repository: RepositoryContext, io: CommandIO):
   }
   lines.push(ignoredWarning,
     "Restore with: timber backup restore <id> <new-directory>",
-    "Delete with: timber backup done (one at a time) or timber backup done --all", "");
+    "Delete with: timber backup done (one at a time) or timber backup done --all",
+    "Expired backups that are not protected are deleted by timber backup create or timber backup cleanup.",
+    "Keep one past its expiry with: timber backup keep <id> (undo with timber backup unkeep <id>)", "");
   io.stdout(lines.join("\n"));
   return 0;
 }
@@ -273,8 +283,8 @@ export interface BackupListEntry {
   /** Lowercase hex SHA-256 of the exact record.json bytes; pass it to `__app-backup delete`. */
   recordSha256: string;
   protection: { protected: false; reason: null } | { protected: true; reason: string };
-  /** Version 1 records carry no retention policy; #121 defines any non-null form. */
-  expiry: null;
+  /** Null for version 1 records, which carry no retention policy; state is evaluated when listed. */
+  expiry: Retention | null;
 }
 
 /** `timber backup list --json`, schema version 1. Holds only record facts, never snapshot names or contents. */
@@ -295,7 +305,9 @@ export interface BackupListRecord {
  * Read-only JSON form of `timber backup list`. Discovery and storage failures
  * become a failed record instead of a thrown error, so stdout always holds one record.
  */
-export async function readBackupList(cwd: string, discover: (cwd: string) => Promise<RepositoryContext>): Promise<BackupListRecord> {
+export async function readBackupList(
+  cwd: string, discover: (cwd: string) => Promise<RepositoryContext>, now: Date = new Date(),
+): Promise<BackupListRecord> {
   const record: BackupListRecord = { schemaVersion: 1, outcome: "succeeded", exitCode: 0, repository: null,
     diagnostic: null, backups: [], unfinished: [], notUsable: [], totalBytes: 0 };
   let inventory: BackupInventory;
@@ -315,7 +327,7 @@ export async function readBackupList(cwd: string, discover: (cwd: string) => Pro
     id, branch: saved.branch, commit: saved.commit, createdAt: saved.createdAt, bytes: saved.bytes,
     entries: saved.entries, worktreePath: saved.worktreePath, recordSha256,
     protection: protection.protected ? { protected: true, reason: protection.reason } : { protected: false, reason: null },
-    expiry: null,
+    expiry: retentionOf(saved, now),
   }));
   // The same read `__app-backup delete` repeats before finishing; it only reads.
   record.unfinished = await Promise.all(unfinished.map(async item => ({ id: item.id, directory: item.directory,
@@ -522,7 +534,7 @@ function confirmed(answer: string | null): boolean {
 
 /** `timber backup done [--all]`: selection is never confirmation, and only `y` then Enter deletes. */
 export async function reviewBackupDeletion(
-  repository: RepositoryContext, options: BackupDoneOptions, io: CommandIO, ask: TerminalTextPrompt | undefined,
+  repository: RepositoryContext, options: BackupDoneOptions, io: CommandIO, ask: TerminalTextPrompt | undefined, now: Date = new Date(),
 ): Promise<number> {
   if (!ask) throw new Error(nonInteractive);
   const inventory = await readInventory(repository);
@@ -580,7 +592,7 @@ export async function reviewBackupDeletion(
     let cancelled = false;
     const targets: (EligibleBackup | { item: UnfinishedDeletion; plan: UnfinishedPlan })[] = [...eligible, ...unfinished];
     for (const target of targets) {
-      if ("kind" in target) io.stdout(backupLines(target).join("\n") + "\n");
+      if ("kind" in target) io.stdout(backupLines(target, now).join("\n") + "\n");
       else io.stdout(`${target.item.id}\n  Unfinished deletion: ${safeDisplay(target.item.directory)} remains; it is not restorable\n`);
       const id = "kind" in target ? target.id : target.item.id;
       const answer = await ask(`Delete backup ${id}? Type y and press Enter to delete [y/N] `);
@@ -678,8 +690,139 @@ export async function deleteConfirmedBackup(
   return 0;
 }
 
-/** For `timber done`: IDs of valid backups recorded from the removed worktree. Read-only. */
-export async function retainedBackups(repository: RepositoryContext, worktreePath: string): Promise<string[]> {
+export interface RetainedBackup {
+  id: string;
+  /** Size and retention, for example `1.2 MiB, expires <ISO time>`. */
+  detail: string;
+}
+
+function shortRetention(record: BackupRecord, now: Date): string {
+  const retention = retentionOf(record, now);
+  if (retention === null) return "no retention policy";
+  switch (retention.state) {
+    case "kept": return "kept indefinitely";
+    case "until-deleted": return "kept until deleted";
+    case "expiring": return `expires ${retention.expiresAt}`;
+    case "expired": return `expired ${retention.expiresAt}`;
+  }
+}
+
+/** For `timber done`: valid backups recorded from the removed worktree, with size and retention. Read-only. */
+export async function retainedBackups(repository: RepositoryContext, worktreePath: string, now: Date = new Date()): Promise<RetainedBackup[]> {
   const { items } = await readInventory(repository);
-  return items.flatMap(item => item.kind === "backup" && samePath(item.record.worktreePath, worktreePath) ? [item.id] : []);
+  return items.flatMap(item => item.kind === "backup" && samePath(item.record.worktreePath, worktreePath)
+    ? [{ id: item.id, detail: `${formatBytes(item.record.bytes)}, ${shortRetention(item.record, now)}` }] : []);
+}
+
+export interface CleanupSummary {
+  deleted: number;
+  deletedBytes: number;
+  /** Expired backups that were kept: protected, changed after selection, or not removable. */
+  kept: number;
+  partial: number;
+}
+
+/**
+ * Delete every usable, unprotected, expired backup through the confirmed-deletion path.
+ * Reads no configuration: each record carries its own captured policy.
+ */
+export async function cleanupExpiredBackups(
+  repository: RepositoryContext, io: CommandIO, now: Date = new Date(), options: { quietWhenNone?: boolean } = {},
+): Promise<CleanupSummary> {
+  const inventory = await readInventory(repository);
+  const gitCwd = repository.primaryWorktreeRoot;
+  const summary: CleanupSummary = { deleted: 0, deletedBytes: 0, kept: 0, partial: 0 };
+  const expired = inventory.items.filter((item): item is EligibleBackup => item.kind === "backup" && isExpired(item.record, now));
+  const unfinished = inventory.items.filter(item => item.kind === "unfinished").length;
+  const unfinishedNote = unfinished
+    ? `${unfinished} unfinished deletion${unfinished === 1 ? "" : "s"} remain; finish with timber backup done.\n` : "";
+  if (!expired.length) {
+    if (!options.quietWhenNone) io.stdout(`No expired backups; nothing was deleted.\n${unfinishedNote}`);
+    return summary;
+  }
+  for (const backup of expired) {
+    const expiresAt = retentionOf(backup.record, now)?.expiresAt;
+    if (backup.protection.protected) {
+      summary.kept++;
+      io.stdout(`Kept expired backup ${backup.id}: it is protected, ${backup.protection.reason}.\n`);
+      continue;
+    }
+    let outcome: Outcome;
+    try { outcome = await deleteBackup(backup, inventory, gitCwd); }
+    catch {
+      const deleting = join(inventory.root, deletingPrefix + backup.id);
+      const renamed = await lstat(deleting).then(() => true, failure => code(failure) !== "ENOENT");
+      outcome = renamed ? partial(backup.id, deleting, await remainingState(deleting, backup.record.ref, gitCwd))
+        : { kind: "kept", reason: "it could not be checked" };
+    }
+    if (outcome.kind === "deleted") {
+      summary.deleted++;
+      summary.deletedBytes += backup.record.bytes;
+      io.stdout(`Deleted expired backup ${backup.id} (${formatBytes(backup.record.bytes)}, expired ${expiresAt})\n`);
+    } else if (outcome.kind === "kept") {
+      summary.kept++;
+      io.stderr(`Kept expired backup ${backup.id}: ${outcome.reason}. Nothing was deleted for it.\n`);
+    } else {
+      summary.partial++;
+      io.stderr(`${outcome.message}\n`);
+    }
+  }
+  io.stdout(`Deleted ${summary.deleted} expired backup${summary.deleted === 1 ? "" : "s"} (${formatBytes(summary.deletedBytes)})`
+    + `${summary.kept ? `; kept ${summary.kept}` : ""}${summary.partial ? `; ${summary.partial} not fully deleted` : ""}.\n${unfinishedNote}`);
+  return summary;
+}
+
+/** `timber backup cleanup`: no prompt and no terminal needed; nonzero only when a deletion was left partial. */
+export async function cleanupBackups(repository: RepositoryContext, io: CommandIO, now: Date = new Date()): Promise<number> {
+  const summary = await cleanupExpiredBackups(repository, io, now);
+  return summary.partial ? 1 : 0;
+}
+
+/**
+ * `timber backup keep|unkeep <id>`: rewrite only the record's `keep` flag. The new record is
+ * written beside the backup and renamed over record.json after the old bytes and identity are rechecked.
+ */
+export async function setBackupKeep(
+  repository: RepositoryContext, id: string, keep: boolean, io: CommandIO, now: Date = new Date(),
+): Promise<number> {
+  if (!backupIdPattern.test(id)) throw new Error("Invalid backup ID; use an ID from timber backup list. Nothing was changed.");
+  const inventory = await readInventory(repository);
+  const unchanged = (reason: string) => new Error(`Backup ${id} was not changed: ${reason}.`);
+  const related = inventory.items.filter(item => item.kind === "problem" ? item.name === id || item.name === backupRef(id) : item.id === id);
+  if (!related.length) throw unchanged("no backup with that ID exists in this repository");
+  const item = related.find((candidate): candidate is EligibleBackup => candidate.kind === "backup");
+  if (!item || related.length > 1) {
+    const problem = related.find((candidate): candidate is BackupProblem => candidate.kind === "problem");
+    throw unchanged(problem ? `it is not usable: ${problem.reason}` : "it is being deleted; finish with timber backup done");
+  }
+  const { record } = item;
+  if (record.version === 1) throw unchanged("it has no retention policy and is already kept until deleted");
+  if (record.keep === keep) {
+    io.stdout(keep ? `Backup ${id} is already kept indefinitely.\n` : `Backup ${id} is not kept; its retention is unchanged: ${describeRetention(record, now, item.protection.protected)}\n`);
+    return 0;
+  }
+  const updated: BackupRecord = { ...record, keep };
+  const temporary = join(inventory.root, `${retainPrefix}${id}-${randomBytes(4).toString("hex")}`);
+  try { await writePrivateFile(temporary, JSON.stringify(updated) + "\n"); }
+  catch {
+    await unlink(temporary).catch(() => {});
+    throw unchanged("its new record could not be written; check Git directory permissions and free space");
+  }
+  const discard = async (reason: string) => { await unlink(temporary).catch(() => {}); return unchanged(reason); };
+  let fresh: PublishedBackup;
+  try {
+    fresh = await readBackupAt(join(inventory.root, id), id);
+    await assertExactContents(fresh);
+  } catch { throw await discard("it changed after it was selected"); }
+  if (fresh.recordSha256 !== item.recordSha256 || fresh.device !== item.device || fresh.inode !== item.inode) {
+    throw await discard("it changed after it was selected");
+  }
+  const pinned = await backupGit(repository.primaryWorktreeRoot, ["rev-parse", "--verify", "--quiet", `${record.ref}^{commit}`]);
+  if (pinned.exitCode !== 0 || pinned.stdout !== record.commit) throw await discard("its private ref changed");
+  try { await rename(temporary, join(fresh.directory, "record.json")); }
+  catch { throw await discard("its record could not be replaced"); }
+  io.stdout(keep
+    ? `Backup ${id} is kept indefinitely; automatic cleanup will not delete it. Undo with timber backup unkeep ${id}.\n`
+    : `Backup ${id} is no longer kept. Retention: ${describeRetention(updated, now, item.protection.protected)}\n`);
+  return 0;
 }

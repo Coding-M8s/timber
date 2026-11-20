@@ -1,3 +1,4 @@
+import { backupSettings } from "../backup/retention";
 import { createBackupRestoreReport } from "../backup/service";
 import type { CommandHandlers, CommandServices } from "../services";
 import { selectRegisteredWorktree } from "./select-worktree";
@@ -6,15 +7,30 @@ import { selectRegisteredWorktree } from "./select-worktree";
 export function createBackupCreateHandler(
   services: Pick<CommandServices, "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "createBackup">,
 ): NonNullable<CommandHandlers["backupCreate"]> {
-  return async (input, context) => {
+  return async (input, context, options = { keep: false }) => {
     if (!input.trim()) throw new Error("Provide an existing branch or absolute worktree path to back up.");
     const repository = await services.discoverRepository(context.cwd);
     const config = await services.loadConfig(repository);
     const selected = await selectRegisteredWorktree(services, repository, config, input, context,
       { command: "backup", past: "backed up", rerun: "timber backup create" });
     if (selected === null) { context.io.stdout("Cancelled.\n"); return 0; }
-    return services.createBackup(repository, selected, context.io);
+    return services.createBackup(repository, selected, context.io,
+      { keep: options.keep, settings: backupSettings(config), ask: context.ask });
   };
+}
+
+/** Policy-driven deletion of expired backups; needs no terminal and reads no configuration. */
+export function createBackupCleanupHandler(
+  services: Pick<CommandServices, "discoverRepository" | "cleanupBackups">,
+): NonNullable<CommandHandlers["backupCleanup"]> {
+  return async context => services.cleanupBackups(await services.discoverRepository(context.cwd), context.io);
+}
+
+/** `backup keep|unkeep <id>`: changes only the record's keep flag. */
+export function createBackupKeepHandler(
+  services: Pick<CommandServices, "discoverRepository" | "setBackupKeep">,
+): NonNullable<CommandHandlers["backupKeep"]> {
+  return async (id, keep, context) => services.setBackupKeep(await services.discoverRepository(context.cwd), id, keep, context.io);
 }
 
 /** Restore resolves the destination from the invoking directory, never from config. */

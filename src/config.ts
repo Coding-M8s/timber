@@ -4,6 +4,8 @@ import { parse } from "smol-toml";
 import { z } from "zod";
 import { globalConfigPath } from "./config-paths";
 import { validateParticipant } from "./arena/participants";
+import { parseStorageSize } from "./backup/retention";
+import { maxRetentionDays } from "./backup/storage";
 import type { IssueListSettings, RepositoryConfig, RepositoryContext } from "./types";
 
 const defaults: RepositoryConfig = {
@@ -70,6 +72,8 @@ export const configFileSchema = z.strictObject({
   remote: z.string().trim().min(1).optional(),
   max_generated_branch_name_length: z.number().int().positive().optional(),
   update_check: z.boolean().optional(),
+  backup_retention_days: z.union([z.literal(false), z.number().int().min(1).max(maxRetentionDays)]).optional(),
+  backup_storage_warning: z.union([z.literal(false), z.string().refine(value => parseStorageSize(value) !== null)]).optional(),
   worktree_dir: z.string().refine(value => value.trim().length > 0).optional(),
   hooks: z.union([z.literal(false), z.strictObject({
     post_create: hookStepsSchema.default([]),
@@ -183,6 +187,8 @@ export function effectiveConfigValues(scopes: ConfigScopes): ConfigFile {
     ...(config.max_generated_branch_name_length === undefined ? {} : {
       max_generated_branch_name_length: config.max_generated_branch_name_length,
     }),
+    ...(config.backup_retention_days === undefined ? {} : { backup_retention_days: config.backup_retention_days }),
+    ...(config.backup_storage_warning === undefined ? {} : { backup_storage_warning: config.backup_storage_warning }),
     ...(config.base_branch === undefined ? {} : { base_branch: config.base_branch }),
     ...(config.remote === undefined ? {} : { remote: config.remote }),
     ...(config.worktree_dir === undefined ? {} : { worktree_dir: config.worktree_dir }),
@@ -213,6 +219,12 @@ export function resolveConfig(scopes: ConfigScopes, primaryRoot: string): Reposi
     } : {}),
     ...(config.max_generated_branch_name_length === undefined ? {} : {
       maxGeneratedBranchNameLength: config.max_generated_branch_name_length,
+    }),
+    ...(config.backup_retention_days === undefined ? {} : {
+      backupRetentionDays: config.backup_retention_days === false ? null : config.backup_retention_days,
+    }),
+    ...(config.backup_storage_warning === undefined ? {} : {
+      backupStorageWarningBytes: config.backup_storage_warning === false ? null : parseStorageSize(config.backup_storage_warning),
     }),
     baseBranch: config.base_branch ?? null,
     remote: config.remote ?? null,

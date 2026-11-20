@@ -8,6 +8,9 @@ import { gitOperation } from "../git/operations";
 import { assertWorktreeIdentity, listWorktreeInventory } from "../git/worktrees";
 import { samePath } from "../platform/paths";
 import type { CommandIO } from "../services";
+import type { TerminalTextPrompt } from "../selection";
+import { cleanupExpiredBackups, readInventory, reviewBackupDeletion } from "./lifecycle";
+import { describeRetention, isExpired, type BackupSettings } from "./retention";
 import type { RepositoryContext, Worktree, WorktreeInventory } from "../types";
 import {
   assertStorageSpace, copySnapshot, restoreSnapshot, sameListing, SnapshotError, snapshotBytes, verifyBlobs, walkWorktree,
@@ -79,12 +82,90 @@ async function exists(path: string): Promise<boolean> {
   catch (error) { return (error as NodeJS.ErrnoException).code !== "ENOENT"; }
 }
 
+export interface BackupCreateOptions {
+  /** Keep this backup indefinitely (`--keep`). */
+  keep: boolean;
+  /** Effective retention and warning settings, captured into the record. */
+  settings: BackupSettings;
+  /** Present only when interactive; without it a storage warning refuses. */
+  ask?: TerminalTextPrompt | undefined;
+  now?: () => Date;
+}
+
+const defaultCreateOptions: BackupCreateOptions = { keep: false, settings: { retentionDays: 7, warningBytes: 5 * 1024 ** 3 } };
+
+interface StorageUse { count: number; total: number; expired: number; eligible: number }
+
+async function storageUse(repository: RepositoryContext, now: Date): Promise<StorageUse> {
+  let inventory;
+  try { inventory = await readInventory(repository); }
+  catch { throw new Error("Cannot read existing recovery backups to check storage; no backup was created. Inspect them with timber backup list."); }
+  const use: StorageUse = { count: 0, total: 0, expired: 0, eligible: 0 };
+  for (const item of inventory.items) {
+    if (item.kind !== "backup") continue;
+    use.count++;
+    use.total += item.record.bytes;
+    if (isExpired(item.record, now)) use.expired += item.record.bytes;
+    if (!item.protection.protected) use.eligible += item.record.bytes;
+  }
+  return use;
+}
+
+function storageWarning(bytes: number, use: StorageUse, threshold: number): string[] {
+  return [
+    `Backup storage warning: this backup is about ${formatBytes(bytes)}. With it, recovery backups would total ${formatBytes(use.total + bytes)},`
+      + ` over the ${formatBytes(threshold)} warning threshold (backup_storage_warning).`,
+    `Existing: ${use.count} backup${use.count === 1 ? "" : "s"}, ${formatBytes(use.total)}; expired ${formatBytes(use.expired)};`
+      + ` eligible for deletion (not protected) ${formatBytes(use.eligible)}.`,
+  ];
+}
+
+/**
+ * Warn before backups exceed the configured threshold. Returns false when cancelled.
+ * Without a terminal it refuses rather than waiting or assuming consent.
+ */
+async function confirmStorage(
+  repository: RepositoryContext, source: Source, settings: BackupSettings, io: CommandIO, ask: TerminalTextPrompt | undefined, now: () => Date,
+): Promise<boolean> {
+  const threshold = settings.warningBytes;
+  if (threshold === null) return true;
+  for (;;) {
+    const bytes = snapshotBytes(await walkWorktree(source.tree.path, source.others));
+    const use = await storageUse(repository, now());
+    if (use.total + bytes <= threshold) return true;
+    const warning = storageWarning(bytes, use, threshold);
+    if (!ask) {
+      throw new FormattedError([...warning,
+        "No backup was created. Run timber backup create in an interactive terminal to continue, delete backups with",
+        "timber backup cleanup or timber backup done, or raise or turn off backup_storage_warning with timber setup.",
+      ].join("\n"));
+    }
+    io.stdout(warning.join("\n") + "\n");
+    const answer = await ask("Type c to continue, r to review backups for deletion, or press Enter to cancel [c/r/N] ");
+    if (answer === "c" || answer === "C") return true;
+    if (answer !== "r" && answer !== "R") {
+      io.stdout("Cancelled; no backup was created.\n");
+      return false;
+    }
+    await reviewBackupDeletion(repository, { all: false }, io, ask, now());
+  }
+}
+
 /** Publish a verified snapshot and private ref, or nothing that looks usable. */
-export async function createBackup(repository: RepositoryContext, selected: Worktree, io: CommandIO): Promise<number> {
+export async function createBackup(
+  repository: RepositoryContext, selected: Worktree, io: CommandIO, options: BackupCreateOptions = defaultCreateOptions,
+): Promise<number> {
+  const now = options.now ?? (() => new Date());
   const source = await preflight(repository, selected);
+  // Expired, unprotected backups go first; a partial deletion is reported and makes the run exit 1.
+  let cleanup;
+  try { cleanup = await cleanupExpiredBackups(repository, io, now(), { quietWhenNone: true }); }
+  catch { throw new Error("Cannot read existing recovery backups for expiry cleanup; no backup was created. Inspect them with timber backup list."); }
+  if (cleanup.partial) io.stderr("Expiry cleanup did not fully delete every expired backup; creating the new backup anyway.\n");
+  if (!await confirmStorage(repository, source, options.settings, io, options.ask, now)) return 0;
   const commonGitDir = await realpath(repository.commonGitDir);
   const root = await ensureBackupsRoot(commonGitDir);
-  const id = newBackupId();
+  const id = newBackupId(now());
   const ref = backupRef(id);
   const commit = source.tree.head!;
   const working = join(root, `.incomplete-${id}`);
@@ -93,6 +174,7 @@ export async function createBackup(repository: RepositoryContext, selected: Work
   catch { throw new Error("Cannot create private backup storage; check Git directory permissions. No backup was created."); }
   let refCreated = false;
   let summary: { entries: number; bytes: number };
+  let record: BackupRecord;
   // An interrupt must not leave a private copy of ignored secrets behind.
   const interrupted = (signal: NodeJS.Signals) => {
     rmSync(working, { recursive: true, force: true });
@@ -116,10 +198,11 @@ export async function createBackup(repository: RepositoryContext, selected: Work
     if (!samePath(recheck.gitDirectory, source.gitDirectory)) throw new Error("Selected worktree Git identity changed; no backup was created.");
     await verifyBlobs(working, manifest);
     const manifestText = JSON.stringify(manifest) + "\n";
-    const record: BackupRecord = {
-      version: 1, id, createdAt: new Date().toISOString(), commonGitDir,
+    record = {
+      version: 2, id, createdAt: now().toISOString(), commonGitDir,
       worktreePath: resolve(source.tree.path), worktreeGitDir: await realpath(source.gitDirectory),
       branch: source.tree.branch, commit, ref, entries: manifest.length, bytes, manifestSha256: digest(manifestText),
+      origin: "manual", retentionDays: options.settings.retentionDays, keep: options.keep,
     };
     try {
       await writePrivateFile(join(working, "manifest.json"), manifestText);
@@ -152,11 +235,23 @@ export async function createBackup(repository: RepositoryContext, selected: Work
     `Commit: ${commit}`,
     `Entries: ${summary.entries}, ${formatBytes(summary.bytes)}`,
     `Stored privately in: ${safeDisplay(published)}`,
-    "Ignored files, including secrets such as .env, were copied into the backup. It is kept until removed.",
+    `Retention: ${describeRetention(record!, now(), false)}`,
+    ...await totalLine(repository, now()),
+    "Ignored files, including secrets such as .env, were copied into the backup.",
+    "Expired backups that are not protected are deleted by a later timber backup create or timber backup cleanup;",
+    options.keep ? "nothing runs in the background." : `nothing runs in the background. Keep this one with: timber backup keep ${id}`,
     `Restore into a new directory with: timber backup restore ${id} <new-directory>`,
     "",
   ].join("\n"));
-  return 0;
+  return cleanup.partial ? 1 : 0;
+}
+
+/** Reporting only; a read failure after publication must not fail the created backup. */
+async function totalLine(repository: RepositoryContext, now: Date): Promise<string[]> {
+  try {
+    const use = await storageUse(repository, now);
+    return [`Recovery backups now: ${use.count}, ${formatBytes(use.total)}`];
+  } catch { return []; }
 }
 
 async function destinationPath(cwd: string, input: string, commonGitDir: string): Promise<string> {

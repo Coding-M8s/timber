@@ -11,7 +11,7 @@ import { git, withRepository } from "./helpers/git";
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (cwd: string, args: string[], env: Record<string, string> = {}) =>
   execa(process.execPath, ["--no-env-file", entry, ...args], {
-    cwd, reject: false, timeout: 15_000, env: { CI: "true", GIT_EDITOR: "false", ...env },
+    cwd, reject: false, timeout: 15_000, env: { CI: "true", GIT_EDITOR: "false", XDG_CONFIG_HOME: "/nonexistent/timber-test-config", ...env },
   });
 const secret = "SYNTHETIC_TOKEN=app-backup-not-a-real-secret\n";
 

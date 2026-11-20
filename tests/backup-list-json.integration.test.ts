@@ -10,7 +10,7 @@ import { git, withRepository } from "./helpers/git";
 
 const entry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const cli = (cwd: string, args: string[], env: Record<string, string> = {}) => execa(process.execPath,
-  ["--no-env-file", entry, ...args], { cwd, reject: false, timeout: 15_000, stripFinalNewline: false, env: { CI: "true", GIT_EDITOR: "false", ...env } });
+  ["--no-env-file", entry, ...args], { cwd, reject: false, timeout: 15_000, stripFinalNewline: false, env: { CI: "true", GIT_EDITOR: "false", XDG_CONFIG_HOME: "/nonexistent/timber-test-config", ...env } });
 const secret = "SYNTHETIC_TOKEN=list-json-not-a-real-secret\n";
 const identity = ["-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid"];
 
@@ -127,8 +127,11 @@ test("JSON list reports usable, unusable and unfinished entries with the text li
     expect(record.backups).toEqual([{
       id, branch: "feature/lifecycle", commit, createdAt: expect.any(String), bytes: expect.any(Number),
       entries: expect.any(Number), worktreePath: target, recordSha256: await recordDigest(join(storage, id)),
-      protection: { protected: false, reason: null }, expiry: null,
+      protection: { protected: false, reason: null },
+      expiry: { state: "expiring", retentionDays: 7, expiresAt: expect.any(String) },
     }]);
+    const listedExpiry = record.backups[0]!.expiry!;
+    expect(Date.parse(listedExpiry.expiresAt!) - Date.parse(record.backups[0]!.createdAt)).toBe(7 * 24 * 60 * 60 * 1000);
     expect(record.totalBytes).toBe(record.backups[0]!.bytes);
     expect(record.unfinished).toEqual([{ id: finishing, directory: join(storage, `.deleting-${finishing}`),
       recordSha256: await recordDigest(join(storage, `.deleting-${finishing}`)) }]);
