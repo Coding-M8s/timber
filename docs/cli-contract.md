@@ -571,7 +571,10 @@ refuses with `<remote>/<name> changed or disappeared after selection` and never
 falls back to creation. It then delegates to the ordinary `open` handler with the
 exact `<remote>/<name>` selector (refresh, materialize history, configure the
 upstream; no rebase onto a newer base, no base association). `--workflow`,
-`--editor`, `--agent` and `--no-setup` carry over. Refusal and cancellation run no
+`--editor`, `--agent` and `--no-setup` carry over. A resolved ticket is passed on
+as `--issue`, so the opened worktree is linked to it; a GitHub ticket selected with
+`--remote` is not linked, because `open` resolves GitHub issues in the default
+issue repository, and `new` says so. Refusal and cancellation run no
 hooks, editors or agents and leave files, refs and worktree registrations intact.
 
 ## Repository configuration

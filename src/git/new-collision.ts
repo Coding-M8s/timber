@@ -99,15 +99,14 @@ export async function inspectNewBranchCollision(
     throw new Error(`Configured remote ${config.remote} does not exist in this repository.`);
   }
   const eligible = repository.remotes.filter(remote => config.remote === null || remote.name === config.remote);
-  const remotes: RemoteCollision[] = [];
-  for (const remote of eligible) {
-    remotes.push({
-      remote: remote.name,
-      cached: await localCommit(repository, `refs/remotes/${remote.name}/${name}`, false),
-      live: await liveHead(repository, remote.name, name),
-      selectorSafe: parsesToRemote(repository, remote.name, name),
-    });
-  }
+  // Query remotes concurrently so several unreachable remotes cost one timeout, not one each.
+  const remotes: RemoteCollision[] = await Promise.all(eligible.map(async remote => {
+    const [cached, live] = await Promise.all([
+      localCommit(repository, `refs/remotes/${remote.name}/${name}`, false),
+      liveHead(repository, remote.name, name),
+    ]);
+    return { remote: remote.name, cached, live, selectorSafe: parsesToRemote(repository, remote.name, name) };
+  }));
   return { name, local: null, remotes };
 }
 
