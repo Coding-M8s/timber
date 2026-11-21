@@ -1,9 +1,9 @@
-// Thin glue: every decision lives in bridge.ts. No commands, views, settings or tasks.
+// Thin glue: decisions live in bridge.ts and spool-watch.ts. No commands, views, settings or tasks.
 import { randomBytes } from "node:crypto";
-import { watch } from "node:fs";
 import * as vscode from "vscode";
-import { ensureSpool, spoolDirectory } from "../../src/editor-terminals/vscode-protocol";
+import { spoolDirectory } from "../../src/editor-terminals/vscode-protocol";
 import { createBridge } from "./bridge";
+import { watchSpool } from "./spool-watch";
 
 const processIdTimeoutMs = 5000;
 
@@ -11,8 +11,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (process.platform === "win32" || typeof process.getuid !== "function") return;
   const uid = process.getuid();
   const spool = spoolDirectory(uid);
-  // Fail closed: a squatted or shared spool is never watched.
-  try { await ensureSpool(spool, uid); } catch { return; }
   const bridge = createBridge({
     spool, uid,
     windowId: randomBytes(8).toString("hex"),
@@ -32,11 +30,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
   const scan = () => { void bridge.scanPending(); };
-  const watcher = watch(spool, scan);
-  watcher.on("error", () => {});
-  context.subscriptions.push({ dispose: () => watcher.close() }, vscode.workspace.onDidChangeWorkspaceFolders(scan),
+  // Re-arms if /tmp cleanup removes the spool; a squatted or shared spool is never watched.
+  const watcher = watchSpool({ spool, uid, onChange: scan });
+  context.subscriptions.push(watcher, vscode.workspace.onDidChangeWorkspaceFolders(scan),
     vscode.workspace.onDidGrantWorkspaceTrust(scan));
-  scan();
 }
 
 export function deactivate(): void {}

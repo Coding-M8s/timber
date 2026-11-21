@@ -162,3 +162,20 @@ test("a later scan after trust is granted creates the terminal", async () => {
   expect(h.terminals).toHaveLength(1);
   expect(await json(spoolNames(next).ack)).toMatchObject({ trusted: true, processId: 4242 });
 });
+
+test.each(["ack", "error"] as const)("a %s written after Timber stopped waiting is removed, leaving the spool empty", async outcome => {
+  // Timber gives up while the terminal is starting: it removes the claim first, then any outcome.
+  const h = host({ createTerminal: async () => {
+    await rm(join(spool, spoolNames(id).claimed));
+    return { processId: outcome === "ack" ? 4242 : undefined };
+  } });
+  await write(terminal());
+  await createBridge(h.value).scanPending();
+  expect(await files()).toEqual([]);
+});
+
+test("an outcome Timber is still waiting for stays in the spool", async () => {
+  await write({ protocol: 1, kind: "hello", cwd: worktree, expires: Date.now() + 10_000 });
+  await createBridge(host().value).scanPending();
+  expect(await files()).toEqual([spoolNames(id).ack, spoolNames(id).claimed]);
+});

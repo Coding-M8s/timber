@@ -145,6 +145,11 @@ async function launcher(
       file.editor = { ...command, enabled: await confirm(prompt, command.integration !== undefined
         ? `Run setup scripts and the assistant in ${command.integration === "orca" ? "Orca" : "VS Code"} terminals automatically when opening a workspace?`
         : "Open this editor automatically when opening a workspace?", false) };
+      if (command.integration === "vscode") {
+        io.stdout("VS Code terminals need the Timber Terminals extension; see docs/editor-terminals.md#vs-code to install it. "
+          + "Trust the folder that holds your worktrees once in VS Code (Manage in the Restricted Mode banner, then Add Folder), "
+          + "or each new worktree window opens in Restricted Mode and Timber stops before starting terminals.\n");
+      }
       return;
     }
     const previous = file.agent ?? (target.scope === "repository" ? target.scopes.global.values.agent : undefined);

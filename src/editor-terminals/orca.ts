@@ -2,6 +2,7 @@ import { execa } from "execa";
 import { z } from "zod";
 import type { EditorConfig, Worktree } from "../types";
 import { supportsEditorTerminals } from "./process-identity";
+import { UncertainHandoff } from "./request";
 
 export type OrcaCall = (args: readonly string[], timeoutMs: number) => Promise<unknown>;
 /** Terminal creation succeeded; selection failure must never trigger another create. */
@@ -96,7 +97,7 @@ export async function createOrcaSession(editor: EditorConfig, worktree: Worktree
         response = envelope.parse(await call(["terminal", "create", "--worktree", `id:${id}`, "--title", title,
           ...(bootstrap === undefined ? [] : ["--command", bootstrap]), "--json"], 10_000));
       } catch {
-        throw new Error("Orca terminal handoff is uncertain. Inspect terminals in the selected worktree before retrying; terminal creation was not replayed.");
+        throw new UncertainHandoff("Orca terminal handoff is uncertain. Inspect terminals in the selected worktree before retrying; terminal creation was not replayed.");
       }
       if (!response.ok) throw failure(response.error?.code ?? "unknown");
       let handle: string;
@@ -105,7 +106,7 @@ export async function createOrcaSession(editor: EditorConfig, worktree: Worktree
         if (result.worktreeId !== id) throw new Error("Wrong terminal owner");
         handle = result.handle;
       } catch {
-        throw new Error("Orca terminal handoff is uncertain. Inspect terminals in the selected worktree before retrying; terminal creation was not replayed.");
+        throw new UncertainHandoff("Orca terminal handoff is uncertain. Inspect terminals in the selected worktree before retrying; terminal creation was not replayed.");
       }
       await reveal(handle);
       return handle;

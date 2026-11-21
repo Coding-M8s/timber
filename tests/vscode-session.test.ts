@@ -163,8 +163,11 @@ test("creation without runner argv is refused without writing a request", async 
 test("a hello from a Restricted Mode window fails readiness before any terminal request", async () => {
   const fake = extension(async (_request, id) => { await claim(id); await ack(id, { trusted: false }); });
   try {
-    await expect(createVscodeSession(editor, worktreeFixture(), options().value))
-      .rejects.toThrow(/Restricted Mode, so it cannot start Timber terminals\. Trust the folder/);
+    const error = await createVscodeSession(editor, worktreeFixture({ path: "/work/trees/repo/review" }), options().value)
+      .catch(e => e);
+    expect(error.message).toMatch(/Restricted Mode, so it cannot start Timber terminals\. Trust the folder that holds your worktrees/);
+    // The parent of the worktree, so one trust decision covers every later worktree there.
+    expect(error.message).toContain("/work/trees/repo, once in VS Code: click Manage in the Restricted Mode banner, then Add Folder");
     expect(fake.requests.map(request => request.kind)).toEqual(["hello"]);
     expect(await readdir(spool)).toEqual([]);
   } finally { await fake.stop(); }

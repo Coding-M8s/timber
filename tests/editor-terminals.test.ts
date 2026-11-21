@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { createEditorTerminalLauncher } from "../src/editor-terminals/launch";
 import { OrcaSelectionFailure } from "../src/editor-terminals/orca";
 import type { TerminalTask, TaskResult } from "../src/editor-terminals/protocol";
+import { UncertainHandoff } from "../src/editor-terminals/request";
 import type { TerminalRequest } from "../src/editor-terminals/request";
 import { repositoryFixture, worktreeFixture } from "./helpers/services";
 import type { EditorTerminalLaunch } from "../src/services";
@@ -226,4 +227,30 @@ test("an editor without an integration is refused before any session starts", as
   const plain = input();
   plain.config = { ...plain.config, editor: { command: "code", args: [], enabled: true } };
   await expect(launch(plain, io)).rejects.toThrow(/Orca or VS Code integration/);
+});
+
+test.each(["orca", "vscode"] as const)("an uncertain handoff settled by the fence is reported as never run with one retry, %s", async integration => {
+  const events: string[] = [];
+  const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
+    ready: async () => ({ create: async () => { throw new UncertainHandoff("handoff is uncertain"); }, select: async () => {} }),
+    request: async task => ({ directory: "/tmp/generated", bootstrap: "fixed", argv: ["fixed"], fence: async () => true,
+      waitStarted: async () => { events.push(`${task.kind}-started`); },
+      waitSetup: async () => { throw new Error("must not observe a fenced setup"); },
+      cleanup: async () => { events.push(`${task.kind}-cleaned`); } }) });
+  const error = await launch({ ...input(false, integration), agent: null }, io).catch(e => e);
+  expect(error.message).toContain(`${integration === "orca" ? "Orca" : "VS Code"} did not confirm the Timber setup terminal`);
+  expect(error.message).toContain("the setup never ran");
+  expect(error.message).not.toContain("uncertain");
+  expect(error.message).toContain("timber open --editor --setup --no-agent");
+  expect(events).toEqual(["setup-cleaned"]);
+});
+
+test("an uncertain handoff the runner already claimed stays uncertain and is never retried", async () => {
+  const launch = createEditorTerminalLauncher({ self: { executable: "/runtime" },
+    ready: async () => ({ create: async () => { throw new UncertainHandoff("handoff is uncertain"); }, select: async () => {} }),
+    request: async () => ({ directory: "/tmp/generated", bootstrap: "fixed", argv: ["fixed"], fence: async () => false,
+      waitStarted: async () => {}, waitSetup: async () => ({ kind: "setup-complete" }), cleanup: async () => {} }) });
+  const error = await launch({ ...input(false, "vscode"), setup: false }, io).catch(e => e);
+  expect(error.message).toMatch(/VS Code terminal creation acknowledgement was uncertain/);
+  expect(error.message).not.toContain("never ran");
 });

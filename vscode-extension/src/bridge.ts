@@ -1,5 +1,5 @@
 // The extension's logic, kept free of the vscode module so it can be tested with plain Bun.
-import { readdir, readFile, realpath, rename } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   isPrivate, parseRequest, publishSpoolFile, requestIdPattern, spoolNames, VSCODE_PROTOCOL,
@@ -49,12 +49,19 @@ export function createBridge(host: BridgeHost) {
     }
     // Timber fences with the same rename, so exactly one of claim and cancellation succeeds.
     try { await rename(path, join(host.spool, names.claimed)); } catch { return; }
-    const fail = (code: SpoolErrorCode) => publishSpoolFile(host.spool, names.error, { protocol: VSCODE_PROTOCOL, code });
+    // Timber removes the claim before outcomes once it stops waiting, so an outcome written
+    // after that is removed here instead of being left in the spool.
+    const answer = async (name: string, value: unknown) => {
+      await publishSpoolFile(host.spool, name, value);
+      try { await lstat(join(host.spool, names.claimed)); }
+      catch { await rm(join(host.spool, name), { force: true }).catch(() => {}); }
+    };
+    const fail = (code: SpoolErrorCode) => answer(names.error, { protocol: VSCODE_PROTOCOL, code });
     if (!parsed.ok) { await fail(parsed.code); return; }
     const ack: SpoolAck = { protocol: VSCODE_PROTOCOL, extensionVersion: host.extensionVersion,
       vscodeVersion: host.vscodeVersion, window: host.windowId, trusted: host.isTrusted() };
     const request = parsed.request;
-    if (request.kind === "hello") { await publishSpoolFile(host.spool, names.ack, ack); return; }
+    if (request.kind === "hello") { await answer(names.ack, ack); return; }
     if (!ack.trusted) { await fail("untrusted"); return; }
     let processId: number | undefined;
     try {
@@ -62,7 +69,7 @@ export function createBridge(host: BridgeHost) {
         shellPath: request.shellPath, shellArgs: [...request.shellArgs] }));
     } catch { processId = undefined; }
     if (processId === undefined) { await fail("create-failed"); return; }
-    await publishSpoolFile(host.spool, names.ack, { ...ack, processId });
+    await answer(names.ack, { ...ack, processId });
   }
 
   return {

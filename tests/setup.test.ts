@@ -464,7 +464,10 @@ test("setup offers VS Code terminals with the Timber extension and asks whether 
     labels.push(...choices.map(choice => choice.label));
     return select(message, choices, defaultValue);
   };
-  const file = await questionnaire(target(), prompt, io().io, async () => true);
+  const output = io();
+  const file = await questionnaire(target(), prompt, output.io, async () => true);
+  expect(output.output()).toContain("Trust the folder that holds your worktrees once in VS Code (Manage in the Restricted Mode banner, then Add Folder)");
+  expect(output.output()).toContain("docs/editor-terminals.md#vs-code");
   expect(file?.editor).toEqual({ command: "code", args: ["--new-window"], enabled: true, integration: "vscode" });
   expect(file?.agent).toEqual({ command: "claude", args: [], enabled: true, wait_for_setup: false });
   expect(labels).toContain("VS Code terminals (setup and assistant in VS Code; needs the Timber extension)");

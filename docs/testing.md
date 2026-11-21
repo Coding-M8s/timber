@@ -57,7 +57,11 @@ Code and record the VS Code version and results:
 5. Uninstall or disable the extension: Timber stops before creating terminals
    and prints the install hint and a retry.
 6. Open a new worktree in an untrusted folder: Timber stops at readiness with
-   the Restricted Mode message and creates no terminal.
+   the Restricted Mode message and creates no terminal. Add the worktrees
+   folder with Manage, then Add Folder, and check that a brand-new worktree
+   then runs setup and the agent on the first try. VS Code 1.147 and later
+   share trust across profiles, so this also trusts the folder in your normal
+   VS Code; remove it afterwards from Workspaces: Manage Workspace Trust.
 7. Check `/tmp/timber-vscode-$(id -u)` is mode 0700 and empty afterwards.
 
 ## CI
