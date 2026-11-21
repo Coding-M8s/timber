@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readLinearKey } from "../src/linear/auth";
+import { waitForProcessExit } from "./helpers/process";
 
 test("Linear environment override avoids saved storage and never falls back on invalid input", async () => {
   let reads = 0;
@@ -24,20 +25,23 @@ test.skipIf(process.platform === "win32")("Linear credential deadline cancels th
     process.env.PATH = root;
     const ready = join(root, "ready"); const finished = join(root, "finished");
     const fixture = join(root, "probe.ts");
-    await writeFile(fixture, `await Bun.write(${JSON.stringify(ready)}, String(process.pid));\nsetTimeout(async () => { await Bun.write(${JSON.stringify(finished)}, "finished"); console.log("false\\nfalse"); }, 1000);\n`);
+    // The child exits by itself only after the 2 second exit wait, so that wait proves cancellation killed it.
+    await writeFile(fixture, `await Bun.write(${JSON.stringify(ready)}, String(process.pid));\nsetTimeout(async () => { await Bun.write(${JSON.stringify(finished)}, "finished"); console.log("false\\nfalse"); }, 5000);\n`);
     await writeFile(join(root, "git"), `#!/bin/sh\nexec '${process.execPath}' --no-env-file '${fixture}'\n`, { mode: 0o700 });
     const controller = new AbortController();
     const loading = readLinearKey({ HOME: root, XDG_CONFIG_HOME: join(root, "config"), PATH: root }, undefined, controller.signal);
     // Attach the rejection handler before aborting, then wait for the owned child to start.
     const rejected = loading.catch(error => error);
-    for (let n = 0; n < 100 && !await Bun.file(ready).exists(); n++) await new Promise(resolve => setTimeout(resolve, 5));
-    expect(await Bun.file(ready).exists()).toBe(true);
-    const pid = Number(await readFile(ready, "utf8"));
+    // The file can exist before its contents land, and an empty read would give pid 0.
+    const readPid = async () => Number(await readFile(ready, "utf8").catch(() => ""));
+    let pid = 0;
+    for (let n = 0; n < 100 && !((pid = await readPid()) > 0); n++) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(pid).toBeGreaterThan(0);
     const start = performance.now(); controller.abort();
     await rejected;
     expect(performance.now() - start).toBeLessThan(700);
     expect(await Bun.file(finished).exists()).toBe(false);
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(await waitForProcessExit(pid)).toBe(true);
   } finally {
     if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
     await rm(root, { recursive: true, force: true });
