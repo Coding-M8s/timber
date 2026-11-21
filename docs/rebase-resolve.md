@@ -41,7 +41,8 @@ Older Timber releases reject these keys, so put them in machine defaults
    fetching; `--base` is refused then.
 2. Timber backs up the paused worktree, including ignored files such as `.env`.
    Staging and rebase state are not captured. If the backup fails, the assistant
-   does not start.
+   does not start. Its retention period starts only once Timber sees the rebase
+   finish or be aborted, so it cannot expire while the rebase is still going.
 3. The assistant resolves conflicts. It may run tests after you approve them,
    stage resolutions, and continue the rebase through later conflicts.
 4. Timber re-reads Git and reports what changed. It warns about files or refs

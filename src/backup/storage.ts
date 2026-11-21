@@ -29,11 +29,17 @@ export interface BackupRecordV1 {
 /** Version 2 captures the retention policy at creation; version 1 records have none and never expire. */
 export interface BackupRecordV2 extends Omit<BackupRecordV1, "version"> {
   version: 2;
-  origin: "manual";
+  /** `rebase` marks a backup made by `timber rebase --resolve` during a paused rebase. */
+  origin: "manual" | "rebase";
   /** Captured `backup_retention_days`; null means kept until deleted. */
   retentionDays: number | null;
   /** True while kept indefinitely with `timber backup keep`. */
   keep: boolean;
+  /**
+   * Rebase origin only: when Timber observed that rebase finish or be aborted, and retention
+   * began. Null until then. Manual records omit it; their retention starts at `createdAt`.
+   */
+  retentionStartedAt?: string | null;
 }
 
 export type BackupRecord = BackupRecordV1 | BackupRecordV2;
@@ -133,9 +139,13 @@ export function validateRecord(value: unknown, id: string): BackupRecord {
   const keys = ["version", "id", "createdAt", "commonGitDir", "worktreePath", "worktreeGitDir", "branch", "commit", "ref",
     "entries", "bytes", "manifestSha256"];
   const version2 = isRecord(value) && value.version === 2;
-  if (!isRecord(value) || !exactKeys(value, version2 ? [...keys, "origin", "retentionDays", "keep"] : keys)
+  const rebase = version2 && value.origin === "rebase";
+  const version2Keys = [...keys, "origin", "retentionDays", "keep", ...rebase ? ["retentionStartedAt"] : []];
+  if (!isRecord(value) || !exactKeys(value, version2 ? version2Keys : keys)
     || (value.version !== 1 && !version2) || value.id !== id
-    || (version2 && (value.origin !== "manual" || typeof value.keep !== "boolean"
+    || (rebase && !(value.retentionStartedAt === null
+      || (typeof value.retentionStartedAt === "string" && !Number.isNaN(Date.parse(value.retentionStartedAt)))))
+    || (version2 && ((value.origin !== "manual" && !rebase) || typeof value.keep !== "boolean"
       || !(value.retentionDays === null || (typeof value.retentionDays === "number" && Number.isSafeInteger(value.retentionDays)
         && value.retentionDays >= 1 && value.retentionDays <= maxRetentionDays))))
     || typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt))

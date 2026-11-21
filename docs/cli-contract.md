@@ -581,7 +581,7 @@ type BackupListRecord = {
     recordSha256: string;     // lowercase hex SHA-256 of the exact record.json bytes
     protection: { protected: false; reason: null } | { protected: true; reason: string };
     expiry: null | {          // null: version 1 record, no retention policy; kept until deleted
-      state: "kept" | "until-deleted" | "expiring" | "expired";
+      state: "kept" | "until-deleted" | "not-started" | "expiring" | "expired";
       retentionDays: number | null;
       expiresAt: string | null;
     };
@@ -624,12 +624,11 @@ protects every backup: an admin directory or rebase marker that cannot be
 inspected, a link in `worktrees/`, rebase state whose branch cannot be read (this
 includes `git am`), or a record whose source admin directory cannot be mapped.
 A missing admin directory, for example after `timber done`, is not rebase
-state. Version 1 backups are created from idle worktrees, or by `rebase
---resolve` from a paused merge-backend rebase, and record no operation origin.
-Such a backup records the rebased branch, so the scan above protects it while
-that rebase is active; a future record that marks a rebase origin must stay protected
-until completion or abort is reliably observed, never inferred from a missing
-rebase directory (#188). Protected backups are listed with their reason and are
+state. A backup made by `rebase --resolve` from a paused merge-backend rebase
+records the rebased branch, so the scan above protects it while that rebase is
+active. Its record has `origin: "rebase"`, and its retention starts only once
+the rebase's end is observed; see [rebase-origin
+retention](#rebase-origin-retention-188). Protected backups are listed with their reason and are
 never offered, by either form of `backup done`.
 
 `timber backup done` reviews eligible (usable, unprotected) backups one at a time,
@@ -711,7 +710,8 @@ invalid. Diagnostics name the file and key, never the value.
 
 New backups write record version 2. It adds three fields to version 1:
 
-- `origin: "manual"` (rebase-origin records are a follow-up; see below)
+- `origin`: `"manual"` for `timber backup create`, `"rebase"` for the backup
+  `rebase --resolve` makes of a paused rebase
 - `retentionDays`: the effective `backup_retention_days` when the backup was
   created, a positive integer or `null` for until deleted
 - `keep`: `true` when the backup is kept indefinitely
@@ -726,10 +726,48 @@ Version 1 records have no retention policy and never expire. They are listed as
 before ("none, no retention policy; kept until deleted"). Timber never assigns
 them a policy. They can still be deleted with `timber backup done`.
 
-A rebase that creates a backup is not part of this change. A future
-`origin: "rebase"` record must stay unexpired until completion or abort of that
-rebase is reliably observed, never inferred from a missing rebase directory.
-This is tracked in #188.
+A `"rebase"` record has one more field, `retentionStartedAt`: null until the
+rebase's end is observed, then the ISO 8601 UTC instant Timber observed it. Its
+expiry counts from that instant instead of `createdAt`. A `"manual"` record must
+not carry the field. Releases before #188 accept only `"manual"`, so they list
+rebase-origin records as not usable and never delete them.
+
+### Rebase-origin retention (#188)
+
+A rebase-origin backup's retention starts only when the rebase it was made for
+is reliably seen to complete or be aborted. Until then its retention state is
+`not-started`, it never expires, and expiry cleanup never deletes it. Two
+observations count:
+
+- Timber's own `rebase --resolve` session sees the rebase complete (no
+  operation, HEAD on the branch, onto an ancestor), after the assistant or after
+  the confirmed `git rebase --continue`.
+- A later `timber backup cleanup` or `timber backup create` (which runs expiry
+  cleanup first) finds Git's own record of the outcome: an entry `rebase
+  (finish): returning to refs/heads/<branch>` or `rebase (abort): returning to
+  refs/heads/<branch>` for the recorded branch in the source worktree's HEAD
+  reflog (`logs/HEAD` in its admin directory), timestamped no earlier than the
+  backup's creation second.
+
+Neither counts while the backup is protected: an active rebase of its worktree
+or branch, or any uncertain rebase state, keeps retention from starting. Nothing
+else is evidence. A missing rebase directory, a missing or unreadable reflog
+(for example after `timber done` removed the worktree's admin directory, or with
+reflogs turned off), a reflog entry older than the backup, `git rebase --quit`
+or a changed reflog action message all leave retention not started. One
+observation starts every not-started rebase-origin backup of that worktree and
+branch, for example the backups of several `--resolve` runs on one rebase.
+
+Starting rewrites `record.json` the way keep and unkeep do (same checks, private
+temporary file, rename), so `recordSha256` changes. It is best effort: any
+failure leaves the record unchanged and retention not started. `timber backup
+list` and `list --json` only read and never start retention. Cleanup and create
+print `Retention started for backup <id>: ...` with the new expiry.
+
+A backup whose outcome is never observed stays until it is deleted. Once no
+rebase is active or uncertain it is not protected, so the confirmed `timber
+backup done` review offers it, showing `Retention: not started`, and `backup
+done --all` includes it.
 
 ### Retention states
 
@@ -740,6 +778,7 @@ current time:
 | --- | --- |
 | `kept` | `keep` is true; never expires |
 | `until-deleted` | captured policy was `false`; never expires |
+| `not-started` | rebase origin, rebase end not yet observed; never expires until it is |
 | `expiring` | expires at a future instant |
 | `expired` | its expiry instant has passed |
 | none (version 1) | no retention policy; never expires |
@@ -853,9 +892,9 @@ records use:
 
 ```ts
 expiry: {
-  state: "kept" | "until-deleted" | "expiring" | "expired";
+  state: "kept" | "until-deleted" | "not-started" | "expiring" | "expired";
   retentionDays: number | null;  // captured policy; null when kept until deleted
-  expiresAt: string | null;      // ISO 8601 UTC; non-null whenever retentionDays is
+  expiresAt: string | null;      // ISO 8601 UTC; non-null whenever retentionDays is and retention has started
 }
 ```
 

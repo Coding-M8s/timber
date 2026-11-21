@@ -1120,9 +1120,14 @@ storage, and contacts nothing. The schema, ordering and failure rules are in the
   Protected and unusable entries are never offered by `timber backup done`.
 - Exit 0 with entries under `notUsable` or `unfinished` is normal; read each list.
 - `expiry` is `null` for records without a retention policy. Otherwise its
-  `state` (`kept`, `until-deleted`, `expiring` or `expired`) is evaluated when the
-  list is read; show protection alongside it, since a protected expired backup is
-  never deleted. See [retention](cli-contract.md#backup-retention-and-storage-warning-121).
+  `state` (`kept`, `until-deleted`, `not-started`, `expiring` or `expired`) is
+  evaluated when the list is read; show protection alongside it, since a
+  protected expired backup is never deleted. See [retention](cli-contract.md#backup-retention-and-storage-warning-121).
+  `not-started` marks a backup made by `rebase --resolve` whose rebase has not
+  yet been seen to end; its `expiresAt` is null until then. Treat unknown states
+  as never expiring.
+- Timber starts a rebase-origin backup's retention during `backup cleanup`,
+  `backup create` or `rebase --resolve`, which changes its `recordSha256`.
 - `timber backup keep` and `unkeep` change `recordSha256`; read the list again
   before confirming a deletion.
 - To delete a usable backup or finish an unfinished deletion, pass its `id` and

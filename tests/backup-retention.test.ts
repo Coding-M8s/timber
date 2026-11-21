@@ -112,6 +112,39 @@ test("retention descriptions name the state, time and the command that changes i
   expect(describeRetention({ ...v1, version: 1 } as BackupRecord, now, false)).toBe("none, no retention policy; kept until deleted");
 });
 
+test("rebase-origin records carry when retention started, and manual records must not", () => {
+  const id = record().id;
+  const notStarted = validateRecord(record({ origin: "rebase", retentionStartedAt: null }), id) as BackupRecordV2;
+  expect(notStarted).toMatchObject({ origin: "rebase", retentionStartedAt: null });
+  const started = "2026-11-12T08:00:00.000Z";
+  expect((validateRecord(record({ origin: "rebase", retentionStartedAt: started }), id) as BackupRecordV2).retentionStartedAt).toBe(started);
+  for (const bad of [
+    { origin: "rebase" }, { origin: "rebase", retentionStartedAt: "soon" }, { origin: "rebase", retentionStartedAt: 5 },
+    { origin: "manual", retentionStartedAt: null }, { origin: "other", retentionStartedAt: null },
+  ]) expect(() => validateRecord(record(bad as Partial<BackupRecordV2>), id)).toThrow();
+});
+
+test("a rebase-origin backup's retention has not started until its outcome is observed, then counts from then", () => {
+  const far = new Date(Date.parse(created) + 100_000 * day);
+  const waiting = record({ origin: "rebase", retentionStartedAt: null });
+  expect(retentionOf(waiting, far)).toEqual({ state: "not-started", retentionDays: 7, expiresAt: null });
+  expect(describeRetention(waiting, far, false)).toBe(
+    "not started; 7 days start once the rebase it was made for is seen to finish or be aborted");
+  expect(describeRetention(waiting, far, true)).toBe(
+    "not started; 7 days start once the rebase it was made for is seen to finish or be aborted");
+  // Keep and until-deleted policies still win.
+  expect(retentionOf(record({ origin: "rebase", retentionStartedAt: null, keep: true }), far)?.state).toBe("kept");
+  expect(retentionOf(record({ origin: "rebase", retentionStartedAt: null, retentionDays: null }), far)?.state).toBe("until-deleted");
+
+  const startedAt = Date.parse(created) + 3 * day;
+  const started = record({ origin: "rebase", retentionStartedAt: new Date(startedAt).toISOString() });
+  const expiresAt = new Date(startedAt + 7 * day);
+  expect(retentionOf(started, new Date(expiresAt.getTime() - 1))).toEqual(
+    { state: "expiring", retentionDays: 7, expiresAt: expiresAt.toISOString() });
+  expect(retentionOf(started, expiresAt)?.state).toBe("expired");
+  expect(describeRetention(started, new Date(startedAt), false)).toBe(`expires ${expiresAt.toISOString()} (7 days)`);
+});
+
 test("setup-rendered config round-trips both backup keys, including false, beside tables", async () => {
   const { renderConfig } = await import("../src/setup/render");
   for (const values of [

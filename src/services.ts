@@ -10,7 +10,7 @@ import type {
 import type { BaseAssociationRead } from "./git/base-metadata";
 import type { NewBranchInspection } from "./git/new-collision";
 import type { IssueLink, IssueLinkRead, IssueLinkWrite } from "./git/issue-link";
-import type { BackupListRecord } from "./backup/lifecycle";
+import type { BackupListRecord, ObservedRebase } from "./backup/lifecycle";
 import type { BaseWording, RebaseReport, RebaseRunOptions } from "./git/rebase";
 import type { PublishReport } from "./git/publish";
 import type { PullRequestOptions, PullRequestReport } from "./github/pull-request";
@@ -80,6 +80,8 @@ export interface CommandServices {
   createBackup(repository: RepositoryContext, worktree: Worktree, io: CommandIO, options: BackupCreateOptions): Promise<number>;
   /** Delete expired, usable, unprotected backups through the confirmed-deletion checks; no prompt. */
   cleanupBackups(repository: RepositoryContext, io: CommandIO): Promise<number>;
+  /** Start retention for rebase-origin backups of a rebase Timber just saw complete; best effort. */
+  startRebaseRetention?(repository: RepositoryContext, io: CommandIO, observed: ObservedRebase): Promise<unknown>;
   /** Keep one backup indefinitely, or restore its captured retention. */
   setBackupKeep(repository: RepositoryContext, id: string, keep: boolean, io: CommandIO): Promise<number>;
   /** Recover a verified backup into a new worktree and recovery branch; never overwrites or runs repository code. */

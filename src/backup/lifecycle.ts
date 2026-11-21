@@ -702,6 +702,7 @@ function shortRetention(record: BackupRecord, now: Date): string {
   switch (retention.state) {
     case "kept": return "kept indefinitely";
     case "until-deleted": return "kept until deleted";
+    case "not-started": return "retention starts when its rebase is seen to finish or be aborted";
     case "expiring": return `expires ${retention.expiresAt}`;
     case "expired": return `expired ${retention.expiresAt}`;
   }
@@ -729,6 +730,7 @@ export interface CleanupSummary {
 export async function cleanupExpiredBackups(
   repository: RepositoryContext, io: CommandIO, now: Date = new Date(), options: { quietWhenNone?: boolean } = {},
 ): Promise<CleanupSummary> {
+  await startRebaseRetention(repository, io, now);
   const inventory = await readInventory(repository);
   const gitCwd = repository.primaryWorktreeRoot;
   const summary: CleanupSummary = { deleted: 0, deletedBytes: 0, kept: 0, partial: 0 };
@@ -779,6 +781,104 @@ export async function cleanupBackups(repository: RepositoryContext, io: CommandI
 }
 
 /**
+ * Replace one backup's record.json with `updated`. The new record is written beside the backup and
+ * renamed over record.json only after the old bytes, directory identity, contents and ref are rechecked.
+ * Returns why nothing changed, or null once replaced.
+ */
+async function rewriteRecord(
+  repository: RepositoryContext, inventory: BackupInventory, item: EligibleBackup, updated: BackupRecord,
+): Promise<string | null> {
+  const { id, record } = item;
+  const temporary = join(inventory.root, `${retainPrefix}${id}-${randomBytes(4).toString("hex")}`);
+  try { await writePrivateFile(temporary, JSON.stringify(updated) + "\n"); }
+  catch {
+    await unlink(temporary).catch(() => {});
+    return "its new record could not be written; check Git directory permissions and free space";
+  }
+  const discard = async (reason: string) => { await unlink(temporary).catch(() => {}); return reason; };
+  let fresh: PublishedBackup;
+  try {
+    fresh = await readBackupAt(join(inventory.root, id), id);
+    await assertExactContents(fresh);
+  } catch { return discard("it changed after it was selected"); }
+  if (fresh.recordSha256 !== item.recordSha256 || fresh.device !== item.device || fresh.inode !== item.inode) {
+    return discard("it changed after it was selected");
+  }
+  const pinned = await backupGit(repository.primaryWorktreeRoot, ["rev-parse", "--verify", "--quiet", `${record.ref}^{commit}`]);
+  if (pinned.exitCode !== 0 || pinned.stdout !== record.commit) return discard("its private ref changed");
+  try { await rename(temporary, join(fresh.directory, "record.json")); }
+  catch { return discard("its record could not be replaced"); }
+  return null;
+}
+
+/** Git's own HEAD reflog messages when a rebase of `refs/heads/<branch>` finishes or is aborted. */
+const rebaseOutcomeMessage = /^rebase(?: -i)? \((?:finish|abort)\): returning to refs\/heads\/(.+)$/u;
+const reflogHeader = /^[0-9a-f]+ [0-9a-f]+ .* (\d+) [+-]\d{4}$/u;
+
+/**
+ * Positive evidence that the rebase a backup was made for has ended: a finish or abort entry for its
+ * branch in the source worktree's HEAD reflog, no earlier than the backup. A missing or unreadable
+ * reflog, or a rebase directory removed by hand, is not evidence.
+ */
+async function reflogShowsOutcome(admin: string, branch: string, createdAt: string): Promise<boolean> {
+  const path = join(admin, "logs", "HEAD");
+  let text: string;
+  try {
+    if (!(await lstat(path)).isFile()) return false;
+    text = await readFile(path, "utf8");
+  } catch { return false; }
+  // Reflog times are whole seconds; the backup was made while the rebase was paused, so an outcome in that second follows it.
+  const since = Math.floor(Date.parse(createdAt) / 1000);
+  for (const line of text.split("\n")) {
+    const tab = line.indexOf("\t");
+    if (tab === -1) continue;
+    const time = reflogHeader.exec(line.slice(0, tab))?.[1];
+    if (time === undefined || Number(time) < since) continue;
+    if (rebaseOutcomeMessage.exec(line.slice(tab + 1))?.[1] === branch) return true;
+  }
+  return false;
+}
+
+/** The rebase whose end Timber itself just saw, during `timber rebase --resolve`. */
+export interface ObservedRebase {
+  /** The rebased worktree's Git admin directory. */
+  gitDirectory: string;
+  branch: string;
+}
+
+/**
+ * Start retention for rebase-origin backups whose rebase is reliably over: Timber saw it end itself
+ * (`observed`), or Git's HEAD reflog records its finish or abort. A backup that is protected (an active or
+ * uncertain rebase) or lacks that evidence keeps waiting. Retention counts from `now`. Best effort: any
+ * failure leaves the record unchanged, so its retention stays not started.
+ */
+export async function startRebaseRetention(
+  repository: RepositoryContext, io: CommandIO, now: Date = new Date(), observed?: ObservedRebase,
+): Promise<string[]> {
+  const started: string[] = [];
+  let inventory: BackupInventory;
+  try { inventory = await readInventory(repository); } catch { return started; }
+  let observedAdmin: string | null = null;
+  if (observed) { try { observedAdmin = await realpath(observed.gitDirectory); } catch { /* Not evidence. */ } }
+  for (const item of inventory.items) {
+    if (item.kind !== "backup" || item.protection.protected) continue;
+    const { record } = item;
+    if (record.version !== 2 || record.origin !== "rebase" || record.retentionStartedAt !== null || record.branch === null) continue;
+    const admin = sourceAdmin(record, inventory.commonGitDir);
+    if (admin === null) continue;
+    const seen = observedAdmin !== null && observed!.branch === record.branch && samePath(admin, observedAdmin);
+    if (!seen && !await reflogShowsOutcome(admin, record.branch, record.createdAt)) continue;
+    const updated: BackupRecord = { ...record, retentionStartedAt: now.toISOString() };
+    let failure: string | null;
+    try { failure = await rewriteRecord(repository, inventory, item, updated); } catch { failure = "it could not be checked"; }
+    if (failure !== null) continue;
+    started.push(item.id);
+    io.stdout(`Retention started for backup ${item.id}: its rebase was seen to finish or be aborted. Retention: ${describeRetention(updated, now, false)}\n`);
+  }
+  return started;
+}
+
+/**
  * `timber backup keep|unkeep <id>`: rewrite only the record's `keep` flag. The new record is
  * written beside the backup and renamed over record.json after the old bytes and identity are rechecked.
  */
@@ -802,25 +902,8 @@ export async function setBackupKeep(
     return 0;
   }
   const updated: BackupRecord = { ...record, keep };
-  const temporary = join(inventory.root, `${retainPrefix}${id}-${randomBytes(4).toString("hex")}`);
-  try { await writePrivateFile(temporary, JSON.stringify(updated) + "\n"); }
-  catch {
-    await unlink(temporary).catch(() => {});
-    throw unchanged("its new record could not be written; check Git directory permissions and free space");
-  }
-  const discard = async (reason: string) => { await unlink(temporary).catch(() => {}); return unchanged(reason); };
-  let fresh: PublishedBackup;
-  try {
-    fresh = await readBackupAt(join(inventory.root, id), id);
-    await assertExactContents(fresh);
-  } catch { throw await discard("it changed after it was selected"); }
-  if (fresh.recordSha256 !== item.recordSha256 || fresh.device !== item.device || fresh.inode !== item.inode) {
-    throw await discard("it changed after it was selected");
-  }
-  const pinned = await backupGit(repository.primaryWorktreeRoot, ["rev-parse", "--verify", "--quiet", `${record.ref}^{commit}`]);
-  if (pinned.exitCode !== 0 || pinned.stdout !== record.commit) throw await discard("its private ref changed");
-  try { await rename(temporary, join(fresh.directory, "record.json")); }
-  catch { throw await discard("its record could not be replaced"); }
+  const failure = await rewriteRecord(repository, inventory, item, updated);
+  if (failure !== null) throw unchanged(failure);
   io.stdout(keep
     ? `Backup ${id} is kept indefinitely; automatic cleanup will not delete it. Undo with timber backup unkeep ${id}.\n`
     : `Backup ${id} is no longer kept. Retention: ${describeRetention(updated, now, item.protection.protected)}\n`);

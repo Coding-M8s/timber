@@ -28,19 +28,29 @@ export function backupSettings(config: Pick<RepositoryConfig, "backupRetentionDa
 }
 
 export interface Retention {
-  state: "kept" | "until-deleted" | "expiring" | "expired";
+  state: "kept" | "until-deleted" | "not-started" | "expiring" | "expired";
   /** Captured policy; null when kept until deleted. */
   retentionDays: number | null;
-  /** ISO 8601 UTC; non-null whenever retentionDays is. */
+  /** ISO 8601 UTC; non-null whenever retentionDays is and retention has started. */
   expiresAt: string | null;
+}
+
+/** When the retention period counts from: creation, or the observed end of a rebase-origin backup's rebase. */
+function retentionStart(record: BackupRecord): number | null {
+  if (record.version === 2 && record.origin === "rebase") {
+    return record.retentionStartedAt ? Date.parse(record.retentionStartedAt) : null;
+  }
+  return Date.parse(record.createdAt);
 }
 
 /** Null for version 1 records, which have no policy and never expire. */
 export function retentionOf(record: BackupRecord, now: Date): Retention | null {
   if (record.version === 1) return null;
-  const expires = record.retentionDays === null ? null : Date.parse(record.createdAt) + record.retentionDays * dayMs;
+  const start = retentionStart(record);
+  const expires = record.retentionDays === null || start === null ? null : start + record.retentionDays * dayMs;
   const expiresAt = expires === null ? null : new Date(expires).toISOString();
-  const state = record.keep ? "kept" : expires === null ? "until-deleted" : now.getTime() >= expires ? "expired" : "expiring";
+  const state = record.keep ? "kept" : record.retentionDays === null ? "until-deleted" : expires === null ? "not-started"
+    : now.getTime() >= expires ? "expired" : "expiring";
   return { state, retentionDays: record.retentionDays, expiresAt };
 }
 
@@ -56,6 +66,7 @@ export function describeRetention(record: BackupRecord, now: Date, isProtected: 
     case "kept": return retention.retentionDays === null ? "kept indefinitely"
       : `kept indefinitely (timber backup unkeep ${record.id} restores its ${retention.retentionDays}-day retention)`;
     case "until-deleted": return "kept until deleted (no expiry when created)";
+    case "not-started": return `not started; ${retention.retentionDays} day${retention.retentionDays === 1 ? "" : "s"} start once the rebase it was made for is seen to finish or be aborted`;
     case "expiring": return `expires ${retention.expiresAt} (${retention.retentionDays} day${retention.retentionDays === 1 ? "" : "s"})`;
     case "expired": return isProtected ? `expired ${retention.expiresAt}; kept while protected`
       : `expired ${retention.expiresAt}; deleted by the next timber backup create or timber backup cleanup`;

@@ -27,7 +27,7 @@ import {
   createBackupCleanupHandler, createBackupCreateHandler, createBackupDoneHandler, createBackupKeepHandler, createBackupListHandler,
   createBackupRestoreHandler,
 } from "./commands/backup";
-import { cleanupBackups, listBackups, readBackupList, retainedBackups, reviewBackupDeletion, setBackupKeep } from "./backup/lifecycle";
+import { cleanupBackups, listBackups, readBackupList, retainedBackups, reviewBackupDeletion, setBackupKeep, startRebaseRetention } from "./backup/lifecycle";
 import { createBackup, restoreBackup } from "./backup/service";
 import { rebaseWorktree, resolveRebaseTarget, selectBaseRef } from "./git/rebase";
 import { createPublishHandler } from "./commands/publish";
@@ -164,7 +164,8 @@ process.exitCode = await runCli(process.argv.slice(2), {
     backupDone: createBackupDoneHandler({ discoverRepository, reviewBackupDeletion }),
     backupCleanup: createBackupCleanupHandler({ discoverRepository, cleanupBackups: (repository, io) => cleanupBackups(repository, io) }),
     backupKeep: createBackupKeepHandler({ discoverRepository, setBackupKeep: (repository, id, keep, io) => setBackupKeep(repository, id, keep, io) }),
-    rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree, createBackup, launchAgent }),
+    rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree, createBackup, launchAgent,
+      startRebaseRetention: (repository, io, observed) => startRebaseRetention(repository, io, new Date(), observed) }),
     // Shares rebase selection so a paused rebase's branch reports its detached worktree.
     base: createBaseHandler({
       discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget,
