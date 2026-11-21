@@ -2,9 +2,9 @@ import { bitbucketRequest, type BitbucketRuntime } from "./client";
 import type { BitbucketRepository } from "./repository";
 import { PullRequestFailure, type PullRequest } from "../github/pulls";
 
-const path = (repo: BitbucketRepository) => `/repositories/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
-const fullName = (repo: BitbucketRepository) => `${repo.owner}/${repo.name}`;
-const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+export const path = (repo: BitbucketRepository) => `/repositories/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
+export const fullName = (repo: BitbucketRepository) => `${repo.owner}/${repo.name}`;
+export const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const malformed = () => new PullRequestFailure("Bitbucket returned an invalid pull request response.");
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -35,7 +35,7 @@ const status = (action: string) => (code: number): Error => {
 };
 
 /** A BBQL string literal; Git branch names cannot hold a backslash, but escape it anyway. */
-const quoted = (value: string) => `"${value.replace(/[\\"]/gu, "\\$&")}"`;
+export const quoted = (value: string) => `"${value.replace(/[\\"]/gu, "\\$&")}"`;
 
 /** The open pull request from this branch in the head repository into baseBranch, if there is one. */
 export async function findOpenBitbucketPullRequest(base: BitbucketRepository, head: BitbucketRepository, branch: string,

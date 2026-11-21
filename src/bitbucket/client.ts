@@ -23,12 +23,18 @@ export interface BitbucketRequestOptions {
   malformed: () => Error;
   /** Error for a non-success status. The response body is never echoed. */
   rejected: (status: number) => Error;
+  /** An outer deadline; aborting it cancels this request too. */
+  signal?: AbortSignal;
 }
 
 /** One bounded request to the fixed Bitbucket Cloud API; never retried, never redirected. */
 export async function bitbucketRequest<T>(path: string, runtime: BitbucketRuntime, validate: (body: unknown) => T,
   options: BitbucketRequestOptions): Promise<T> {
   const controller = new AbortController();
+  const outer = options.signal;
+  const stop = () => controller.abort();
+  outer?.addEventListener("abort", stop, { once: true });
+  if (outer?.aborted) controller.abort();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => { reject(new Error(options.timeout)); controller.abort(); }, runtime.timeoutMs);
@@ -57,5 +63,5 @@ export async function bitbucketRequest<T>(path: string, runtime: BitbucketRuntim
     return validate(body);
   };
   try { return await Promise.race([operation(), deadline]); }
-  finally { clearTimeout(timer); controller.abort(); }
+  finally { clearTimeout(timer); outer?.removeEventListener("abort", stop); controller.abort(); }
 }
