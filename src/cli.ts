@@ -432,7 +432,8 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
   program.command("__app-issues <query> [text]", { hidden: true })
     .option("--tracker <tracker>")
     .option("--limit <count>")
-    .action(async (query: string, text: string | undefined, options: { tracker?: string; limit?: string }) => {
+    .option("--assigned")
+    .action(async (query: string, text: string | undefined, options: { tracker?: string; limit?: string; assigned?: boolean }) => {
       onExitCode(await runAppIssues(query, text, options, context));
     });
 

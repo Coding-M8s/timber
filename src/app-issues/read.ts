@@ -38,7 +38,7 @@ export interface AppIssuesRecord {
   diagnostic: string | null;
 }
 
-export interface AppIssuesOptions { tracker?: string; limit?: string }
+export interface AppIssuesOptions { tracker?: string; limit?: string; assigned?: boolean }
 
 /** Local reads are real Git; tracker access is the seam. `timeoutMs` bounds the login read and every request together. */
 export interface AppIssuesServices {
@@ -74,7 +74,7 @@ export function issueIdentity(issue: { tracker: LinkedTracker; key: string; url:
 }
 
 function parseInput(query: string, text: string | undefined, options: AppIssuesOptions, config: RepositoryConfig):
-{ query: IssueQuery; tracker: LinkedTracker | null; limit: number; text: string } {
+{ query: IssueQuery; tracker: LinkedTracker | null; limit: number; text: string; assignedOnly: boolean } {
   if (!queries.includes(query as IssueQuery)) throw new InvalidInput("Unknown list. Use sprint, assigned, open or search.");
   const known = query as IssueQuery;
   if (options.tracker !== undefined && !trackers.includes(options.tracker as LinkedTracker)) {
@@ -82,6 +82,7 @@ function parseInput(query: string, text: string | undefined, options: AppIssuesO
   }
   if (known === "search" && options.tracker === undefined) throw new InvalidInput("A search needs --tracker github, jira or linear.");
   if (known !== "search" && text !== undefined) throw new InvalidInput("Only search takes text.");
+  if (options.assigned === true && known !== "sprint") throw new InvalidInput("--assigned applies only to sprint.");
   if (known === "search" && (text === undefined || text.length > 200)) throw new InvalidInput("A search needs text of at most 200 characters after --.");
   let limit = known === "search" ? defaultSearchLimit : defaultListLimit;
   if (options.limit !== undefined) {
@@ -92,7 +93,8 @@ function parseInput(query: string, text: string | undefined, options: AppIssuesO
     limit = Number(options.limit);
   }
   const fallback = config.defaultTracker === undefined || config.defaultTracker === "none" ? null : config.defaultTracker;
-  return { query: known, tracker: (options.tracker as LinkedTracker | undefined) ?? fallback, limit, text: text ?? "" };
+  return { query: known, tracker: (options.tracker as LinkedTracker | undefined) ?? fallback, limit, text: text ?? "",
+    assignedOnly: options.assigned === true };
 }
 
 async function linkedWorktrees(repository: RepositoryContext, trees: readonly WorktreeInventory[],
@@ -162,6 +164,7 @@ export async function readAppIssues(cwd: string, query: string, text: string | u
     },
     limit: input.limit,
     text: input.text,
+    assignedOnly: input.assignedOnly,
     now: services.now,
   };
   const list = { github: listGithub, jira: listJira, linear: listLinear }[input.tracker];
