@@ -1,3 +1,6 @@
+import { readBitbucketLogin } from "../bitbucket/auth";
+import { checkBitbucketConnection } from "../bitbucket/client";
+import { validBitbucketLogin } from "../bitbucket/credentials";
 import { effectiveConfigValues, loadConfigScopes } from "../config";
 import { readGithubToken } from "../github/auth";
 import { checkGithubConnection } from "../github/client";
@@ -11,7 +14,7 @@ import { draftConfig, scopesWithDraft } from "./settings";
 import { knownSecrets, safeAppDiagnostic } from "./input";
 import type { AppConfigInput, AppConfigScope } from "./input";
 
-export const appIntegrations = ["github", "linear", "jira"] as const;
+export const appIntegrations = ["github", "linear", "jira", "bitbucket"] as const;
 export type AppIntegration = typeof appIntegrations[number];
 
 export interface AppConfigCheck {
@@ -68,6 +71,13 @@ export async function checkAppIntegration(
       if (draft !== undefined && !validLinearKey(draft.token)) throw new Error("Invalid settings draft: credentials.linear is invalid.");
       result.source = draft !== undefined ? "draft" : env.LINEAR_API_KEY !== undefined ? "environment" : "saved";
       await checkLinearConnection({ token: async signal => draft?.token ?? readLinearKey(env, undefined, signal), fetch, timeoutMs });
+    } else if (integration === "bitbucket") {
+      const draft = input?.credentials?.bitbucket;
+      if (draft === null) throw new Error("This draft removes the saved Bitbucket login, so there is no login to check.");
+      if (draft !== undefined && !validBitbucketLogin(draft)) throw new Error("Invalid settings draft: credentials.bitbucket is invalid.");
+      result.source = draft !== undefined ? "draft"
+        : env.BITBUCKET_EMAIL !== undefined || env.BITBUCKET_API_TOKEN !== undefined ? "environment" : "saved";
+      await checkBitbucketConnection({ login: async signal => draft ?? readBitbucketLogin(env, undefined, signal), fetch, timeoutMs });
     } else {
       const config = await jiraSite(cwd, scope, input, env);
       const draft = input?.credentials?.jira;

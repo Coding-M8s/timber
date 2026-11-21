@@ -49,7 +49,7 @@ export async function runAppConfig(
     }, options.resultFile);
   }
   if (action === "check") {
-    if (!appIntegrations.some(name => name === integration)) throw new Error("Check one of: github, linear, jira.");
+    if (!appIntegrations.some(name => name === integration)) throw new Error("Check one of: github, linear, jira, bitbucket.");
     if (options.resultFile || options.editTracked) throw new Error("Check accepts only --scope and --input-file.");
     const scope = scopeOf(options.scope, false);
     let result;

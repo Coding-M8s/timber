@@ -16,6 +16,7 @@ const inputSchema = z.strictObject({
   credentials: z.strictObject({
     jira: z.union([z.null(), z.strictObject({ email: z.string(), token: z.string() })]).optional(),
     linear: z.union([z.null(), z.strictObject({ token: z.string() })]).optional(),
+    bitbucket: z.union([z.null(), z.strictObject({ email: z.string(), token: z.string() })]).optional(),
   }).optional(),
 });
 
@@ -58,8 +59,8 @@ export async function readAppConfigInput(path: string): Promise<AppConfigInput> 
 
 /** Every credential value this process could echo: the draft's and the environment overrides. */
 export function knownSecrets(env: NodeJS.ProcessEnv, input?: AppConfigInput): string[] {
-  const jira = input?.credentials?.jira;
-  return [jira?.token, jira?.email, input?.credentials?.linear?.token,
+  const jira = input?.credentials?.jira, bitbucket = input?.credentials?.bitbucket;
+  return [jira?.token, jira?.email, input?.credentials?.linear?.token, bitbucket?.token, bitbucket?.email,
     env.JIRA_API_TOKEN, env.JIRA_EMAIL, env.LINEAR_API_KEY, env.GH_TOKEN, env.GITHUB_TOKEN,
     env.BITBUCKET_API_TOKEN, env.BITBUCKET_EMAIL]
     .filter((value): value is string => typeof value === "string" && value.length > 0)

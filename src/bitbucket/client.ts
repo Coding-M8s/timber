@@ -22,7 +22,9 @@ export interface BitbucketRequestOptions {
   /** Diagnostic for a body that fails validation or parsing. */
   malformed: () => Error;
   /** Error for a non-success status. The response body is never echoed. */
-  rejected: (status: number) => Error;
+  rejected: (status: number, body?: unknown) => Error;
+  /** Statuses whose JSON body is parsed and passed to rejected; other bodies are discarded unread. */
+  inspect?: readonly number[];
   /** An outer deadline; aborting it cancels this request too. */
   signal?: AbortSignal;
 }
@@ -54,6 +56,11 @@ export async function bitbucketRequest<T>(path: string, runtime: BitbucketRuntim
     } catch { throw new Error("Bitbucket network or redirect failure; check connectivity and retry explicitly."); }
     controller.signal.throwIfAborted();
     if (!response.ok || response.redirected) {
+      if (!response.redirected && options.inspect?.includes(response.status)) {
+        let body: unknown;
+        try { body = await response.json(); } catch { body = undefined; }
+        throw options.rejected(response.status, body);
+      }
       void response.body?.cancel().catch(() => {});
       throw options.rejected(response.redirected ? 0 : response.status);
     }
@@ -64,4 +71,44 @@ export async function bitbucketRequest<T>(path: string, runtime: BitbucketRuntim
   };
   try { return await Promise.race([operation(), deadline]); }
   finally { clearTimeout(timer); outer?.removeEventListener("abort", stop); controller.abort(); }
+}
+
+/** Bitbucket recognised the login but refused the scope; the sign-in itself was accepted. */
+const scopeDenied = new Error("Bitbucket accepted the login but denied the account lookup.");
+
+/** Bitbucket's own answer to a recognised login that lacks a scope, not a proxy's or firewall's 403. */
+function missingScope(body: unknown): boolean {
+  const record = (value: unknown) => typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown> : null;
+  const error = record(record(body)?.error), required = record(error?.detail)?.required;
+  return record(body)?.type === "error" && Array.isArray(required) && required.length > 0
+    && required.every(scope => typeof scope === "string");
+}
+
+/**
+ * One read-only GET of the current user. A token limited to the pull request
+ * scopes Timber asks for cannot read the account, and Bitbucket answers 403 to a
+ * login it recognised with a body naming the required scopes, so 200 and that
+ * 403 both mean the login was accepted.
+ * Scopes and repository access are not checked.
+ */
+export async function checkBitbucketConnection(runtime: BitbucketRuntime): Promise<void> {
+  try {
+    await bitbucketRequest("/user", runtime, body => {
+      if (typeof body !== "object" || body === null || Array.isArray(body)) throw new Error("Bitbucket returned an invalid current-user response.");
+    }, {
+      timeout: "Bitbucket did not answer the login check in time; check connectivity and retry.",
+      malformed: () => new Error("Bitbucket returned an invalid current-user response."),
+      inspect: [403],
+      rejected: (code, body) => {
+        if (code === 403 && missingScope(body)) return scopeDenied;
+        if (code === 403) return new Error("Bitbucket or a network device denied the login check; check the login, proxy and network, then retry.");
+        if (code === 401) return new Error("Bitbucket did not accept the login; check the Atlassian account email and the API token.");
+        if (code === 429) return new Error("Bitbucket rate limited the login check; retry later.");
+        return new Error("Bitbucket failed while checking the login; retry when Bitbucket is reachable.");
+      },
+    });
+  } catch (error) {
+    if (error !== scopeDenied) throw error;
+  }
 }
