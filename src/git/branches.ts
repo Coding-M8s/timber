@@ -2,6 +2,7 @@ import { execa } from "execa";
 import type {
   Branch, GitReadOptions, RemoteBranch, RepositoryConfig, RepositoryContext, Resolution, ValidatedBase,
 } from "../types";
+import { isFullCommitHash, refuseAbbreviatedHash, verifyCommitBase } from "./commit-base";
 
 type RefRow = { ref: string; symbolic: string; upstream: string };
 
@@ -225,7 +226,7 @@ async function unbornRepository(repository: RepositoryContext, rows: readonly Re
   }
 }
 
-/** Select exactly one existing branch and pin its current commit. */
+/** Select exactly one existing branch and pin its current commit, or verify an explicit full commit hash. */
 export async function resolveBase(
   repository: RepositoryContext, config: RepositoryConfig, explicitBase?: string,
 ): Promise<ValidatedBase> {
@@ -235,6 +236,11 @@ export async function resolveBase(
   const rows = await refs(repository);
   const branches = branchRows(repository, rows);
   const selectedRemote = config.remote ?? (repository.remotes.length === 1 ? repository.remotes[0]!.name : null);
+  if (explicitBase !== undefined && isFullCommitHash(explicitBase)) {
+    const commit = await verifyCommitBase(repository.primaryWorktreeRoot, explicitBase, "--base");
+    return { ref: commit, commit, source: "explicit" };
+  }
+  if (explicitBase !== undefined) await refuseAbbreviatedHash(repository.primaryWorktreeRoot, explicitBase, "--base");
   if (explicitBase !== undefined || config.baseBranch !== null) {
     const input = explicitBase ?? config.baseBranch!;
     const source = explicitBase !== undefined ? "explicit" : "config";

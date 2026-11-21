@@ -13,6 +13,7 @@ import { inspectWorktree, listWorktreeInventory } from "./worktrees";
 import { gitOperation } from "./operations";
 import { readBaseAssociation, writeBaseAssociation } from "./base-metadata";
 import { resolveOpenTarget } from "./open-target";
+import { isFullCommitHash, refuseAbbreviatedHash, verifyCommitBase } from "./commit-base";
 
 const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
@@ -163,6 +164,7 @@ export function isOperationFailure(error: unknown): boolean {
 
 /**
  * Validate an explicit base with the same forms and checks as `rebase --base`, without fetching:
+ * a full commit hash must name an existing commit, and an abbreviated one naming no branch is refused;
  * refs/heads/<branch> must be a direct existing local branch other than `targetBranch`;
  * other forms must name a live branch on the configured, sole or named remote.
  */
@@ -170,6 +172,11 @@ export async function selectBaseRef(
   repository: RepositoryContext, config: RepositoryConfig, input: string, cwd: string,
   targetBranch: string | null, wording: BaseWording,
 ): Promise<{ ref: string; commit: string; local: boolean }> {
+  if (isFullCommitHash(input)) {
+    const commit = await verifyCommitBase(cwd, input, wording.flag);
+    return { ref: commit, commit, local: true };
+  }
+  await refuseAbbreviatedHash(cwd, input, wording.flag);
   if (input.startsWith("refs/heads/")) {
     if (targetBranch !== null && input === `refs/heads/${targetBranch}`) {
       throw new Error(`Cannot use the worktree's own branch as its base; select another branch with ${wording.flag}.`);
@@ -275,11 +282,20 @@ async function rebaseSelected(
   if (association.kind === "invalid" && (association.reason !== "stale" || explicitBase === undefined)) {
     throw new Error("Cannot read saved base association; inspect the worktree's private Git metadata, then select a replacement with --base <ref>.");
   }
-  const input = explicitBase ?? (association.kind === "assigned" ? association.ref : undefined);
+  const input = explicitBase
+    ?? (association.kind === "assigned" ? association.ref : association.kind === "commit" ? association.commit : undefined);
+  if (explicitBase !== undefined) await refuseAbbreviatedHash(selected.path, explicitBase, "--base");
+  const pinned = input !== undefined && isFullCommitHash(input);
   const localRef = input?.startsWith("refs/heads/") ? input : null;
   if (localRef === `refs/heads/${selected.branch}`) throw new Error("Cannot use the target branch itself as its rebase base; select another branch with --base.");
   let ref: string, commit: string, label: string;
-  if (localRef !== null) {
+  if (pinned) {
+    // A commit never moves, so there is nothing to fetch and no freshness warning.
+    commit = await verifyCommitBase(selected.path, input, "--base");
+    ref = commit;
+    label = commit;
+    report.base = ref;
+  } else if (localRef !== null) {
     ref = localRef;
     commit = await localBase(selected.path, ref);
     label = ref;
@@ -318,7 +334,9 @@ async function rebaseSelected(
       throw operationFailure(new FormattedError(`Git rebase ${paused ? "paused with conflicts" : "completed (or was already up to date)"}, but the base association could not be saved. Workspace retained; inspect private Git metadata and after resolving any operation, retry with:\ntimber rebase --base ${shellQuoteForDisplay(ref)} -- ${shellQuoteForDisplay(selected.path)}\n${paused ? recovery(selected.path) : "No automatic reset or abort was attempted."}`));
     }
   }
-  io.stdout(`Worktree: ${safeDisplay(selected.path)}\nBranch: ${safeDisplay(selected.branch!)}\n${localRef === null ? "Remote" : "Local"} base: ${safeDisplay(label)}\n${localRef === null ? "Fetched" : "Local"} base commit: ${commit}\nOriginal branch tip: ${selected.head}\n`);
+  const baseLines = pinned ? `Commit base: ${commit}\n`
+    : `${localRef === null ? "Remote" : "Local"} base: ${safeDisplay(label)}\n${localRef === null ? "Fetched" : "Local"} base commit: ${commit}\n`;
+  io.stdout(`Worktree: ${safeDisplay(selected.path)}\nBranch: ${safeDisplay(selected.branch!)}\n${baseLines}Original branch tip: ${selected.head}\n`);
   const tree = await preflight(repository, selected, gitDirectory);
   await revalidateLocal();
   const contained = await git(selected.path, ["merge-base", "--is-ancestor", commit, selected.head!]);

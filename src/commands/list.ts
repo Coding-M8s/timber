@@ -58,7 +58,8 @@ export function createListHandler(
         cells: [
           tree.isPrimary ? "primary" : "linked",
           tree.branch === null ? "(detached HEAD)" : display(tree.branch),
-          base.kind === "assigned" ? display(base.ref.replace(/^refs\/remotes\//u, "")) : base.kind === "unassigned" ? "-" : "?",
+          base.kind === "assigned" ? display(base.ref.replace(/^refs\/remotes\//u, ""))
+            : base.kind === "commit" ? base.commit.slice(0, 12) : base.kind === "unassigned" ? "-" : "?",
           statusSummary(tree),
           display(tree.path),
         ],

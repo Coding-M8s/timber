@@ -57,6 +57,30 @@ test("invalid metadata fails closed and an explicit assignment repairs it", asyn
   });
 });
 
+test("a commit record stores one lowercase full hash and any other commit shape reads as malformed", async () => {
+  await withRepository(async (primary, directory) => {
+    const linked = join(directory, "review worktree");
+    await git(primary, "worktree", "add", "-b", "review", linked);
+    const repository = await discoverRepository(linked);
+    const tree = (await listWorktrees(repository)).find(item => item.path === linked)!;
+    const head = await git(primary, "rev-parse", "HEAD");
+    await writeBaseAssociation(repository, tree, head.toUpperCase());
+    expect(await readBaseAssociation(repository, tree)).toEqual({ kind: "commit", commit: head });
+    const metadata = join(await git(linked, "rev-parse", "--absolute-git-dir"), "timber", "base.json");
+    const record = JSON.parse(await readFile(metadata, "utf8"));
+    expect(Object.keys(record)).toEqual(["version", "commit", "worktreePath", "commonGitDir", "worktreeGitDir"]);
+    for (const broken of [
+      { ...record, commit: head.toUpperCase() },
+      { ...record, commit: head.slice(0, 12) },
+      { ...record, ref: "refs/heads/trunk" },
+    ]) {
+      await writeFile(metadata, JSON.stringify(broken));
+      expect(await readBaseAssociation(repository, tree)).toEqual({ kind: "invalid", reason: "malformed" });
+    }
+    await expect(writeBaseAssociation(repository, tree, head.slice(0, 12))).rejects.toThrow(/Invalid base ref/);
+  });
+});
+
 test("metadata publication failure preserves Git refs and worktree files", async () => {
   await withRepository(async (primary, directory) => {
     const linked = join(directory, "review worktree");

@@ -144,6 +144,7 @@ type WorktreeRecord = {
     | { kind: "unknown"; reason: string };
   base:                      // saved base this worktree rebases onto and is cleaned up against
     | { kind: "assigned"; ref: string } // canonical refs/remotes/... or refs/heads/...
+    | { kind: "commit"; commit: string } // full lowercase commit hash
     | { kind: "unassigned" }
     | { kind: "invalid"; reason: "malformed" | "stale" | "unreadable" };
   issue:                     // tracker issue this worktree was created from or linked to
@@ -154,7 +155,7 @@ type WorktreeRecord = {
 
 type RebaseRecord = {
   result: "rebased" | "up-to-date" | "conflicts" | "refused" | "failed";
-  base: string | null;        // canonical base ref that was selected
+  base: string | null;        // canonical base ref, or full commit hash, that was selected
   baseCommit: string | null;  // pinned commit that was rebased onto
   originalTip: string | null; // branch tip before the rebase
   conflicts: string[];        // worktree-relative unmerged paths; empty unless result is "conflicts"
@@ -287,6 +288,11 @@ human table.
   form the human table prints. Timber reads it offline and does not check that
   the ref still exists, so the app should treat it as a saved choice, not as
   proof of a current ref.
+- `commit`: `base.commit` is a full lowercase commit hash (40 hex characters, or
+  64 in a SHA-256 repository). The base is pinned to that commit and never moves.
+  Like `assigned`, it is read offline and its existence is not checked. This
+  kind was added within schema version 1; a reader that does not know it should
+  show the base as unknown, not as unassigned.
 - `unassigned`: nothing is saved, as for the primary worktree, worktrees added
   with plain Git, and worktrees opened without a base. Timber does not infer a
   parent, and the app should not guess one.

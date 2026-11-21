@@ -23,6 +23,7 @@ export function createBaseChangeReport(action: BaseChangeReport["action"]): Base
 
 function describe(base: BaseAssociationRead): string {
   if (base.kind === "assigned") return safeDisplay(base.ref.replace(/^refs\/remotes\//u, ""));
+  if (base.kind === "commit") return `commit ${base.commit}`;
   return base.kind === "unassigned" ? "none" : `invalid (${base.reason})`;
 }
 

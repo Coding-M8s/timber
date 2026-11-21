@@ -33,6 +33,7 @@ const HASH = /^[0-9a-f]{40,64}$/i;
 const UNKNOWN_BASE = "Could not resolve a validated cleanup base; select an exact base branch and retry.";
 const UNKNOWN_ANCESTRY = "Could not verify commit ancestry against the validated base; refresh repository state and retry.";
 const UNKNOWN_SELF_BASE = "The cleanup target branch is the validated base; choose a different base or leave this worktree in place.";
+const UNKNOWN_UNKEPT_COMMIT = "The commit base is not contained in any other branch, remote-tracking branch or tag, so it does not preserve this work; publish the branch or choose a branch base.";
 const UNKNOWN_PUBLICATION = "Could not verify the live upstream state; refresh repository state and retry.";
 
 async function runGit(
@@ -92,6 +93,18 @@ async function aheadCommits(cwd: string, base: string, head: string): Promise<re
   }
 }
 
+/**
+ * A commit base keeps nothing reachable by itself, so containment in it preserves work only while
+ * another branch, remote-tracking branch or tag (not the cleanup target) contains that commit.
+ */
+async function commitBaseKept(cwd: string, commit: string, branchRef: string | null): Promise<boolean> {
+  const result = await runGit(cwd, [
+    "for-each-ref", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes", "refs/tags",
+  ]);
+  if (result.exitCode !== 0) return false;
+  return result.stdout.split("\n").some(ref => ref !== "" && ref !== branchRef && !ref.endsWith("/HEAD"));
+}
+
 async function ancestry(
   cwd: string, head: string, base: ValidatedBase | null, branchRef: string | null,
 ): Promise<AncestryState> {
@@ -99,6 +112,9 @@ async function ancestry(
   // Containment against the target's own tip is tautological and must never authorize cleanup.
   if (branchRef !== null && branchRef === base.ref) return unknownAncestry(UNKNOWN_SELF_BASE);
   try {
+    if (base.ref === base.commit && !await commitBaseKept(cwd, base.commit, branchRef)) {
+      return unknownAncestry(UNKNOWN_UNKEPT_COMMIT);
+    }
     const result = await runGit(cwd, ["merge-base", "--is-ancestor", head, base.commit]);
     if (result.exitCode === 0) return { kind: "contained", base };
     if (result.exitCode !== 1) return unknownAncestry();
@@ -299,11 +315,13 @@ async function readCleanupEvidenceImpl(
   if (association.kind === "invalid" && (association.reason !== "stale" || explicitBase === undefined)) {
     throw new Error("Cannot read saved base association; inspect the worktree's private Git metadata, then select a replacement with --base <ref>.");
   }
-  const baseInput = explicitBase ?? (association.kind === "assigned" ? association.ref : undefined);
+  const saved = association.kind === "assigned" ? association.ref : association.kind === "commit" ? association.commit : undefined;
+  const baseInput = explicitBase ?? saved;
   let base: ValidatedBase | null = null;
   try {
+    // A saved commit is pinned: it is checked as is, never refreshed, and a missing one stops cleanup.
     base = await resolveBase(freshRepository, config, baseInput);
-    if (explicitBase === undefined && association.kind === "assigned" && base.ref !== association.ref) {
+    if (explicitBase === undefined && saved !== undefined && base.ref !== saved) {
       throw new Error("Saved base branch is missing; select a replacement with --base <ref> and retry.");
     }
   } catch (error) {
