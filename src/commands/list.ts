@@ -1,4 +1,5 @@
 import { WorktreeReadPhase } from "../git/worktree-read-phase";
+import { mapWithLimit, WORKTREE_INSPECTION_LIMIT } from "../git/worktrees";
 import type { CommandHandlers, CommandServices } from "../services";
 import type { Worktree } from "../types";
 import { alignedRows } from "../columns";
@@ -43,7 +44,9 @@ export function createListHandler(
     }
     const sorted = [...trees].sort((a, b) =>
       Number(b.isPrimary) - Number(a.isPrimary) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const rows = await Promise.all(sorted.map(async tree => {
+    // Saved base reads start Git, and on Windows each record check starts PowerShell,
+    // so rows read their metadata a few at a time, like statuses.
+    const rows = await mapWithLimit(sorted, WORKTREE_INSPECTION_LIMIT, async tree => {
       const base = await services.readBaseAssociation(repository, tree, phase);
       const issue = await services.readIssueLink(repository, tree, phase);
       const warnings = [
@@ -64,7 +67,7 @@ export function createListHandler(
           display(tree.path),
         ],
       };
-    }));
+    });
     if (context.machine) {
       await context.machine.inventory(rows.map(row => row.entry));
     }

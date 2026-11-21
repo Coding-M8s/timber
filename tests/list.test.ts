@@ -5,6 +5,9 @@ import { createServiceDouble, repositoryFixture, worktreeFixture } from "./helpe
 import type { CommandServices } from "../src/services";
 import type { Worktree } from "../src/types";
 import type { BaseAssociationRead } from "../src/git/base-metadata";
+import type { IssueLinkRead } from "../src/git/issue-link";
+import { WORKTREE_INSPECTION_LIMIT } from "../src/git/worktrees";
+import type { InventoryEntry, MachineReporter } from "../src/machine";
 import { expectColumnPositions } from "./helpers/columns";
 
 async function list(trees: readonly Worktree[], overrides: Partial<CommandServices> = {}) {
@@ -223,3 +226,73 @@ for (const service of ["discoverRepository", "listWorktrees"] as const) {
     });
   });
 }
+
+test.each([false, true])("saved metadata is read a few rows at a time with unchanged order (json %p)", async json => {
+  // Linked paths arrive unsorted; every third row has invalid base or issue metadata.
+  const trees = [
+    ...Array.from({ length: 9 }, (_, index) => worktreeFixture({
+      path: `/repo-worktrees/tree-${(9 - index).toString().padStart(2, "0")}`, branch: `tree-${9 - index}`, isPrimary: false,
+    })),
+    worktreeFixture(),
+  ];
+  const sorted = [trees[9]!, ...trees.slice(0, 9).reverse()];
+  const baseFor = (index: number): BaseAssociationRead => index % 3 === 1
+    ? { kind: "invalid", reason: "stale" } : { kind: "assigned", ref: `refs/heads/base-${index}` };
+  const issueFor = (index: number): IssueLinkRead => index % 3 === 2
+    ? { kind: "invalid", reason: "malformed" }
+    : { kind: "linked", tracker: "github", key: String(index + 1), url: `https://github.com/example/repo/issues/${index + 1}` };
+  const pending: (() => void)[] = [];
+  let inFlight = 0;
+  let peak = 0;
+  const services = createServiceDouble({
+    discoverRepository: async () => repositoryFixture(),
+    loadConfig: async () => ({ baseBranch: null, remote: null, worktreeDir: null, editor: null, agent: null }),
+    listWorktrees: async () => trees,
+    readBaseAssociation: (_repo, tree) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      const read = Promise.withResolvers<BaseAssociationRead>();
+      pending.push(() => read.resolve(baseFor(sorted.indexOf(tree))));
+      return read.promise;
+    },
+    readIssueLink: (_repo, tree) => {
+      const read = Promise.withResolvers<IssueLinkRead>();
+      pending.push(() => { inFlight--; read.resolve(issueFor(sorted.indexOf(tree))); });
+      return read.promise;
+    },
+  });
+  let stdout = "";
+  let stderr = "";
+  let inventory = null as readonly InventoryEntry[] | null;
+  const machine = json ? {
+    repository: async () => {},
+    inventory: async (entries: readonly InventoryEntry[]) => { inventory = entries; },
+  } as unknown as MachineReporter : undefined;
+  let finished = false;
+  const run = createListHandler(services)({
+    cwd: "/repo", ...(machine ? { machine } : {}), io: { stdout: text => { stdout += text; }, stderr: text => { stderr += text; } },
+  }).finally(() => { finished = true; });
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  await settle();
+  expect(inFlight).toBe(WORKTREE_INSPECTION_LIMIT);
+  // Finish the newest read first, so completion order differs from row order.
+  while (!finished) {
+    expect(inFlight).toBeLessThanOrEqual(WORKTREE_INSPECTION_LIMIT);
+    pending.pop()?.();
+    await settle();
+  }
+  await run;
+  expect(peak).toBe(WORKTREE_INSPECTION_LIMIT);
+  expect(stderr.split("\n").slice(0, -1)).toEqual(sorted.flatMap((tree, index) => [
+    ...(index % 3 === 1 ? [`warning: Cannot read base association for ${tree.path} (stale); Git worktree remains listed.`] : []),
+    ...(index % 3 === 2 ? [`warning: Cannot read issue link for ${tree.path} (malformed); Git worktree remains listed.`] : []),
+  ]));
+  if (json) {
+    expect(stdout).toBe("");
+    expect(inventory).toEqual(sorted.map((worktree, index) => ({ worktree, base: baseFor(index), issue: issueFor(index) })));
+  } else {
+    expect(stdout.split("\n").slice(1, -1).map(line => line.trim().split(/\s+/u)[4]!)).toEqual(sorted.map(tree => tree.path));
+    expect(stdout.split("\n").slice(1, -1).map(line => line.trim().split(/\s+/u)[2]!))
+      .toEqual(sorted.map((_, index) => index % 3 === 1 ? "?" : `refs/heads/base-${index}`));
+  }
+});
