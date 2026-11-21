@@ -1039,8 +1039,22 @@ type IssueListRecord = {
 
 type ListedIssue = Issue & {   // Issue as in __app-issue
   worktree: { path: string; branch: string | null } | null; // the worktree linked to this issue, if any
+  pullRequests: LinkedPullRequest[] | null; // open pull requests the tracker links to it; null when they could not be read
+};
+
+type LinkedPullRequest = {
+  number: number;
+  url: string;
+  branch: string;              // the pull request's head branch
+  fromFork: boolean | null;    // head is in another repository; null when the tracker cannot tell
+  draft: boolean | null;       // null when the tracker cannot tell
 };
 ```
+
+`pullRequests` is an additive v1 field: `schemaVersion` stays 1, and a
+consumer written before it ignores it like any other additional field. A
+consumer that reads it must accept a record without it from an older Timber
+and treat that like `null`.
 
 Each list reads:
 
@@ -1086,6 +1100,26 @@ team = "ENG"           # needed for sprint and open; narrows assigned and search
 - `worktree` is set when a registered worktree's saved issue link names the
   same issue: the same repository and number for GitHub, the same site and key
   for Jira, the same key for Linear. Invalid or stale links count as no link.
+- `pullRequests` lists only open pull requests, and only those the tracker
+  itself links to the issue. Timber never guesses a link from a branch name.
+  - GitHub: pull requests that close the issue or were linked in its
+    Development section, from any repository. One query per 100 issues.
+  - Jira: pull requests in the issue's development panel with status `OPEN`,
+    from every source connected to the site. A search finds the issues Jira
+    says have an open pull request; only their panels are read, ten at a
+    time. The panel has no draft flag, so `draft` is null. `fromFork`
+    compares the source and destination repositories and is null when either
+    is missing. This uses Jira's development information API, which Atlassian
+    does not document for public use. It has been tested with Bitbucket
+    Cloud; other sources such as GitHub for Jira are untested.
+  - Linear: not read yet; `pullRequests` is always null.
+- Reading links never fails the list and never sets `reason` or `diagnostic`.
+  `pullRequests` is null for an issue whose links could not be read: its own
+  read failed, the whole read failed, or the 15 second limit ran out before
+  its links were read. Links read before a failure or the limit are kept.
+  `[]` means the tracker answered and links no open pull request.
+- Pull request branches and addresses are untrusted text from the tracker.
+  Pass a branch to Timber or Git as one argument, never through a shell.
 - GitHub lists skip pull requests. A GitHub project can hold issues from
   several repositories; each issue's `url` says which.
 - A GitHub search reads the 300 most recently updated open issues of the

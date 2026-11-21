@@ -3,8 +3,8 @@ import { githubHeaders, githubLogin, IssueReadFailure, json, send, unusable } fr
 import type { IssueSummary, MissingWording } from "../app-issue/trackers";
 import { jsonDisplay } from "../display";
 import type { GithubRepository } from "../github/repository";
-import { keyPrefix, maxSprintIssues, NotConfigured, searchWords } from "./lists";
-import type { IssueList, IssueQuery, ListContext } from "./lists";
+import { batches, keyPrefix, maxSprintIssues, NotConfigured, searchWords } from "./lists";
+import type { IssueList, IssueQuery, LinkedPullRequest, ListContext, PullRequestLinks } from "./lists";
 
 const api = "https://api.github.com";
 const maxPages = 5;
@@ -238,6 +238,71 @@ async function iterationSprint(ctx: ListContext, token: string, setting: string)
     issues: issues.slice(0, maxSprintIssues), truncated: issues.length > maxSprintIssues || more };
 }
 
+const pullUrl = /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/u;
+const pullRequestsPerIssue = 20;
+const linkedPullRequest = z.object({
+  number: z.number().int().positive(),
+  url: z.string().regex(pullUrl),
+  state: z.string(),
+  isDraft: z.boolean(),
+  isCrossRepository: z.boolean(),
+  headRefName: z.string().min(1),
+});
+const closingReferences = z.object({ closedByPullRequestsReferences: z.object({
+  totalCount: z.number().int().nonnegative(), nodes: z.array(linkedPullRequest) }) });
+
+/** Open pull requests linked to one issue; null when the answer is missing, unreadable or cut short. */
+function openPullRequests(node: unknown): LinkedPullRequest[] | null {
+  const parsed = closingReferences.safeParse(node);
+  if (!parsed.success) return null;
+  const { totalCount, nodes } = parsed.data.closedByPullRequestsReferences;
+  if (totalCount > nodes.length) return null;
+  // includeClosedPrs: false still returns merged pull requests.
+  return nodes.filter(pull => pull.state === "OPEN").map(pull => ({ number: pull.number, url: pull.url,
+    branch: pull.headRefName, fromFork: pull.isCrossRepository, draft: pull.isDraft }));
+}
+
+/**
+ * Reads the pull requests GitHub links to each issue: those that close it or
+ * were linked in its Development section. One GraphQL query per batch of
+ * issues, grouped by repository; an issue GitHub does not answer for is null.
+ */
+async function githubPullRequests(ctx: ListContext, token: string, issues: readonly IssueSummary[], links: PullRequestLinks): Promise<void> {
+  const unique = [...new Map(issues.map(issue => [issue.url, issue])).values()];
+  await Promise.all(batches(unique).map(async batch => {
+    const repositories = new Map<string, { owner: string; name: string; issues: IssueSummary[] }>();
+    for (const issue of batch) {
+      const [, owner, name] = new URL(issue.url).pathname.split("/") as [string, string, string];
+      const key = `${owner}/${name}`.toLowerCase();
+      const repository = repositories.get(key) ?? { owner, name, issues: [] };
+      repository.issues.push(issue);
+      repositories.set(key, repository);
+    }
+    const grouped = [...repositories.values()];
+    const variables: Record<string, string> = {};
+    const parts = grouped.map((repository, index) => {
+      variables[`o${index}`] = repository.owner;
+      variables[`n${index}`] = repository.name;
+      // Issue numbers come from validated issue URLs, so they are plain digits.
+      const fields = repository.issues.map(issue => `i${issue.key}: issue(number: ${issue.key}) { closedByPullRequestsReferences(first: ${pullRequestsPerIssue}, includeClosedPrs: false) { totalCount nodes { number url state isDraft isCrossRepository headRefName } } }`);
+      return `r${index}: repository(owner: $o${index}, name: $n${index}) { ${fields.join(" ")} }`;
+    });
+    const declarations = Object.keys(variables).map(name => `$${name}: String!`).join(", ");
+    const response = await send("github", ctx.runtime, `${api}/graphql`, {
+      method: "POST", headers: { ...githubHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `query TimberIssuePullRequests(${declarations}) { ${parts.join(" ")} }`, variables }),
+    }, ctx.signal);
+    const body = await json("github", response, undefined, repositoryWording);
+    // GitHub answers what it can; a missing repository or issue is null beside an error.
+    const parsed = z.object({ data: z.record(z.string(), z.record(z.string(), z.unknown()).nullable()) }).safeParse(body);
+    if (!parsed.success) throw unusable("github");
+    grouped.forEach((repository, index) => {
+      const answered = parsed.data.data[`r${index}`];
+      for (const issue of repository.issues) links.set(issue.url, answered ? openPullRequests(answered[`i${issue.key}`]) : null);
+    });
+  }));
+}
+
 /** One read-only GitHub list. Returns null when a sprint is configured but none is current. */
 export async function listGithub(query: IssueQuery, ctx: ListContext): Promise<IssueList | null> {
   const { project: projectSetting, milestone } = ctx.settings.github;
@@ -247,10 +312,14 @@ export async function listGithub(query: IssueQuery, ctx: ListContext): Promise<I
   // The repository is local Git state, read before the login so a bad remote never reads one.
   const repo = query === "sprint" && projectSetting !== undefined ? null : await ctx.githubRepository();
   const token = await githubLogin(ctx.runtime, ctx.signal);
-  if (query === "sprint") {
-    return projectSetting !== undefined ? iterationSprint(ctx, token, projectSetting) : milestoneSprint(ctx, token, repo!, milestone!);
-  }
-  if (query === "assigned") return assigned(ctx, token, repo!);
-  if (query === "open") return open(ctx, token, repo!);
-  return search(ctx, token, repo!);
+  const read = (): Promise<IssueList | null> => {
+    if (query === "sprint") {
+      return projectSetting !== undefined ? iterationSprint(ctx, token, projectSetting) : milestoneSprint(ctx, token, repo!, milestone!);
+    }
+    if (query === "assigned") return assigned(ctx, token, repo!);
+    if (query === "open") return open(ctx, token, repo!);
+    return search(ctx, token, repo!);
+  };
+  const list = await read();
+  return list && { ...list, pullRequests: (issues, links) => githubPullRequests(ctx, token, issues, links) };
 }
