@@ -52,6 +52,19 @@ export function generateTicketBranch(key: string, title: string, maxBranchNameLe
   return result;
 }
 
+/**
+ * The branch `timber new` would generate for an issue without asking, or null
+ * when it could not: generation fails (for example a blank title), or a
+ * configured max_generated_branch_name_length shortened the name, which `new`
+ * offers to confirm. The default 120 character cut never prompts, so it is kept.
+ */
+export function predictTicketBranch(key: string, title: string, maxBranchNameLength?: number): string | null {
+  let generated: GeneratedTicketBranch;
+  try { generated = generateTicketBranch(key, title, maxBranchNameLength); } catch { return null; }
+  if (maxBranchNameLength !== undefined && generated.original !== undefined) return null;
+  return generated.name;
+}
+
 export function jiraBranchName(key: string, title: string, maxBranchNameLength?: number): string {
   return generateTicketBranch(key, title, maxBranchNameLength).name;
 }

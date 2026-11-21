@@ -75,6 +75,11 @@ export async function request<T>(path: string, runtime: GithubRuntime, validate:
   finally { clearTimeout(timer); controller.abort(); }
 }
 
+/** The ticket key `timber new` names a GitHub issue's branch with, such as GH-12. */
+export function githubTicketKey(number: number | string): string {
+  return `GH-${number}`;
+}
+
 export async function resolveGithubTicket(repo: GithubRepository, number: number, allowClosed: boolean,
   runtime: GithubRuntime = defaultGithubRuntime): Promise<GithubTicket> {
   return request(`/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/issues/${number}`, runtime, body => {
@@ -85,7 +90,7 @@ export async function resolveGithubTicket(repo: GithubRepository, number: number
       throw new Error(`GitHub issue #${number} is closed. To create a worktree anyway, rerun with -c.`);
     }
     const assignees = githubAssignees("assignees" in body ? body.assignees : undefined);
-    return { key: `GH-${number}`, title: body.title,
+    return { key: githubTicketKey(number), title: body.title,
       url: `https://github.com/${repo.owner}/${repo.name}/issues/${number}`,
       ...(assignees === undefined ? {} : { assignees }) };
   });

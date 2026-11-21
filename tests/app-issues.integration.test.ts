@@ -252,19 +252,25 @@ test("the current sprint of GitHub, Jira and Linear lists every issue, marks lin
         worktree: { path: paths.github!, branch: "feature/github" }, pullRequests: [
           // Merged pull requests are left out; a fork's draft keeps its own head branch.
           { number: 50, url: "https://github.com/acme/widgets/pull/50", branch: "fix-50", fromFork: false, draft: false },
-          { number: 52, url: "https://github.com/acme/widgets/pull/52", branch: "patch-1", fromFork: true, draft: true }], assignedToMe: true },
+          { number: 52, url: "https://github.com/acme/widgets/pull/52", branch: "patch-1", fromFork: true, draft: true }], assignedToMe: true,
+        branch: "GH-42-issue-42" },
       { tracker: "github", key: "43", url: "https://github.com/acme/widgets/issues/43", title: "Issue 43",
-        status: { name: "Closed", category: "closed" }, assignee: "octo", worktree: null, pullRequests: [], assignedToMe: true },
-      // The same number in another repository is a different issue, so it has no worktree.
+        status: { name: "Closed", category: "closed" }, assignee: "octo", worktree: null, pullRequests: [], assignedToMe: true,
+        branch: "GH-43-issue-43" },
+      // The same number in another repository is a different issue, so it has no worktree, and
+      // timber new github:42 would look up acme/widgets#42 instead, so no branch is predicted.
       { tracker: "github", key: "42", url: "https://github.com/other/repo/issues/42", title: "Issue 42",
         status: { name: "Open", category: "open" }, assignee: "octo", worktree: null,
-        pullRequests: [{ number: 7, url: "https://github.com/other/repo/pull/7", branch: "fix-7", fromFork: false, draft: false }], assignedToMe: true },
+        pullRequests: [{ number: 7, url: "https://github.com/other/repo/pull/7", branch: "fix-7", fromFork: false, draft: false }], assignedToMe: true,
+        branch: null },
     ]);
 
     expect(jira).toMatchObject({ tracker: "jira", outcome: "found", sprint: { name: "ENG Sprint 9", source: "jira-board" }, truncated: false });
     expect(jira.issues.map(issue => [issue.key, issue.status.category, issue.worktree?.branch ?? null])).toEqual([
       ["ENG-7", "in-progress", "feature/jira"], ["ENG-8", "open", null], ["ENG-9", "closed", null], ["ENG-10", "open", null]]);
     expect(jira.issues[0]).toMatchObject({ url: "https://acme.atlassian.net/browse/ENG-7", title: "Title ENG-7", assignee: "Ada" });
+    // The branch is predicted even when a worktree is linked or the issue is done.
+    expect(jira.issues.map(issue => issue.branch)).toEqual(["ENG-7-title-eng-7", "ENG-8-title-eng-8", "ENG-9-title-eng-9", "ENG-10-title-eng-10"]);
     // Jira has no draft flag; a fork is a source branch in another repository than the destination.
     expect(jira.issues.map(issue => issue.pullRequests)).toEqual([[
       { number: 1633, url: "https://bitbucket.org/acme/widgets/pull-requests/1633", branch: "ENG-7-fix", fromFork: false, draft: null },
@@ -275,6 +281,7 @@ test("the current sprint of GitHub, Jira and Linear lists every issue, marks lin
       // Merged and closed pull requests are left out; Linear does not say whether a head is a fork.
       ["LIN-3", "in-progress", paths.linear!, [{ number: 60, url: "https://github.com/acme/widgets/pull/60", branch: "lin-60", fromFork: null, draft: true }]],
       ["LIN-4", "open", null, []]]);
+    expect(linear.issues.map(issue => issue.branch)).toEqual(["LIN-3-title-lin-3", "LIN-4-title-lin-4"]);
 
     const methods = seen.requests.map(request => `${request.init.method} ${new URL(request.url).host}`);
     // The signed-in login is read once, after the list, because its issues have assignees.
@@ -652,7 +659,7 @@ test("assigned and open issues respect the limit and report truncation", async (
       return Response.json([restIssue(42), restIssue(45, "open", "acme/widgets", { pull_request: {} }), restIssue(46), restIssue(47)]);
     }));
     expect(github).toMatchObject({ outcome: "found", sprint: null, truncated: true });
-    expect(github.issues.map(issue => issue.key)).toEqual(["42", "46"]);
+    expect(github.issues.map(issue => [issue.key, issue.branch])).toEqual([["42", "GH-42-issue-42"], ["46", "GH-46-issue-46"]]);
 
     const githubOpen = await run(primary, "open", undefined, { tracker: "github" }, services(fresh(), directory, url => {
       expect(url.search).toContain("sort=created");
@@ -733,6 +740,7 @@ test("search matches keys and title words on every tracker, with typed text neve
       return Response.json({ issues: [jiraIssue("ENG-1"), jiraIssue("ENG-70"), jiraIssue("ENG-7")] });
     }));
     expect(jira.issues.map(issue => [issue.key, issue.worktree !== null])).toEqual([["ENG-7", true], ["ENG-70", false], ["ENG-1", false]]);
+    expect(jira.issues.map(issue => issue.branch)).toEqual(["ENG-7-title-eng-7", "ENG-70-title-eng-70", "ENG-1-title-eng-1"]);
 
     const linear = await run(primary, "search", "lin-3", { tracker: "linear" }, services(fresh(), directory, (_url, init) => {
       const { query, variables } = graphqlBody(init);
