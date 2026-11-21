@@ -15,16 +15,21 @@ export function validLinearKey(key: string): boolean { return keySchema.safePars
 
 export type LinearCredentialChange =
   | { kind: "entry"; action: "save" | "remove"; label: string }
-  | { kind: "association"; repository: string; label: string | null };
+  | { kind: "association"; repository: string; label: string | null }
+  | { kind: "default"; label: string };
 
 export interface LinearCredentialStore {
   readonly path: string;
   readonly original: string | null;
-  /** Saved entry labels in insertion order; labels are never secret. */
+  /** Saved entry labels, default first; labels are never secret. */
   labels(): readonly string[];
-  /** Without a label, the key of a sole saved entry. */
+  /** The entry repositories without an association use; null when none is saved. */
+  defaultLabel(): string | null;
+  /** Makes a saved entry the default without changing any association. */
+  makeDefault(label: string): void;
+  /** Without a label, the key of the default entry. */
   get(label?: string): string | null;
-  /** Without a label, replaces the sole entry (or creates "default"). Removing an entry drops its associations. */
+  /** Without a label, replaces the default entry (or creates "default"). Removing an entry drops its associations. */
   set(key: string | null, label?: string): void;
   association(repository: string): string | null;
   associate(repository: string, label: string | null): void;
@@ -65,16 +70,26 @@ export async function readLinearCredentialStore(env: NodeJS.ProcessEnv = process
   const { entries, associations } = state;
   const initialEntries = new Map(entries);
   const initialAssociations = new Map(associations);
-  const sole = () => entries.size === 1 ? [...entries.keys()][0]! : null;
+  const fallback = () => entries.size ? [...entries.keys()][0]! : null;
+  const initialDefault = fallback();
   return {
     path, original,
     labels() { return [...entries.keys()]; },
+    defaultLabel: fallback,
+    makeDefault(label) {
+      const key = entries.get(label);
+      if (key === undefined) throw new Error("Cannot make an unsaved Linear credential the default.");
+      const rest = [...entries].filter(([name]) => name !== label);
+      entries.clear();
+      entries.set(label, key);
+      for (const [name, value] of rest) entries.set(name, value);
+    },
     get(label) {
-      const name = label ?? sole();
+      const name = label ?? fallback();
       return name === null ? null : entries.get(name) ?? null;
     },
     set(key, label) {
-      const name = label ?? sole() ?? defaultCredentialLabel;
+      const name = label ?? fallback() ?? defaultCredentialLabel;
       if (!validCredentialLabel(name)) throw new Error("Invalid Linear credential label.");
       if (key === null) {
         entries.delete(name);
@@ -105,6 +120,8 @@ export async function readLinearCredentialStore(env: NodeJS.ProcessEnv = process
         if (label === null && !entries.has(initialAssociations.get(repository)!)) continue;
         changes.push({ kind: "association", repository, label });
       }
+      const now = fallback();
+      if (initialDefault !== null && now !== null && now !== initialDefault) changes.push({ kind: "default", label: now });
       return changes;
     },
     serialize() {
@@ -121,15 +138,12 @@ export async function readLinearCredentialStore(env: NodeJS.ProcessEnv = process
   };
 }
 
-export const unselectedLinearMessage = "Several saved Linear personal API keys exist and none is selected for this repository. Run timber setup in this repository to choose one, or supply LINEAR_API_KEY.";
-
-/** Null means no saved key; several keys without this repository's association fail instead of guessing. */
+/** Null means no saved key; otherwise this repository's selected key, else the default key. */
 export async function loadSavedLinearKey(env: NodeJS.ProcessEnv = process.env, signal?: AbortSignal,
   repository: string | null = null): Promise<string | null> {
   const store = await readLinearCredentialStore(env, signal);
   const selection = store.select(repository);
   if (selection.kind === "missing") return null;
-  if (selection.kind === "unselected") throw new Error(unselectedLinearMessage);
   return store.get(selection.label);
 }
 

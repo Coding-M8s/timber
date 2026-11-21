@@ -5,7 +5,7 @@ import { readLinearCredentialStore, validLinearKey, withLinearCredentialSave } f
 import type { LinearCredentialStore } from "../linear/credentials";
 import { SetupCancelled } from "./types";
 import { repositoryCredentialKey } from "../credential-selection";
-import { chooseEntryAction, chooseNewLabel, confirmRemoval, severalEntriesNotice } from "./credential-entries";
+import { chooseEntryAction, chooseNewLabel, confirmRemoval, addedEntryNotice, newDefaultNotice } from "./credential-entries";
 import type { EntryMenu } from "./credential-entries";
 import type { SetupPrompt } from "./types";
 
@@ -52,10 +52,13 @@ export function createLinearSetupSession(env: NodeJS.ProcessEnv = process.env, c
       if (action.kind === "forget") { store.associate(repository!, null); return; }
       if (action.kind === "remove") {
         if (!await confirmRemoval(prompt, menu, action.label)) return;
+        const wasDefault = store.defaultLabel() === action.label;
         store.set(null, action.label);
-        if (store.labels().length === 1) io.stdout(`The remaining saved key "${store.labels()[0]}" is now used by every repository.\n`);
+        const next = store.defaultLabel();
+        if (wasDefault && next !== null) io.stdout(newDefaultNotice(menu.noun, menu.describe(next)));
         return;
       }
+      if (action.kind === "default") { store.makeDefault(action.label); return; }
       if (action.kind === "use") { store.associate(repository!, action.label); key = store.get(action.label); }
       if (action.kind === "keep") {
         const selection = store.select(repository);
@@ -74,12 +77,12 @@ export function createLinearSetupSession(env: NodeJS.ProcessEnv = process.env, c
           key = entered; store.set(key, label); break;
         }
         if (action.kind === "add" && labels.length) {
-          io.stdout(severalEntriesNotice("Linear", "personal API key"));
+          io.stdout(addedEntryNotice(menu.noun, menu.describe(labels[0]!)));
           if (repository !== null) {
             const use = await prompt.confirm(`Use "${label}" for this repository?`, true);
             if (use === null) throw new SetupCancelled();
             if (use) store.associate(repository, label);
-            else if (menu.association === null && labels.length === 1) store.associate(repository, labels[0]!);
+            else { const selection = store.select(repository); key = selection.kind === "selected" ? store.get(selection.label) : null; }
           }
         }
       }
@@ -102,7 +105,8 @@ export function createLinearSetupSession(env: NodeJS.ProcessEnv = process.env, c
       if (!store || !store.changes().length) return;
       for (const change of store.changes()) {
         if (change.kind === "entry") io.stdout(`Linear personal credentials: ${change.action === "save" ? "save/replace" : "remove"} "${change.label}" (key hidden); shared across repositories.\n`);
-        else io.stdout(`Linear repository selection: ${change.label === null ? "clear" : `use "${change.label}"`} for ${change.repository === current ? "this repository" : safeDisplay(change.repository)}.\n`);
+        else if (change.kind === "default") io.stdout(`Linear default key: "${change.label}" for repositories without their own selection.\n`);
+        else io.stdout(`Linear repository selection: ${change.label === null ? "clear (use the default)" : `use "${change.label}"`} for ${change.repository === current ? "this repository" : safeDisplay(change.repository)}.\n`);
       }
       io.stdout(`Personal credential destination: ${safeDisplay(store.path)} (plaintext; private storage).\n`);
     },

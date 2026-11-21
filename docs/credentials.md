@@ -1,8 +1,9 @@
 # Multiple Linear and Jira credentials
 
 Timber can save several Linear personal API keys and several Jira email/token
-pairs, and select one per repository. With a single saved entry nothing changes:
-that entry is the default for every repository.
+pairs, and select one per repository. One saved entry is the default, used by
+every repository without its own selection. Adding another entry never changes
+what other repositories use.
 
 Secrets and selections both live in Timber's private credential store, never in
 `.timber.toml`, the global `config.toml`, logs or diagnostics:
@@ -38,32 +39,42 @@ At lookup time Timber resolves credentials in this order:
    `LINEAR_API_KEY`, or a complete `JIRA_EMAIL` and `JIRA_API_TOKEN` pair. Blank,
    invalid or partial overrides fail without falling back to saved entries.
 2. The entry this repository selected.
-3. The only saved entry, when exactly one exists (for Jira: for that site and mode).
+3. The default entry (for Jira: the default for that site and mode).
 
-With several saved entries and no selection for the repository, Timber stops
-before any request or Git change and asks you to run `timber setup` in that
-repository. It never tries entries in turn.
+Timber never tries entries in turn. If the default belongs to a different
+workspace or account, the lookup fails like any other credential error; run
+`timber setup` in that repository and select the right entry.
 
-## Adding a second entry
+## Adding another entry
 
 Choose "Add another" in the Linear or Jira login menu of `timber setup`. In
 repository setup, Timber then asks whether this repository should use the new
-entry. Answering no keeps this repository on its previous entry.
+entry. Answering no leaves this repository on the default.
 
-Other repositories that relied on the former single entry without a selection
-now report that none is selected. Run `timber setup` in each one and pick an entry.
+Every other repository keeps what it used before: its own selection, or the
+default. This suits working in many repositories with one main account, such as
+open source contributions alongside a work workspace: save the main account first
+(it becomes the default) and select the other entry only where it is needed.
 Machine-default setup (`timber setup --global`) can add, replace and remove
-entries but does not select one for any repository.
+entries and change the default, but does not select one for any repository.
+
+## The default entry
+
+The first saved entry is the default. Choose "Make ... the default" in setup to
+change it; repositories with their own selection are unaffected. To keep a
+repository on the current default even if the default changes later, select that
+entry explicitly for the repository.
 
 ## Changing and removing entries
 
 Repository setup can switch this repository to another entry, replace an entry's
-secret, or stop selecting an entry while keeping it saved for other repositories.
+secret, or stop selecting an entry so this repository uses the default again,
+while keeping the entry saved for other repositories.
 
 Removing an entry deletes it for every repository. When other repositories
 selected it, setup says how many and asks for confirmation first; their selections
-are cleared. When only one entry remains, it becomes the default for every
-repository again.
+are cleared and they use the default. Removing the default makes the next saved
+entry the default, and setup says which one.
 
 All changes are drafts until Save. Cancelling or a failed save restores the
 previous credentials and selections.
