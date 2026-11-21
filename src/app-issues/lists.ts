@@ -21,6 +21,19 @@ export interface IssueList {
    * the tracker has no reader.
    */
   pullRequests?: (issues: readonly IssueSummary[], links: PullRequestLinks) => Promise<void>;
+  /** Whether a listed issue is assigned to the signed-in account; null when that is unknown. Absent means unknown for every issue. */
+  assignedToMe?: (issue: IssueSummary) => boolean | null;
+}
+
+/**
+ * Whether the signed-in account is among `assignees`. An unassigned issue is
+ * false even when the account is unknown; otherwise unknown assignees or an
+ * unknown account give null.
+ */
+export function mine(assignees: readonly string[] | undefined, me: string | null, same: (a: string, b: string) => boolean): boolean | null {
+  if (assignees === undefined) return null;
+  if (assignees.length === 0) return false;
+  return me === null ? null : assignees.some(id => same(id, me));
 }
 
 /** An open pull request the tracker itself links to an issue. Null fields mean the tracker cannot tell. */

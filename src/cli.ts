@@ -100,11 +100,15 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--remote <name>", "Select the GitHub issue remote only; does not change --base")
     .option("-c", "Allow a closed or completed GitHub, Linear, or Jira issue; does not reopen it")
     .option("--no-setup", "Skip post_create hooks; run them later with timber open --setup")
+    .option("--assign", "Assign the issue to your tracker account after creating the worktree; refuses if someone else has it")
+    .option("--reassign", "Like --assign, but replace another assignee (GitHub: you become the only assignee)")
     .addHelpText("after", "\nChecks local branches and the configured (or every) remote before creating, so it needs network access when remotes exist.\nIf the name already exists on a remote, asks whether you meant timber open (Cancel is the default); without a terminal it refuses and prints the exact timber open command.\nA remote that cannot be checked also refuses. --base cannot be combined with an existing branch.\n--branch keeps the issue link and skips max_generated_branch_name_length. It is refused without an issue,\nincluding when a default tracker lookup finds no issue.")
-    .action(async (branch: string[], options: { resultFile?: string; base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; branch?: string; c?: boolean; setup?: boolean }) => {
+    .action(async (branch: string[], options: { resultFile?: string; base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; branch?: string; c?: boolean; setup?: boolean; assign?: boolean; reassign?: boolean }) => {
       const normalized: NewOptions = {
         ...(options.branch === undefined ? {} : { branch: options.branch }),
         ...(options.setup === false ? { setup: false as const } : {}),
+        ...(options.assign === true ? { assign: true } : {}),
+        ...(options.reassign === true ? { reassign: true } : {}),
         ...(options.remote === undefined ? {} : { remote: options.remote }),
         ...(options.c === true ? { allowClosed: true } : {}),
         ...(options.base === undefined ? {} : { base: options.base }),

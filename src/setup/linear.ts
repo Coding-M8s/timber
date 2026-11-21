@@ -11,7 +11,7 @@ export interface LinearSetupSession {
   review(io: CommandIO): void;
   save(publishConfig: () => Promise<void>, signal?: AbortSignal): Promise<void>;
 }
-type ConnectionCheck = (key: string, signal?: AbortSignal) => Promise<void>;
+type ConnectionCheck = (key: string, signal?: AbortSignal) => Promise<unknown>;
 const defaultCheck: ConnectionCheck = (key, signal) => checkLinearConnection({
   token: async () => key, fetch: (url, init) => fetch(url, init), timeoutMs: 10_000,
 }, signal);
@@ -26,7 +26,7 @@ export function createLinearSetupSession(env: NodeJS.ProcessEnv = process.env, c
       io.stdout(process.platform === "win32"
         ? "Plaintext storage limited by Windows ACLs to your account, SYSTEM and Administrators, shared across repositories. Changes apply on Save.\n"
         : "Personal plaintext, owner-only storage shared across repositories. Changes apply on Save.\n");
-      io.stdout("Create a personal API key under Account > Security & Access: https://linear.app/docs/api-and-webhooks\nUse Read permission and allow the teams whose issues you need. No write permission is required.\n");
+      io.stdout("Create a personal API key under Account > Security & Access: https://linear.app/docs/api-and-webhooks\nUse Read permission and allow the teams whose issues you need. Write permission is needed only for timber new --assign.\n");
       if (env.LINEAR_API_KEY !== undefined) {
         io.stdout("LINEAR_API_KEY overrides the saved key at runtime; a blank or invalid override fails without fallback. Unset it to use saved credentials. This check uses the draft key.\n");
       }

@@ -53,7 +53,7 @@ test("uses the Jira v3 summary and status fields with Basic auth and no redirect
   }));
 
   expect(new URL(requestUrl).pathname).toBe("/rest/api/3/issue/ENG-834");
-  expect(new URL(requestUrl).searchParams.get("fields")).toBe("summary,status");
+  expect(new URL(requestUrl).searchParams.get("fields")).toBe("summary,status,assignee");
   expect(requestInit?.method).toBe("GET");
   expect(requestInit?.redirect).toBe("error");
   expect(requestInit?.signal).toBeInstanceOf(AbortSignal);
@@ -82,7 +82,7 @@ test("uses the fixed Atlassian gateway for a scoped token", async () => {
   const url = new URL(requestUrl);
   expect(url.origin).toBe("https://api.atlassian.com");
   expect(url.pathname).toBe("/ex/jira/00000000-0000-4000-8000-000000000000/rest/api/3/issue/ENG-834");
-  expect(url.searchParams.get("fields")).toBe("summary,status");
+  expect(url.searchParams.get("fields")).toBe("summary,status,assignee");
   expect(ticket.url).toBe("https://example.atlassian.net/browse/ENG-834");
 });
 
@@ -225,7 +225,7 @@ test("rejects a redirect without making a second credentialed request", async ()
 
   expect(message).toMatch(/redirect/i);
   expect(calls).toEqual([{
-    url: "https://example.atlassian.net/rest/api/3/issue/ENG-834?fields=summary%2Cstatus",
+    url: "https://example.atlassian.net/rest/api/3/issue/ENG-834?fields=summary%2Cstatus%2Cassignee",
     redirect: "error",
   }]);
 });

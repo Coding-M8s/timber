@@ -132,6 +132,7 @@ const sprintPulls = {
 };
 
 const githubSprint: Answer = (url, init) => {
+  if (url.href === "https://api.github.com/user") return Response.json({ login: "Octo" });
   expect(url.href).toBe("https://api.github.com/graphql");
   const { query, variables } = graphqlBody(init);
   if (query.includes("TimberIssuePullRequests")) return githubLinks(init, sprintPulls);
@@ -250,13 +251,13 @@ test("the current sprint of GitHub, Jira and Linear lists every issue, marks lin
         worktree: { path: paths.github!, branch: "feature/github" }, pullRequests: [
           // Merged pull requests are left out; a fork's draft keeps its own head branch.
           { number: 50, url: "https://github.com/acme/widgets/pull/50", branch: "fix-50", fromFork: false, draft: false },
-          { number: 52, url: "https://github.com/acme/widgets/pull/52", branch: "patch-1", fromFork: true, draft: true }] },
+          { number: 52, url: "https://github.com/acme/widgets/pull/52", branch: "patch-1", fromFork: true, draft: true }], assignedToMe: true },
       { tracker: "github", key: "43", url: "https://github.com/acme/widgets/issues/43", title: "Issue 43",
-        status: { name: "Closed", category: "closed" }, assignee: "octo", worktree: null, pullRequests: [] },
+        status: { name: "Closed", category: "closed" }, assignee: "octo", worktree: null, pullRequests: [], assignedToMe: true },
       // The same number in another repository is a different issue, so it has no worktree.
       { tracker: "github", key: "42", url: "https://github.com/other/repo/issues/42", title: "Issue 42",
         status: { name: "Open", category: "open" }, assignee: "octo", worktree: null,
-        pullRequests: [{ number: 7, url: "https://github.com/other/repo/pull/7", branch: "fix-7", fromFork: false, draft: false }] },
+        pullRequests: [{ number: 7, url: "https://github.com/other/repo/pull/7", branch: "fix-7", fromFork: false, draft: false }], assignedToMe: true },
     ]);
 
     expect(jira).toMatchObject({ tracker: "jira", outcome: "found", sprint: { name: "ENG Sprint 9", source: "jira-board" }, truncated: false });
@@ -275,7 +276,8 @@ test("the current sprint of GitHub, Jira and Linear lists every issue, marks lin
       ["LIN-4", "open", null, []]]);
 
     const methods = seen.requests.map(request => `${request.init.method} ${new URL(request.url).host}`);
-    expect(methods).toEqual(["POST api.github.com", "POST api.github.com", "POST api.github.com", "POST api.github.com",
+    // The signed-in login is read once, after the list, because its issues have assignees.
+    expect(methods).toEqual(["POST api.github.com", "POST api.github.com", "POST api.github.com", "GET api.github.com", "POST api.github.com",
       ...Array<string>(7).fill("GET acme.atlassian.net"), "POST api.linear.app", "POST api.linear.app"]);
     for (const record of [github, jira, linear]) noSecrets(record);
   });
@@ -760,5 +762,72 @@ test("the CLI prints one record per call with no prompt, no token and no change"
       expect(result.stdout.trim().split("\n")).toHaveLength(1);
       expect(result.stdout + result.stderr).not.toContain(githubToken);
     }
+  });
+});
+
+test("assignedToMe compares each issue's assignees with the signed-in account, and an unknown account never fails the list", async () => {
+  await withFixture(async ({ primary, directory }) => {
+    const assignees = (...logins: string[]) => ({ assignees: logins.map(login => ({ login })) });
+    const listing = [restIssue(1, "open", "acme/widgets", assignees("someone", "ME")), restIssue(2, "open", "acme/widgets", assignees("someone")),
+      restIssue(3, "open", "acme/widgets", { assignee: null, ...assignees() }), restIssue(4)];
+    const github = (user: () => Response) => run(primary, "open", undefined, { tracker: "github" }, services(fresh(), directory, (url, init) => {
+      if (url.pathname === "/graphql") return githubLinks(init);
+      if (url.pathname === "/user") return user();
+      return Response.json(listing);
+    }));
+    // GitHub logins compare without case; an issue without an assignee list is unknown.
+    const known = await github(() => Response.json({ login: "me" }));
+    expect(known.issues.map(issue => [issue.key, issue.assignedToMe])).toEqual([["1", true], ["2", false], ["3", false], ["4", null]]);
+    const unknown = await github(() => new Response(null, { status: 403 }));
+    expect(unknown).toMatchObject({ outcome: "found", reason: null, diagnostic: null });
+    expect(unknown.issues.map(issue => [issue.key, issue.assignedToMe])).toEqual([["1", null], ["2", null], ["3", false], ["4", null]]);
+
+    // Nobody assigned: the account is never read.
+    const seen = fresh();
+    await run(primary, "open", undefined, { tracker: "github" }, services(seen, directory, (url, init) =>
+      url.pathname === "/graphql" ? githubLinks(init) : Response.json([restIssue(3, "open", "acme/widgets", { assignee: null, ...assignees() })])));
+    expect(seen.requests.some(request => request.url.endsWith("/user"))).toBeFalse();
+
+    const jiraAssigned = (key: string, accountId: string | null) => ({ ...jiraIssue(key),
+      fields: { ...jiraIssue(key).fields, assignee: accountId === null ? null : { displayName: "Someone", accountId } } });
+    const jira = (myself: () => Response) => run(primary, "open", undefined, { tracker: "jira" }, services(fresh(), directory, url => {
+      const panel = jiraPanel(url, {}, {});
+      if (panel !== null) return panel;
+      if (url.pathname === "/rest/api/3/myself") return myself();
+      return Response.json({ issues: [jiraAssigned("ENG-1", "acc-me"), jiraAssigned("ENG-2", "acc-other"), jiraAssigned("ENG-3", null), jiraIssue("ENG-4")] });
+    }));
+    expect((await jira(() => Response.json({ accountId: "acc-me" }))).issues.map(issue => issue.assignedToMe)).toEqual([true, false, false, null]);
+    const blank = await run(primary, "open", undefined, { tracker: "jira" }, services(fresh(), directory, url => {
+      const panel = jiraPanel(url, {}, {});
+      if (panel !== null) return panel;
+      if (url.pathname === "/rest/api/3/myself") return Response.json({ accountId: "acc-me" });
+      return Response.json({ issues: [{ ...jiraIssue("ENG-5"), fields: { ...jiraIssue("ENG-5").fields, assignee: { displayName: " ", accountId: "acc-blank" } } }] });
+    }));
+    // A blank display name still names an assignee, so the app does not offer a plain --assign.
+    expect(blank.issues.map(issue => [issue.assignee, issue.assignedToMe])).toEqual([["acc-blank", false]]);
+    // Some scoped tokens may read issues but not /myself.
+    const scoped = await jira(() => new Response(null, { status: 401 }));
+    expect(scoped).toMatchObject({ outcome: "found", reason: null });
+    expect(scoped.issues.map(issue => issue.assignedToMe)).toEqual([null, null, false, null]);
+
+    const linear = await run(primary, "open", undefined, { tracker: "linear" }, services(fresh(), directory, (_url, init) => {
+      const { query } = graphqlBody(init);
+      if (query.includes("TimberLinearPullRequests")) return linearLinks(init);
+      expect(query).toContain("assignee { displayName isMe }");
+      return Response.json({ data: { issues: { pageInfo: { hasNextPage: false }, nodes: [
+        { ...linearNode("LIN-1"), assignee: { displayName: "Me", isMe: true } },
+        { ...linearNode("LIN-2"), assignee: { displayName: "Other", isMe: false } },
+        linearNode("LIN-3")] } } });
+    }));
+    expect(linear.issues.map(issue => issue.assignedToMe)).toEqual([true, false, false]);
+
+    // Every issue in the assigned list is the login's.
+    const assigned = await run(primary, "assigned", undefined, { tracker: "jira" }, services(fresh(), directory, url => {
+      const panel = jiraPanel(url, {}, {});
+      if (panel !== null) return panel;
+      expect(url.pathname).toBe("/rest/api/3/search/jql");
+      return Response.json({ issues: [jiraAssigned("ENG-1", "acc-me")] });
+    }));
+    expect(assigned.issues.map(issue => issue.assignedToMe)).toEqual([true]);
   });
 });

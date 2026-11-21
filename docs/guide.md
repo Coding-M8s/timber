@@ -989,6 +989,22 @@ Use `-c` with any provider to allow a known closed/completed ticket without
 reopening it. Unknown states and deleted/trashed issues still refuse. `--remote`
 remains GitHub-only; issue-only flags cannot turn a literal input into a lookup.
 
+### Assigning the issue to yourself
+
+```bash
+timber new github:123 --assign
+timber new jira:ENG-123 --reassign
+```
+
+`--assign` assigns the issue to your account on its tracker after the worktree
+is created, using the same login as the lookup. If someone else is assigned,
+Timber stops before creating anything and names them; `--reassign` replaces them
+(on GitHub you become the only assignee). If the issue is already yours, nothing
+is written. If assigning fails, the worktree stays, Timber prints a warning, and
+setup and launch go on. GitHub needs write access to the repository's issues,
+Jira the Assign Issues permission, and Linear a key with Write permission. See
+[the contract](cli-contract.md#assign-the-issue-on-new-215).
+
 ## GitHub issues
 
 Use `timber setup` or `timber setup --global` and select **GitHub** under
@@ -1028,7 +1044,8 @@ load `.env` files. When running from source, use `bun --no-env-file src/index.ts
 to disable Bun's automatic dotenv loading. Private issues need repository access
 and Issues read permission; see [GitHub's endpoint requirements](https://docs.github.com/en/rest/issues/issues#get-an-issue).
 This version requires authentication for public lookup too. There is no automatic
-anonymous fallback, issue search, issue updates or GitHub Enterprise support.
+anonymous fallback, issue search, GitHub Enterprise support, or issue updates other
+than `timber new --assign`, which needs write access to the repository's issues.
 
 Developer smoke checklist: configure/check login in setup, create a worktree from
 a known open issue without environment overrides, verify branch and browse link,
@@ -1040,8 +1057,8 @@ fork. HTTP doubles alone do not establish live GitHub access.
 Run `timber setup` or `timber setup --global`, select **Linear** under **Connections**, and
 enter a personal API key. Create one under Account > Security & Access following
 [Linear's instructions](https://linear.app/docs/api-and-webhooks). Give it **Read**
-permission and access to the teams whose issues you use; write permission is not
-needed. Workspace policy may restrict who can create keys.
+permission and access to the teams whose issues you use; write permission is
+needed only for `timber new --assign`. Workspace policy may restrict who can create keys.
 
 The key is hidden while typing or pasting. Optionally check the draft login, then
 choose **Save and exit**. The check uses the draft key and saves nothing. It verifies
@@ -1066,7 +1083,8 @@ Explicit whole-input `linear:<KEY>` always invokes Linear; bare keys also
 use Linear when it is the default tracker. The key may be typed in any case. Triage, backlog, unstarted and started
 issues are accepted; completed, canceled and duplicate require `-c`. Unknown states
 and deleted/trashed issues always refuse. `--remote` applies only to GitHub issues. No URL input, suggestions/search,
-OAuth, account chooser, issue updates or automatic closing is supported. `open`,
+OAuth, account chooser, automatic closing, or issue updates other than
+`timber new --assign` is supported. `open`,
 `ls` and `done` stay offline for Linear.
 
 Both setup scopes share one plaintext personal key outside Git at

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { IssueReadFailure, jiraCategories, jiraLogin, json, send, unusable } from "../app-issue/trackers";
 import type { IssueSummary, MissingWording } from "../app-issue/trackers";
 import { isJiraTicketKey } from "../jira/branch";
-import { batches, keyPrefix, maxSprintIssues, NotConfigured } from "./lists";
+import { batches, keyPrefix, maxSprintIssues, mine, NotConfigured } from "./lists";
 import type { IssueList, IssueQuery, LinkedPullRequest, ListContext, PullRequestLinks } from "./lists";
 
 type JiraRequest = Awaited<ReturnType<typeof jiraLogin>>;
@@ -13,9 +13,12 @@ const listIssue = z.object({
   fields: z.object({
     summary: z.string(),
     status: z.object({ name: z.string(), statusCategory: z.object({ key: z.string() }) }),
-    assignee: z.object({ displayName: z.string() }).nullable().optional(),
+    assignee: z.object({ displayName: z.string(), accountId: z.string().optional() }).nullable().optional(),
   }),
 });
+
+/** Assignee account IDs per listed issue; undefined when Jira left an account ID out. */
+const assigneeIds = new WeakMap<IssueSummary, readonly string[] | undefined>();
 
 const siteWording: MissingWording = {
   forbidden: "The Jira login cannot read these issues; check its access to the project.",
@@ -25,10 +28,22 @@ const siteWording: MissingWording = {
 function summary(request: JiraRequest, issue: z.infer<typeof listIssue>): IssueSummary {
   const { fields: value } = issue;
   const key = value.status.statusCategory.key;
-  return { tracker: "jira", key: issue.key, url: `${request.siteOrigin}/browse/${issue.key}`, title: value.summary,
-    assignee: value.assignee?.displayName.trim() || null,
+  const result: IssueSummary = { tracker: "jira", key: issue.key, url: `${request.siteOrigin}/browse/${issue.key}`, title: value.summary,
+    // A blank display name still names an assignee, so the account ID stands in for it.
+    assignee: value.assignee ? value.assignee.displayName.trim() || value.assignee.accountId || null : null,
     // Jira reserves "undefined" for statuses outside the three groups; they are not started.
     status: { name: value.status.name, category: key in jiraCategories ? jiraCategories[key as keyof typeof jiraCategories] : "open" } };
+  const { assignee } = value;
+  assigneeIds.set(result, assignee === undefined ? undefined : assignee === null ? []
+    : assignee.accountId === undefined ? undefined : [assignee.accountId]);
+  return result;
+}
+
+/** The signed-in account ID; null when Jira does not say, which some scoped tokens cause. */
+async function myself(ctx: ListContext, request: JiraRequest): Promise<string | null> {
+  const parsed = z.object({ accountId: z.string().min(1) })
+    .safeParse((await get(ctx, request, new URL(`${request.apiRoot}/rest/api/3/myself`))).body);
+  return parsed.success ? parsed.data.accountId : null;
 }
 
 async function get(ctx: ListContext, request: JiraRequest, url: URL, allowStatus?: (status: number) => boolean): Promise<{ status: number; body: unknown }> {
@@ -242,5 +257,10 @@ export async function listJira(query: IssueQuery, ctx: ListContext): Promise<Iss
     return pickerSearch(ctx, request, project);
   };
   const list = await read();
-  return list && { ...list, pullRequests: (issues, links) => jiraPullRequests(ctx, request, issues, links) };
+  // The account is read only when an issue has an assignee to compare; every issue in the assigned list is the login's.
+  const account = list === null || query === "assigned"
+    || !list.issues.some(issue => (assigneeIds.get(issue)?.length ?? 0) > 0) ? null
+    : await myself(ctx, request).catch(error => { if (ctx.signal.aborted) throw error; return null; });
+  return list && { ...list, pullRequests: (issues, links) => jiraPullRequests(ctx, request, issues, links),
+    assignedToMe: issue => query === "assigned" ? true : mine(assigneeIds.get(issue), account, (a, b) => a === b) };
 }

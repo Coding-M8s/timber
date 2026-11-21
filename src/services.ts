@@ -4,7 +4,7 @@ import type { MachineReporter } from "./machine";
 import type { ArenaNewOptions, ArenaResumeOptions, ArenaPickOptions } from "./arena/types";
 import type {
   AgentCommand, AgentResult, ExecutableCommand, Branch, CleanupInspection, CleanupOptions, CleanupPolicy, CleanupResult, ConfirmCleanupDiscard, CreateWorktreeRequest,
-  EditorResult, JiraConfig, JiraTicket, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
+  EditorResult, JiraConfig, JiraTicket, TrackerUser, OpenTarget, RepositoryConfig, RepositoryContext, Resolution,
   ResolveOpenTargetOptions, ValidatedBase, Worktree,
 } from "./types";
 import type { BaseAssociationRead } from "./git/base-metadata";
@@ -19,11 +19,16 @@ import type { BackupCreateOptions, BackupRestoreReport } from "./backup/service"
 import type { GithubRepository } from "./github/repository";
 import type { LinearTicket } from "./linear/client";
 import type { GithubTicket } from "./github/client";
+import type { AssignTarget } from "./issue-assignment";
 
 export interface CommandServices {
   resolveLinearTicket(key: string, allowClosed?: boolean): Promise<LinearTicket>;
   resolveGithubRepository(repository: RepositoryContext, config: RepositoryConfig, remote?: string): Promise<GithubRepository>;
   resolveGithubTicket(repository: GithubRepository, number: number, allowClosed: boolean): Promise<GithubTicket>;
+  /** The signed-in account of the issue's tracker, through Timber's own login. */
+  readTrackerUser(target: AssignTarget): Promise<TrackerUser>;
+  /** Assign the issue to `me`; `replace` makes `me` the only assignee. */
+  assignIssue(target: AssignTarget, me: TrackerUser, replace: boolean): Promise<void>;
   /** Discover from nested/linked cwd; reject non-repositories and bare repos. */
   discoverRepository(cwd: string): Promise<RepositoryContext>;
   /** Defaults + validated global/repository config; never search relative to caller cwd. */
@@ -169,6 +174,10 @@ export interface NewOptions {
   agent?: boolean;
   /** False skips every post_create hook; the caller runs `open --setup` later. */
   setup?: false;
+  /** Assign the issue to the signed-in tracker account after creating the worktree. */
+  assign?: boolean;
+  /** Replace another assignee; implies `assign`. */
+  reassign?: boolean;
 }
 
 export interface OpenOptions {

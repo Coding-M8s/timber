@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { z } from "zod";
-import type { JiraConfig, JiraTicket } from "../types";
+import type { JiraConfig, JiraTicket, TrackerUser } from "../types";
 import { isJiraTicketKey } from "./branch";
 import { loadSavedCredentials, validCredentials } from "./credentials";
 import type { JiraCredentials } from "./credentials";
@@ -14,8 +14,17 @@ const issueSchema = z.object({
   fields: z.object({
     summary: z.string().refine(value => value.trim().length > 0),
     status: z.unknown().optional(),
+    assignee: z.unknown().optional(),
   }),
 });
+const accountSchema = z.object({
+  accountId: z.string().refine(value => value.trim().length > 0),
+  displayName: z.string().optional(),
+});
+
+function trackerUser(account: z.infer<typeof accountSchema>): TrackerUser {
+  return { id: account.accountId, name: account.displayName?.trim() || account.accountId };
+}
 export type JiraLookupFailureReason = "not-found" | "done";
 
 /** A safe Jira diagnostic; reason is present only for exact missing/done lookups. */
@@ -45,7 +54,7 @@ export async function resolveJiraTicket(
 
   const requestContext = await prepareRequest(config, runtime);
   const requestUrl = new URL(`${requestContext.apiRoot}/rest/api/3/issue/${encodeURIComponent(key)}`);
-  requestUrl.searchParams.set("fields", "summary,status");
+  requestUrl.searchParams.set("fields", "summary,status,assignee");
 
   return withDeadline(runtime, async signal => {
     const body = await fetchJson(runtime, requestUrl.href, requestContext.authorization, signal, true);
@@ -69,13 +78,44 @@ export interface JiraRequestContext {
   authorization: string;
 }
 
-export async function checkJiraConnection(config: JiraConfig, runtime: JiraRuntime = defaultRuntime()): Promise<void> {
+/** Checks the login and returns its account. */
+export async function checkJiraConnection(config: JiraConfig, runtime: JiraRuntime = defaultRuntime()): Promise<TrackerUser> {
+  const request = await prepareRequest(config, runtime);
+  return withDeadline(runtime, async signal => {
+    const body = await fetchJson(runtime, `${request.apiRoot}/rest/api/3/myself`, request.authorization, signal);
+    const account = accountSchema.safeParse(body);
+    if (!account.success) throw new JiraLookupFailure("Unexpected Jira response; current-user data was not usable.");
+    return trackerUser(account.data);
+  });
+}
+
+/** Assign one issue to an account. Jira has one assignee, so this replaces any other. */
+export async function assignJiraIssue(config: JiraConfig, key: string, accountId: string,
+  runtime: JiraRuntime = defaultRuntime()): Promise<void> {
+  if (!isJiraTicketKey(key)) throw new Error("Invalid Jira ticket key.");
   const request = await prepareRequest(config, runtime);
   await withDeadline(runtime, async signal => {
-    const body = await fetchJson(runtime, `${request.apiRoot}/rest/api/3/myself`, request.authorization, signal);
-    if (!isRecord(body) || typeof body.accountId !== "string" || !body.accountId.trim()) {
-      throw new JiraLookupFailure("Unexpected Jira response; current-user data was not usable.");
+    let response: Response;
+    try {
+      response = await runtime.fetch(`${request.apiRoot}/rest/api/3/issue/${encodeURIComponent(key)}/assignee`, {
+        method: "PUT",
+        headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: request.authorization },
+        body: JSON.stringify({ accountId }),
+        redirect: "error",
+        signal,
+      });
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      throw new JiraLookupFailure("Jira request failed because of a network or redirect error; check connectivity and the configured site/token mode.");
     }
+    await discardBody(response);
+    if (response.status >= 200 && response.status < 300) return;
+    if (response.status >= 300 && response.status < 400) {
+      throw new JiraLookupFailure("Jira request was redirected; check connectivity and the configured site/token mode.");
+    }
+    if (response.status === 400) throw new JiraLookupFailure("Jira refused the assignee (400); the account may not be assignable in this project.");
+    if (response.status === 403) throw new JiraLookupFailure("Jira denied the assignment (403); the login needs the Assign Issues permission and a write scope.");
+    throw httpFailure(response.status, false);
   });
 }
 
@@ -193,10 +233,15 @@ function usableIssue(body: unknown): z.infer<typeof issueSchema> {
 }
 
 function toTicket(issue: z.infer<typeof issueSchema>, siteOrigin: string): JiraTicket {
+  const assignee = issue.fields.assignee;
+  const account = assignee === undefined || assignee === null ? null : accountSchema.safeParse(assignee);
   return {
     key: issue.key,
     title: issue.fields.summary,
     url: new URL(`/browse/${encodeURIComponent(issue.key)}`, siteOrigin).href,
+    // A missing field or an unreadable account leaves the assignees unknown.
+    ...(assignee === undefined || (account !== null && !account.success) ? {}
+      : { assignees: account === null ? [] : [trackerUser(account.data!)] }),
   };
 }
 

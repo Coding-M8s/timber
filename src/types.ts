@@ -111,11 +111,19 @@ export interface JiraConfig {
   cloudId?: string;
 }
 
+/** A tracker account: GitHub login, Jira account ID, or Linear user ID, with a display name. */
+export interface TrackerUser {
+  id: string;
+  name: string;
+}
+
 /** Ticket details needed to name a generated branch and build its browse URL. */
 export interface JiraTicket {
   key: string;
   title: string;
   url: string;
+  /** Current assignees as read with the ticket; undefined when the response did not say. */
+  assignees?: readonly TrackerUser[];
 }
 
 export type IssueTracker = "github" | "linear" | "jira" | "none";

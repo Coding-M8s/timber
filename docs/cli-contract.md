@@ -1073,8 +1073,55 @@ upstream; no rebase onto a newer base, no base association). `--workflow`,
 `--editor`, `--agent` and `--no-setup` carry over. A resolved ticket is passed on
 as `--issue`, so the opened worktree is linked to it; a GitHub ticket selected with
 `--remote` is not linked, because `open` resolves GitHub issues in the default
-issue repository, and `new` says so. Refusal and cancellation run no
+issue repository, and `new` says so. With `--assign`, opening an existing branch
+assigns nothing and `new` says so; see [Assign the issue](#assign-the-issue-on-new-215).
+Refusal and cancellation run no
 hooks, editors or agents and leave files, refs and worktree registrations intact.
+
+## Assign the issue on `new` (#215)
+
+`timber new <selector> --assign` assigns the issue to the signed-in account of its
+tracker, so others can see it is being worked on. `--reassign` does the same and
+also replaces someone else; it implies `--assign`. The login is the one the lookup
+uses: `GH_TOKEN`, `GITHUB_TOKEN` or the GitHub CLI login for GitHub, and the
+environment pair or saved credentials for Jira and Linear. `arena new` has no
+`--assign`.
+
+- Either option needs an issue: an explicit selector, or an input matching the
+  default tracker. A literal branch name is refused before any lookup. A
+  default-tracker input that the tracker reports missing is refused instead of
+  becoming a literal branch.
+- The lookup reads the current assignees with the issue. Timber then reads the
+  signed-in account (GitHub `GET /user`, Jira `GET /rest/api/3/myself`, Linear
+  `viewer`). Both happen before any prompt, collision check or creation. If the
+  account or the assignees cannot be read, `new` refuses and creates nothing.
+- Assigned to someone else and no `--reassign`: refuse before anything is
+  created, naming every current assignee and suggesting `--reassign`.
+- Already assigned to the account: nothing is written, also when others are
+  assigned beside it on GitHub, unless `--reassign` asks to remove them.
+- The write runs after the worktree, its base and its issue link are saved, and
+  before setup hooks, the editor and the agent. GitHub logins compare without
+  case; Jira account IDs and Linear user IDs compare exactly.
+  - GitHub, unassigned: `POST /repos/<owner>/<repo>/issues/<number>/assignees`
+    adds the login, so an assignee who appeared since the lookup is kept. With
+    `--reassign`: `PATCH /repos/<owner>/<repo>/issues/<number>` sets the
+    assignee list to only the login. The repository is the one the lookup used,
+    including `--remote`. The answer must list the login, because GitHub drops an
+    assignee it may not assign without an error.
+  - Jira: `PUT /rest/api/3/issue/<KEY>/assignee` with the account ID. Jira has one
+    assignee, so this replaces any other. The login needs the Assign Issues
+    permission and, for a scoped token, a write scope.
+  - Linear: the `issueUpdate` mutation with `assigneeId`; the answer must name
+    the account. The personal API key needs Write permission.
+- A failed write keeps the worktree. Timber prints a warning with the reason to
+  stderr, then runs setup and launches as usual, and the command still succeeds.
+  The outcome is recorded in the `--result-file` record's `assignment` object;
+  see the [IDE contract](ide-contract.md#version-1-schema).
+- Timber trusts the assignees read with the issue and does not read them again
+  before writing. There are no retries. Tokens never appear in output.
+- Opening an existing remote branch through the [existing branch
+  guard](#existing-branch-guard) does not create a worktree in `new`, so nothing
+  is assigned there; `new` prints that the issue was not assigned.
 
 ## Repository configuration
 
@@ -1327,7 +1374,8 @@ configuration. Recognize explicit raw whole-input `linear:<KEY>` using the
 case-insensitive ticket-key grammar. Reject malformed inputs beginning with `linear:`
 before lookup or mutation. Bare `ENG-123` uses Linear when selected as the default;
 without a default it is a literal branch.
-No URL selectors, search, provider inference, OAuth or issue updates. `--remote`
+No URL selectors, search, provider inference, OAuth or issue updates other than
+[`new --assign`](#assign-the-issue-on-new-215). `--remote`
 remains GitHub-only; `-c` permits known terminal Linear issues.
 
 Resolve the ordinary explicit/configured base before credentials or HTTP. A supplied
@@ -1365,14 +1413,14 @@ Offline ticket matching and hook `TIMBER_TASK_ID` extraction remain unchanged.
 
 Both setup scopes expose Linear through the chooser/connections menu and edit the same
 personal credential. Explain [personal key creation](https://linear.app/docs/api-and-webhooks),
-Read permission and team restrictions. Offer keep, enter/replace and remove with
+Read permission and team restrictions; `new --assign` also needs Write permission. Offer keep, enter/replace and remove with
 hidden token input, including pasted input. Review shows only the action and private
 path. Keys are plaintext personal storage shared across repositories, never TOML.
 Use owner-only 0600 files and a 0700 credential directory on Linux, with existing
 private-storage protections, atomic publication, locks and concurrent-change checks.
 No broad credential-store refactor or changes to Jira's storage format.
 
-An optional read-only `viewer { id }` check uses the draft key, irrespective of the
+An optional read-only `viewer { id displayName }` check uses the draft key, irrespective of the
 environment override. Bound it to 10 seconds including body parsing, reject
 redirects and show safe success/failure without saving. Authentication success does
 not prove team/issue access. Failed checks permit correction or cancellation.

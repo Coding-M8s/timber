@@ -18,6 +18,8 @@ export interface ListedIssue extends IssueSummary {
   worktree: { path: string; branch: string | null } | null;
   /** Open pull requests the tracker links to this issue; null when the links could not be read. */
   pullRequests: LinkedPullRequest[] | null;
+  /** Whether the issue is assigned to the signed-in account; false when unassigned, null when unknown. */
+  assignedToMe: boolean | null;
 }
 
 export interface AppIssuesRecord {
@@ -190,6 +192,6 @@ export async function readAppIssues(cwd: string, query: string, text: string | u
     issues: result.issues.map(issue => {
       const identity = issueIdentity(issue);
       return { ...issue, worktree: identity === null ? null : linked.get(identity) ?? null,
-        pullRequests: pullRequests.get(issue.url) ?? null };
+        pullRequests: pullRequests.get(issue.url) ?? null, assignedToMe: result.assignedToMe?.(issue) ?? null };
     }) });
 }

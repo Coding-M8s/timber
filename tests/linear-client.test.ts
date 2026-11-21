@@ -87,7 +87,7 @@ for (const stage of ["token", "fetch", "body"] as const) {
 
 test("Linear viewer check is read-only, validates minimal response and observes external cancellation", async () => {
   await checkLinearConnection({ ...runtime(null), fetch: async (_url, init) => {
-    expect(JSON.parse(init.body as string)).toEqual({ query: "query TimberLinearConnection { viewer { id } }", variables: {} });
+    expect(JSON.parse(init.body as string)).toEqual({ query: "query TimberLinearConnection { viewer { id displayName } }", variables: {} });
     return json({ data: { viewer: { id: "viewer-id" } } });
   } });
   await expect(checkLinearConnection(runtime({ data: { viewer: { id: " " } } }))).rejects.toThrow(/invalid response/u);
