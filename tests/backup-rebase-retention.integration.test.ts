@@ -134,6 +134,8 @@ test("uncertain rebase state keeps retention from starting until it can be inspe
   await withRepository(async (primary, directory) => {
     const { target, id, createdAt } = await pausedBackup(primary, directory);
     await git(target, "rebase", "--abort");
+    // Auto-maintenance would prune this link in the background; withRepository turns it off.
+    expect(await git(primary, "config", "maintenance.auto")).toBe("false");
     await fs.symlink(directory, join(primary, ".git/worktrees/linked"));
     const first = new Date(createdAt + 10 * day);
     const uncertain = await cleanup(primary, first);

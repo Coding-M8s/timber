@@ -192,6 +192,8 @@ test("expired backups of an active or uncertain rebase are protected from cleanu
 
     // Abort the rebase, then make rebase state uncertain: a link in worktrees/ cannot be inspected.
     await git(target, "rebase", "--abort");
+    // Auto-maintenance would prune this link in the background; withRepository turns it off.
+    expect(await git(primary, "config", "maintenance.auto")).toBe("false");
     await fs.symlink(directory, join(primary, ".git/worktrees/linked"));
     const uncertain = await cleanup(primary, far);
     expect(uncertain.stdout).toContain(`Kept expired backup ${id}: it is protected, rebase state in this repository cannot be inspected (uncertain rebase).`);
