@@ -3,6 +3,7 @@ import { CleanupCancelled, discardFingerprint } from "./cleanup-discard";
 import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { execa } from "execa";
+import { startRebaseRetention } from "../backup/lifecycle";
 import { runPreDelete } from "../hooks";
 import type { CommandIO } from "../services";
 import { resolveBase } from "./branches";
@@ -201,6 +202,8 @@ async function deletePreservedBranch(
 }
 
 /** Explain current cleanup evidence without treating the caller's selection as authority. */
+const silent: CommandIO = { stdout: () => {}, stderr: () => {} };
+
 export async function inspectCleanup(
   repository: RepositoryContext, worktree: Worktree, config: RepositoryConfig,
 ): Promise<CleanupInspection> {
@@ -311,6 +314,8 @@ export async function cleanupWorktree(
 
   const path = finalInspection.worktree.path;
   const branchName = evidence.branchRef?.slice("refs/heads/".length) ?? null;
+  // Removal deletes this worktree's HEAD reflog, the evidence a rebase-origin backup's retention waits for.
+  await startRebaseRetention(repository, silent).catch(() => {});
   await policy.beforeRemove?.();
   let removed: GitResult;
   try {

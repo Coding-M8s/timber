@@ -1,8 +1,9 @@
 import { expect, mock, test } from "bun:test";
+import { execa } from "execa";
 import { chmod, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { launchAgent } from "../src/agent";
-import { startRebaseRetention } from "../src/backup/lifecycle";
+import { cleanupBackups, startRebaseRetention } from "../src/backup/lifecycle";
 import { createBackup } from "../src/backup/service";
 import { runCli } from "../src/cli";
 import { createRebaseHandler } from "../src/commands/rebase";
@@ -58,6 +59,16 @@ async function onlyRecord(primary: string): Promise<Record<string, unknown>> {
   expect(rest).toEqual([]);
   return JSON.parse(await readFile(join(root, id!, "record.json"), "utf8")) as Record<string, unknown>;
 }
+/** After the session left the rebase paused, the user ends it with plain Git; a later cleanup starts retention. */
+async function finishByHand(primary: string, target: string, args: string[]): Promise<void> {
+  await execa("git", ["-c", "user.name=Timber Test", "-c", "user.email=test@example.invalid", "rebase", ...args],
+    { cwd: target, env: { GIT_EDITOR: "true" } });
+  expect(await onlyRecord(primary)).toMatchObject({ retentionStartedAt: null });
+  const later = new Date(Date.now() + 60_000);
+  const quiet = { stdout: () => {}, stderr: () => {} };
+  expect(await cleanupBackups(await discoverRepository(primary), quiet, later)).toBe(0);
+  expect((await onlyRecord(primary)).retentionStartedAt).toBe(later.toISOString());
+}
 const taskFile = async (target: string) => Bun.file(join(await git(target, "rev-parse", "--absolute-git-dir"), "timber-rebase-resolve-task.txt")).exists();
 
 test("assistant resolves, stages and continues; task carries config then CLI note; backup made first", async () => {
@@ -104,6 +115,8 @@ test.each([["y", 0], ["", 1]] as const)("staged-only assistant: continue answer 
       expect(result.stderr).toContain("nothing was continued");
       expect(result.stderr).toContain("rebase --continue");
       expect(await git(s.target, "diff", "--cached", "--name-only")).toBe("tracked.txt");
+      expect(await onlyRecord(primary)).toMatchObject({ origin: "rebase", retentionStartedAt: null });
+      await finishByHand(primary, s.target, ["--continue"]);
     }
   });
 });
@@ -130,6 +143,7 @@ test("assistant failure and termination keep the paused rebase, files and index 
       expect(await git(s.target, "rev-parse", "FETCH_HEAD")).toBe(fetchHead);
       expect(await taskFile(s.target)).toBe(false);
       expect(await onlyRecord(primary)).toMatchObject({ origin: "rebase", retentionStartedAt: null });
+      await finishByHand(primary, s.target, ["--abort"]);
     });
   }
 });
