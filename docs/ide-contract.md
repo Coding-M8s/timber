@@ -1127,7 +1127,8 @@ storage, and contacts nothing. The schema, ordering and failure rules are in the
   yet been seen to end; its `expiresAt` is null until then. Treat unknown states
   as never expiring.
 - Timber starts a rebase-origin backup's retention during `backup cleanup`,
-  `backup create` or `rebase --resolve`, which changes its `recordSha256`.
+  `backup create`, `rebase --resolve` or worktree removal (including
+  `__ide-done apply`), which changes its `recordSha256`.
 - `timber backup keep` and `unkeep` change `recordSha256`; read the list again
   before confirming a deletion.
 - To delete a usable backup or finish an unfinished deletion, pass its `id` and

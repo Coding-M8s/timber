@@ -742,19 +742,25 @@ observations count:
 - Timber's own `rebase --resolve` session sees the rebase complete (no
   operation, HEAD on the branch, onto an ancestor), after the assistant or after
   the confirmed `git rebase --continue`.
-- A later `timber backup cleanup` or `timber backup create` (which runs expiry
-  cleanup first) finds Git's own record of the outcome: an entry `rebase
+- A later `timber backup cleanup`, `timber backup create` (which runs expiry
+  cleanup first) or worktree removal by `timber done`, `__ide-done apply` or
+  `arena pick` (just before Git removes the worktree and its reflog) finds Git's
+  own record of the outcome: an entry `rebase
   (finish): returning to refs/heads/<branch>` or `rebase (abort): returning to
   refs/heads/<branch>` for the recorded branch in the source worktree's HEAD
   reflog (`logs/HEAD` in its admin directory), timestamped no earlier than the
-  backup's creation second.
+  backup's creation second. Any such entry counts, including one from a later
+  rebase of the same branch after the backup's rebase directory was removed by
+  hand.
 
 Neither counts while the backup is protected: an active rebase of its worktree
 or branch, or any uncertain rebase state, keeps retention from starting. Nothing
 else is evidence. A missing rebase directory, a missing or unreadable reflog
 (for example after `timber done` removed the worktree's admin directory, or with
 reflogs turned off), a reflog entry older than the backup, `git rebase --quit`
-or a changed reflog action message all leave retention not started. One
+or a changed reflog action message all leave retention not started. `timber
+done` then lists the backup as `retention not started because its rebase was
+never seen to end; delete it with timber backup done`. One
 observation starts every not-started rebase-origin backup of that worktree and
 branch, for example the backups of several `--resolve` runs on one rebase.
 
@@ -762,7 +768,8 @@ Starting rewrites `record.json` the way keep and unkeep do (same checks, private
 temporary file, rename), so `recordSha256` changes. It is best effort: any
 failure leaves the record unchanged and retention not started. `timber backup
 list` and `list --json` only read and never start retention. Cleanup and create
-print `Retention started for backup <id>: ...` with the new expiry.
+print `Retention started for backup <id>: ...` with the new expiry; worktree
+removal starts it silently, and `timber done` then lists the new expiry.
 
 A backup whose outcome is never observed stays until it is deleted. Once no
 rebase is active or uncertain it is not protected, so the confirmed `timber

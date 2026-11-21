@@ -702,7 +702,7 @@ function shortRetention(record: BackupRecord, now: Date): string {
   switch (retention.state) {
     case "kept": return "kept indefinitely";
     case "until-deleted": return "kept until deleted";
-    case "not-started": return "retention starts when its rebase is seen to finish or be aborted";
+    case "not-started": return "retention not started because its rebase was never seen to end; delete it with timber backup done";
     case "expiring": return `expires ${retention.expiresAt}`;
     case "expired": return `expired ${retention.expiresAt}`;
   }

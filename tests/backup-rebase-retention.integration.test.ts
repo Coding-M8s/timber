@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { cleanupBackups, listBackups, readBackupList, reviewBackupDeletion } from "../src/backup/lifecycle";
 import { createBackup } from "../src/backup/service";
+import { cleanupWorktree } from "../src/git/cleanup";
 import { discoverRepository } from "../src/git/repository";
 import { listWorktrees } from "../src/git/worktrees";
+import { config, options, quiet } from "./helpers/cleanup-discard";
 import { git, withRepository } from "./helpers/git";
 
 // Rebase-origin backups (#188): retention starts only once the rebase is reliably seen to end.
@@ -171,5 +173,30 @@ test("a rebase directory removed without an observed outcome never starts retent
     expect(await reviewBackupDeletion(await discoverRepository(primary), { all: false }, io, async () => answers.shift() ?? null, far)).toBe(0);
     expect(out.stdout).toContain("Retention: not started");
     expect(await entries(primary)).toEqual([]);
+  });
+});
+
+test("timber done observes the outcome before removing the worktree, whose reflog is the evidence", async () => {
+  await withRepository(async (primary, directory) => {
+    const { target, id } = await pausedBackup(primary, directory);
+    await git(target, "rebase", "--abort");
+    const repository = await discoverRepository(primary);
+    const tree = (await listWorktrees(repository)).find(item => item.path === target)!;
+    const before = Date.now();
+    await cleanupWorktree(repository, tree, config, options, quiet, async () => true);
+    expect(await fs.lstat(target).then(() => true, () => false)).toBe(false);
+    const started = (await readRecord(primary, id)).retentionStartedAt as string;
+    expect(Date.parse(started)).toBeGreaterThanOrEqual(before - 1000);
+  });
+});
+
+test("a worktree removed outside Timber after the rebase ends leaves retention not started", async () => {
+  await withRepository(async (primary, directory) => {
+    const { target, id, createdAt } = await pausedBackup(primary, directory);
+    await git(target, "rebase", "--abort");
+    await git(primary, "worktree", "remove", "--force", target);
+    const far = new Date(createdAt + 1000 * day);
+    expect((await cleanup(primary, far)).stdout).toBe("No expired backups; nothing was deleted.\n");
+    expect((await readRecord(primary, id)).retentionStartedAt).toBeNull();
   });
 });
