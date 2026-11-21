@@ -1138,6 +1138,7 @@ type ListedIssue = Issue & {   // Issue as in __app-issue
   worktree: { path: string; branch: string | null } | null; // the worktree linked to this issue, if any
   pullRequests: LinkedPullRequest[] | null; // open pull requests the tracker links to it; null when they could not be read
   assignedToMe: boolean | null; // assigned to the signed-in account; false when unassigned; null when unknown
+  branch: string | null;       // the branch timber new would generate for it; null when it cannot say
 };
 
 type LinkedPullRequest = {
@@ -1152,7 +1153,36 @@ type LinkedPullRequest = {
 `pullRequests` is an additive v1 field: `schemaVersion` stays 1, and a
 consumer written before it ignores it like any other additional field. A
 consumer that reads it must accept a record without it from an older Timber
-and treat that like `null`. `assignedToMe` is additive in the same way.
+and treat that like `null`. `assignedToMe` and `branch` are additive in the
+same way.
+
+`branch` is the name `timber new <tracker>:<key>` would generate for the issue
+with the repository's current settings and the listed title:
+`<canonical-ID>-<title-slug>`, such as `GH-12-fix-login` or `ENG-42-fix-login`,
+cut to `max_generated_branch_name_length` (120 when unset). Timber computes it
+with the same code `new` uses, offline, so it adds no tracker request. A title
+with no ASCII letters or digits, even after accents are removed, gives `<canonical-ID>-issue`, as in `new`. It is
+`null` when `new` could not use a generated name without asking:
+
+- a configured `max_generated_branch_name_length` shortened the name, so `new`
+  offers to confirm it (a run without a terminal would take the shortened
+  name; the record does not depend on how the app runs `new`). The default
+  120 character cut never asks, so that name is reported;
+- `new` would refuse to generate one, for example for a blank title, or a key
+  too long for the configured length;
+- on GitHub, the issue's `url` names another repository than the selected
+  remote, or the selected remote cannot be read as a github.com repository.
+  A project iteration can hold issues from other repositories, and a renamed
+  repository's issues carry the new name while the remote may keep the old
+  one. The name predicts `timber new github:<n>` without `--remote`, which
+  looks the number up in the selected remote's repository.
+
+`branch` is a prediction, not a promise. The title or settings may change
+before `new` runs, and `new` still applies its checks when it creates the
+branch: an existing local or remote branch of that name (also when `worktree`
+is set), and a closed or done issue, which `new` refuses without `-c` although
+sprint and search lists can hold one. To keep the shown name, pass it to `new`
+with `--branch`; to let Timber generate it again, leave `--branch` out.
 
 `assignedToMe` tells the app whether `timber new --assign` would write nothing
 (`true`), assign (`false` with `assignee` null) or need `--reassign` (`false`

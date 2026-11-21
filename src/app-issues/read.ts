@@ -3,7 +3,9 @@ import { knownSecrets, safeAppDiagnostic } from "../app-config/input";
 import { IssueReadFailure } from "../app-issue/trackers";
 import type { IssueReadReason, IssueSummary, IssueTrackerRuntime } from "../app-issue/trackers";
 import type { IssueLinkRead, LinkedTracker } from "../git/issue-link";
+import { githubTicketKey } from "../github/client";
 import type { GithubRepository } from "../github/repository";
+import { predictTicketBranch } from "../jira/branch";
 import type { RepositoryConfig, RepositoryContext, Worktree, WorktreeInventory } from "../types";
 import { listGithub } from "./github";
 import { listJira } from "./jira";
@@ -20,6 +22,12 @@ export interface ListedIssue extends IssueSummary {
   pullRequests: LinkedPullRequest[] | null;
   /** Whether the issue is assigned to the signed-in account; false when unassigned, null when unknown. */
   assignedToMe: boolean | null;
+  /**
+   * The branch `timber new <tracker>:<key>` would generate for this issue with the
+   * current settings and title; null when `new` could not use a generated name
+   * without asking, or when the issue is not the one `new` would look up.
+   */
+  branch: string | null;
 }
 
 export interface AppIssuesRecord {
@@ -153,13 +161,16 @@ export async function readAppIssues(cwd: string, query: string, text: string | u
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => { controller.abort(); reject(late()); }, services.timeoutMs);
   });
+  // Read once: GitHub lists and the branch prediction both need the selected repository.
+  let selected: Promise<GithubRepository> | undefined;
+  const githubRepository = () => selected ??= services.githubRepository(repository, config);
   const context: ListContext = {
     runtime: { ...services.trackers, secret: value => { if (value) secrets.push(value); } },
     signal: controller.signal,
     settings: config.issueLists ?? { jira: {}, github: {}, linear: {} },
     jira: config.jira,
     githubRepository: async () => {
-      try { return await services.githubRepository(repository, config); }
+      try { return await githubRepository(); }
       catch { throw new IssueReadFailure("failed", "The selected remote is not a github.com repository. Check the remote setting or the origin fetch URL."); }
     },
     limit: input.limit,
@@ -191,10 +202,24 @@ export async function readAppIssues(cwd: string, query: string, text: string | u
   if (result === null) return Object.assign(record, { outcome: "none" });
   const linked = result.issues.length === 0 ? new Map<string, ListedIssue["worktree"]>()
     : await linkedWorktrees(repository, trees, services);
+  // `timber new github:<n>` looks the number up in the selected remote's repository, so an issue
+  // from another repository (a project iteration can hold them) has no prediction.
+  let ownGithub: string | null = null;
+  if (input.tracker === "github" && result.issues.length > 0) {
+    const own = await githubRepository().catch(() => null);
+    if (own !== null) ownGithub = `github:${own.owner.toLowerCase()}/${own.name.toLowerCase()}#`;
+  }
+  const maximum = config.maxGeneratedBranchNameLength;
+  const branch = (issue: IssueSummary, identity: string | null): string | null => {
+    if (issue.tracker !== "github") return predictTicketBranch(issue.key, issue.title, maximum);
+    if (ownGithub === null || identity !== `${ownGithub}${issue.key}`) return null;
+    return predictTicketBranch(githubTicketKey(issue.key), issue.title, maximum);
+  };
   return Object.assign(record, { outcome: "found", sprint: result.sprint, truncated: result.truncated,
     issues: result.issues.map(issue => {
       const identity = issueIdentity(issue);
       return { ...issue, worktree: identity === null ? null : linked.get(identity) ?? null,
-        pullRequests: pullRequests.get(issue.url) ?? null, assignedToMe: result.assignedToMe?.(issue) ?? null };
+        pullRequests: pullRequests.get(issue.url) ?? null, assignedToMe: result.assignedToMe?.(issue) ?? null,
+        branch: branch(issue, identity) };
     }) });
 }
