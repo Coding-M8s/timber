@@ -73,6 +73,8 @@ export interface ListContext {
   limit: number;
   /** Search text; empty for the other queries. */
   text: string;
+  /** For sprint: keep only issues assigned to the signed-in account. */
+  assignedOnly: boolean;
   /** Today, for choosing a GitHub project's current iteration. */
   now: () => Date;
 }

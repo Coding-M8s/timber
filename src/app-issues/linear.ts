@@ -54,7 +54,7 @@ function teamFilter(team: string | undefined): Record<string, unknown> {
 async function cycle(ctx: ListContext, token: string, team: string, summary: Summarize): Promise<IssueList | null> {
   const query = `query TimberLinearCycle($team: String!, $after: String) {
     teams(first: 1, filter: { key: { eq: $team } }) { nodes { activeCycle { name number
-      issues(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { ${issueFields} } } } } } }`;
+      issues(first: 100, after: $after${ctx.assignedOnly ? ", filter: { assignee: { isMe: { eq: true } } }" : ""}) { pageInfo { hasNextPage endCursor } nodes { ${issueFields} } } } } } }`;
   const issues: IssueSummary[] = [];
   let after: string | null = null;
   let more = true;

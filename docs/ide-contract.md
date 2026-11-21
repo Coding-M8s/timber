@@ -1099,7 +1099,7 @@ suggestions while typing a worktree name. It uses Timber's own tracker login,
 so the app never holds a token.
 
 ```sh
-timber __app-issues sprint   [--tracker github|jira|linear]
+timber __app-issues sprint   [--tracker github|jira|linear] [--assigned]
 timber __app-issues assigned [--tracker github|jira|linear] [--limit <1-100>]
 timber __app-issues open     [--tracker github|jira|linear] [--limit <1-100>]
 timber __app-issues search    --tracker github|jira|linear  [--limit <1-100>] -- '<text>'
@@ -1109,8 +1109,9 @@ Without `--tracker`, `sprint`, `assigned` and `open` use the repository's
 `default_tracker`. `search` always names its tracker, so it does not depend on
 the default. The search text is one argument of at most 200 characters, after
 `--`. `--limit` defaults to 50, or 10 for `search`; a sprint is listed whole, up
-to 500 issues. Timber prints one JSON object plus newline to stdout and exits 0
-when the outcome is `found` or `none`, or 1 when it is `failed`; the record is
+to 500 issues. `--assigned` limits `sprint` to the issues assigned to the
+signed-in account; see [My issues in the sprint](#my-issues-in-the-sprint).
+Timber prints one JSON object plus newline to stdout and exits 0 when the outcome is `found` or `none`, or 1 when it is `failed`; the record is
 printed in both cases. It never prompts (run it with stdin closed), never writes
 files, never fetches or changes a ref, and never changes an issue. The network
 part, reading the login and every tracker request together, stops after 15
@@ -1155,7 +1156,8 @@ and treat that like `null`. `assignedToMe` is additive in the same way.
 
 `assignedToMe` tells the app whether `timber new --assign` would write nothing
 (`true`), assign (`false` with `assignee` null) or need `--reassign` (`false`
-with an `assignee`). Every issue in an `assigned` list is `true`. Otherwise
+with an `assignee`). Every issue in an `assigned` list or a `sprint --assigned`
+list is `true`, and the account is not read again after the list. Otherwise
 Timber compares the issue's assignees with the signed-in account: the GitHub
 login without case, read with `GET /user`; the Jira account ID, read with
 `GET /rest/api/3/myself`; Linear's own `isMe`. The account is read once, after
@@ -1169,6 +1171,7 @@ Each list reads:
 | Query | GitHub | Jira | Linear |
 | --- | --- | --- | --- |
 | `sprint` | The current iteration of `[github].project`, or open issues in the open milestone `[github].milestone` | The active sprints of `[jira].board`, or the issues `[jira].sprint_jql` matches | The active cycle of `[linear].team` |
+| `sprint --assigned` | The same iteration or milestone, keeping only issues the login is assigned to | The same sprint query with `assignee = currentUser()` added | The same cycle, keeping only issues assigned to the viewer |
 | `assigned` | Open issues in the selected remote's repository assigned to the login, recently updated first | Issues assigned to the login and not done, in `[jira].project` when set, recently updated first | Issues assigned to the login and not closed, in `[linear].team` when set, recently updated first |
 | `open` | Open issues in the selected remote's repository, newest first | Issues in `[jira].project` that are not done, newest first | Issues in `[linear].team` that are not closed, newest first |
 | `search` | Issue `12` in any state for `12` or `#12`, then open issues whose number starts with `12`, then open issues whose titles contain every word, also as part of a word | Jira's issue picker, which matches key prefixes such as `ENG-4` and title words; an exact key comes first | The exact key, then Linear's issue search |
@@ -1203,8 +1206,9 @@ team = "ENG"           # needed for sprint and open; narrows assigned and search
   `__app-issue`, with the same logins. A GitHub project also needs
   the `read:project` scope; without it the reason is `forbidden`. `failed`
   also covers invalid input, such as an unknown query or tracker, a bad
-  `--limit`, text for a list other than `search`, and a GitHub list whose
-  selected remote is not on github.com.
+  `--limit`, text for a list other than `search`, `--assigned` with a list
+  other than `sprint`, and a GitHub list whose selected remote is not on
+  github.com.
 - `worktree` is set when a registered worktree's saved issue link names the
   same issue: the same repository and number for GitHub, the same site and key
   for Jira, the same key for Linear. Invalid or stale links count as no link.
@@ -1244,6 +1248,31 @@ team = "ENG"           # needed for sprint and open; narrows assigned and search
   yet been tested against a real Linear workspace; treat them as unverified.
 - Titles, status names and assignee names are untrusted text from the tracker,
   as in `__app-issue`.
+
+### My issues in the sprint
+
+`timber __app-issues sprint --assigned` lists the current sprint's issues that
+are assigned to the signed-in account. Issues in every status the sprint lists
+are kept, and other people's issues never count toward the 500 issue cap:
+
+- Jira: `assignee = currentUser()` is added to the active-sprint query of
+  `[jira].board`, or to `[jira].sprint_jql`. A saved query is wrapped in
+  parentheses and keeps its own `ORDER BY` clause last.
+- GitHub: an iteration keeps the items whose assignees include the login,
+  compared without case. Timber filters the project's items itself, so on a
+  project of more than 2000 items `truncated` can be true, as for `sprint`. A milestone asks GitHub for the login's issues in it.
+  Like `sprint`, a milestone lists open issues only, so `--assigned` is
+  always a subset of `sprint`.
+- Linear: the active cycle is filtered to issues assigned to the viewer.
+
+The record has the same shape as for `sprint`: `query` is `"sprint"`,
+`sprint` names the sprint as before, and `issues` holds only the assigned
+issues. `none`, `not-configured` and the failure reasons mean the same as for
+`sprint`; on GitHub the login is read only after a current iteration or the
+milestone is found. When GitHub cannot say who the login is, the list fails
+rather than listing everyone's issues. A Timber older than this option rejects
+`--assigned` as an unknown option: it exits 1 and prints no record, so an app
+should treat a missing record as "not supported" and fall back.
 
 ## Backups for app consumers (experimental v1)
 

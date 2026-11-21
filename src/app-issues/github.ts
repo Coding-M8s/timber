@@ -38,8 +38,13 @@ function summary(number: number, url: string, title: string, open: boolean, assi
 const fromRest = (issue: RestIssue) => summary(issue.number, issue.html_url, issue.title, issue.state === "open", issue.assignee?.login ?? null,
   issue.assignees?.map(user => user.login));
 
+const accountWording: MissingWording = {
+  forbidden: "The GitHub login cannot read its own account; check the token's access.",
+  notFound: "GitHub could not find the signed-in account; check the login.",
+};
+
 async function login(ctx: ListContext, token: string): Promise<string> {
-  const user = z.object({ login: z.string().min(1) }).safeParse((await get(ctx, token, `${api}/user`)).body);
+  const user = z.object({ login: z.string().min(1) }).safeParse((await get(ctx, token, `${api}/user`, accountWording)).body);
   if (!user.success) throw unusable("github");
   return user.data.login;
 }
@@ -142,7 +147,13 @@ async function milestoneSprint(ctx: ListContext, token: string, repo: GithubRepo
   if (number === undefined) {
     throw new IssueReadFailure("not-found", `GitHub has no open milestone named ${jsonDisplay(title)} in this repository; check [github].milestone.`);
   }
-  const list = await listIssues(ctx, token, `${repoPath(repo)}/issues?milestone=${number}&state=open&per_page=100`,
+  const listing = new URL(`${repoPath(repo)}/issues`);
+  // Read only once the milestone is known, so a missing milestone answers as for the whole sprint.
+  const assignee = ctx.assignedOnly ? { assignee: await login(ctx, token) } : {};
+  for (const [key, value] of Object.entries({ milestone: String(number), state: "open", ...assignee, per_page: "100" })) {
+    listing.searchParams.set(key, value);
+  }
+  const list = await listIssues(ctx, token, listing.href,
     maxSprintIssues, Math.ceil(maxSprintIssues / 100) + 1);
   return { ...list, sprint: { name: title, source: "github-milestone" } };
 }
@@ -228,6 +239,8 @@ async function iterationSprint(ctx: ListContext, token: string, setting: string)
   if (!field) throw new NotConfigured("The GitHub project at [github].project has no iteration field.");
   const iteration = currentIteration(field.configuration.iterations, ctx.now());
   if (!iteration) return null;
+  // Read only once a current iteration is known, so none and not-configured answer as for the whole sprint.
+  const me = ctx.assignedOnly ? (await login(ctx, token)).toLowerCase() : null;
 
   const issues: IssueSummary[] = [];
   let after: string | null = null;
@@ -242,6 +255,8 @@ async function iterationSprint(ctx: ListContext, token: string, setting: string)
       if (node?.fieldValueByName?.iterationId !== iteration.id || content?.number === undefined) continue;
       if (content.url === undefined || content.title === undefined || content.state === undefined) throw unusable("github");
       const assignees = content.assignees;
+      // GitHub allows at most 10 assignees and the query reads 10, so the list is never cut short in practice.
+      if (me !== null && !assignees?.nodes.some(user => user.login.toLowerCase() === me)) continue;
       // A list cut short could leave the login out, so it counts as unknown.
       const complete = assignees !== undefined && (assignees.totalCount === undefined || assignees.totalCount <= assignees.nodes.length);
       issues.push(summary(content.number, content.url, content.title, content.state === "OPEN", assignees?.nodes[0]?.login ?? null,
@@ -338,11 +353,12 @@ export async function listGithub(query: IssueQuery, ctx: ListContext): Promise<I
     return search(ctx, token, repo!);
   };
   const list = await read();
-  // The account is read only when an issue has an assignee to compare; every issue in the assigned list is the login's.
-  const account = list === null || query === "assigned"
+  // The account is read only when an issue has an assignee to compare; every issue in an assigned list is the login's.
+  const allMine = query === "assigned" || ctx.assignedOnly;
+  const account = list === null || allMine
     || !list.issues.some(issue => (assigneeLogins.get(issue)?.length ?? 0) > 0) ? null
     : await login(ctx, token).catch(error => { if (ctx.signal.aborted) throw error; return null; });
   return list && { ...list, pullRequests: (issues, links) => githubPullRequests(ctx, token, issues, links),
-    assignedToMe: issue => query === "assigned" ? true
+    assignedToMe: issue => allMine ? true
       : mine(assigneeLogins.get(issue), account, (a, b) => a.toLowerCase() === b.toLowerCase()) };
 }

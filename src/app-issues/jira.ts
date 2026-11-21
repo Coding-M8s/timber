@@ -90,7 +90,8 @@ async function boardSprint(ctx: ListContext, request: JiraRequest, board: number
   if (!parsed.success) throw unusable("jira");
   const sprints = parsed.data.values;
   if (sprints.length === 0) return null;
-  const list = await search(ctx, request, `sprint in (${sprints.map(sprint => sprint.id).join(", ")}) ORDER BY Rank ASC`,
+  const mine = ctx.assignedOnly ? " AND assignee = currentUser()" : "";
+  const list = await search(ctx, request, `sprint in (${sprints.map(sprint => sprint.id).join(", ")})${mine} ORDER BY Rank ASC`,
     maxSprintIssues, "Jira rejected the sprint query; try again later.");
   return { ...list, sprint: { name: sprints.map(sprint => sprint.name).join(", "), source: "jira-board" } };
 }
@@ -229,6 +230,24 @@ async function jiraPullRequests(ctx: ListContext, request: JiraRequest, issues: 
   await Promise.all(Array.from({ length: Math.min(devStatusConcurrency, withPulls.length) }, worker));
 }
 
+/**
+ * Adds `assignee = currentUser()` to a saved sprint query, keeping its ORDER BY
+ * clause last. Quoted text is skipped, so ORDER BY inside a string never splits
+ * the query; unquoted, `order` and `by` are reserved words and only start the clause.
+ */
+export function assignedJql(jql: string): string {
+  let split = jql.length;
+  for (const match of jql.matchAll(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\border\s+by\b/giu)) {
+    if (match[0].startsWith("\"") || match[0].startsWith("'")) continue;
+    split = match.index;
+    break;
+  }
+  const filter = jql.slice(0, split).trim();
+  const order = jql.slice(split).trim();
+  const mine = filter.length === 0 ? "assignee = currentUser()" : `(${filter}) AND assignee = currentUser()`;
+  return order.length === 0 ? mine : `${mine} ${order}`;
+}
+
 /** One read-only Jira list. Returns null when a board is configured but has no active sprint. */
 export async function listJira(query: IssueQuery, ctx: ListContext): Promise<IssueList | null> {
   const { board, sprintJql, project } = ctx.settings.jira;
@@ -243,7 +262,7 @@ export async function listJira(query: IssueQuery, ctx: ListContext): Promise<Iss
   const read = async (): Promise<IssueList | null> => {
     if (query === "sprint") {
       if (board !== undefined) return boardSprint(ctx, request, board);
-      const list = await search(ctx, request, sprintJql!, maxSprintIssues, "Jira rejected [jira].sprint_jql; check the query.");
+      const list = await search(ctx, request, ctx.assignedOnly ? assignedJql(sprintJql!) : sprintJql!, maxSprintIssues, "Jira rejected [jira].sprint_jql; check the query.");
       return { ...list, sprint: { name: null, source: "jira-jql" } };
     }
     if (query === "assigned") {
@@ -257,10 +276,11 @@ export async function listJira(query: IssueQuery, ctx: ListContext): Promise<Iss
     return pickerSearch(ctx, request, project);
   };
   const list = await read();
-  // The account is read only when an issue has an assignee to compare; every issue in the assigned list is the login's.
-  const account = list === null || query === "assigned"
+  // The account is read only when an issue has an assignee to compare; every issue in an assigned list is the login's.
+  const allMine = query === "assigned" || ctx.assignedOnly;
+  const account = list === null || allMine
     || !list.issues.some(issue => (assigneeIds.get(issue)?.length ?? 0) > 0) ? null
     : await myself(ctx, request).catch(error => { if (ctx.signal.aborted) throw error; return null; });
   return list && { ...list, pullRequests: (issues, links) => jiraPullRequests(ctx, request, issues, links),
-    assignedToMe: issue => query === "assigned" ? true : mine(assigneeIds.get(issue), account, (a, b) => a === b) };
+    assignedToMe: issue => allMine ? true : mine(assigneeIds.get(issue), account, (a, b) => a === b) };
 }

@@ -6,6 +6,7 @@ import { execa } from "execa";
 import { git, withRepository } from "./helpers/git";
 import { snapshot } from "./helpers/snapshot";
 import { currentIteration } from "../src/app-issues/github";
+import { assignedJql } from "../src/app-issues/jira";
 import { issueIdentity, readAppIssues } from "../src/app-issues/read";
 import type { AppIssuesOptions, AppIssuesRecord, AppIssuesServices } from "../src/app-issues/read";
 import { keyPrefix, searchWords } from "../src/app-issues/lists";
@@ -476,6 +477,163 @@ test("a configured tracker with no current sprint reports none", async () => {
   });
 });
 
+test("sprint --assigned lists only my issues in every status, filtered by the tracker", async () => {
+  await withFixture(async ({ primary, directory }) => {
+    const mine = { assigned: true };
+
+    // Jira board: the active sprint query also names the signed-in user, and /myself is never read.
+    const jiraSeen = fresh();
+    const board = await run(primary, "sprint", undefined, mine, services(jiraSeen, directory, url => {
+      const panel = jiraPanel(url, {}, {});
+      if (panel !== null) return panel;
+      if (url.pathname === "/rest/agile/1.0/board/12/sprint") return Response.json({ values: [{ id: 301, name: "ENG Sprint 9" }] });
+      expect(url.pathname).toBe("/rest/api/3/search/jql");
+      expect(url.searchParams.get("jql")).toBe("sprint in (301) AND assignee = currentUser() ORDER BY Rank ASC");
+      return Response.json({ issues: [jiraIssue("ENG-7", "indeterminate", "In Review"), jiraIssue("ENG-9", "done", "Done")] });
+    }));
+    expect(board).toMatchObject({ query: "sprint", tracker: "jira", outcome: "found", sprint: { name: "ENG Sprint 9", source: "jira-board" }, truncated: false });
+    expect(board.issues.map(issue => [issue.key, issue.status.category, issue.assignedToMe])).toEqual([["ENG-7", "in-progress", true], ["ENG-9", "closed", true]]);
+    expect(jiraSeen.requests.some(request => request.url.includes("/myself"))).toBeFalse();
+
+    // A saved Jira query keeps its own order last; ORDER BY inside quotes is text.
+    await writeFile(join(primary, ".timber.toml"), `[jira]\nsite_url = "https://acme.atlassian.net"\nsprint_jql = "labels = now OR summary ~ \\"order by\\" order\\n  by Rank"\n`);
+    const saved = await run(primary, "sprint", undefined, { tracker: "jira", ...mine }, services(fresh(), directory, url => {
+      const panel = jiraPanel(url, {}, {});
+      if (panel !== null) return panel;
+      expect(url.searchParams.get("jql")).toBe(`(labels = now OR summary ~ "order by") AND assignee = currentUser() order\n  by Rank`);
+      return Response.json({ issues: [jiraIssue("ENG-1")] });
+    }));
+    expect(saved).toMatchObject({ outcome: "found", sprint: { name: null, source: "jira-jql" } });
+    expect(saved.issues.map(issue => issue.assignedToMe)).toEqual([true]);
+
+    // GitHub milestone: open issues of the milestone assigned to the login.
+    await writeFile(join(primary, ".timber.toml"), `[github]\nmilestone = "v2"\n`);
+    const milestoneSeen = fresh();
+    const milestone = await run(primary, "sprint", undefined, { tracker: "github", ...mine }, services(milestoneSeen, directory, (url, init) => {
+      if (url.pathname === "/graphql") return githubLinks(init);
+      if (url.pathname === "/user") return Response.json({ login: "Octo" });
+      if (url.pathname.endsWith("/milestones")) return Response.json([{ number: 7, title: "v2" }]);
+      expect(url.pathname).toBe("/repos/acme/widgets/issues");
+      expect(Object.fromEntries(url.searchParams)).toEqual({ milestone: "7", state: "open", assignee: "Octo", per_page: "100" });
+      return Response.json([restIssue(42)]);
+    }));
+    expect(milestone).toMatchObject({ outcome: "found", sprint: { name: "v2", source: "github-milestone" } });
+    expect(milestone.issues.map(issue => [issue.key, issue.assignedToMe])).toEqual([["42", true]]);
+    // The login is read once, after the milestone is found.
+    expect(milestoneSeen.requests.map(request => new URL(request.url).pathname)).toEqual(
+      ["/repos/acme/widgets/milestones", "/user", "/repos/acme/widgets/issues", "/graphql"]);
+
+    // GitHub iteration: only items assigned to the login, compared without case, open or closed.
+    await writeFile(join(primary, ".timber.toml"), settings);
+    const iteration = await run(primary, "sprint", undefined, { tracker: "github", ...mine }, services(fresh(), directory, (url, init) => {
+      if (url.pathname === "/user") return Response.json({ login: "ME" });
+      const { query, variables } = graphqlBody(init);
+      if (query.includes("TimberIssuePullRequests")) return githubLinks(init);
+      if (query.includes("TimberProjectIterations")) {
+        return Response.json({ data: { repositoryOwner: { projectV2: { fields: { nodes: [{ name: "Iteration", configuration: { iterations } }] } } } } });
+      }
+      expect(variables.after).toBeNull();
+      const item = (number: number, state: string, logins: string[]) => ({ fieldValueByName: { iterationId: "now" }, content: { number,
+        url: `https://github.com/acme/widgets/issues/${number}`, title: `Issue ${number}`, state, assignees: { nodes: logins.map(login => ({ login })) } } });
+      return Response.json({ data: { repositoryOwner: { projectV2: { items: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+        item(1, "OPEN", ["someone", "me"]), item(2, "OPEN", ["someone"]), item(3, "CLOSED", ["Me"]), item(4, "OPEN", [])] } } } } });
+    }));
+    expect(iteration).toMatchObject({ outcome: "found", sprint: { name: "Sprint 2", source: "github-iteration" }, truncated: false });
+    expect(iteration.issues.map(issue => [issue.key, issue.status.category, issue.assignedToMe])).toEqual([["1", "open", true], ["3", "closed", true]]);
+
+    // Linear: the active cycle filtered to the viewer.
+    const linear = await run(primary, "sprint", undefined, { tracker: "linear", ...mine }, services(fresh(), directory, (_url, init) => {
+      const { query } = graphqlBody(init);
+      if (query.includes("TimberLinearPullRequests")) return linearLinks(init);
+      expect(query).toContain("issues(first: 100, after: $after, filter: { assignee: { isMe: { eq: true } } })");
+      return Response.json({ data: { teams: { nodes: [{ activeCycle: { name: "Week 4", number: 4, issues: {
+        pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+          { ...linearNode("LIN-3", "started"), assignee: { displayName: "Me", isMe: true } },
+          { ...linearNode("LIN-5", "completed"), assignee: { displayName: "Me", isMe: true } }] } } }] } } });
+    }));
+    expect(linear).toMatchObject({ outcome: "found", sprint: { name: "Week 4", source: "linear-cycle" } });
+    expect(linear.issues.map(issue => [issue.key, issue.status.category, issue.assignedToMe])).toEqual([["LIN-3", "in-progress", true], ["LIN-5", "closed", true]]);
+
+    // Without --assigned, no query names the user.
+    const plain = await run(primary, "sprint", undefined, { tracker: "linear" }, services(fresh(), directory, (url, init) => {
+      expect(graphqlBody(init).query).not.toContain("isMe: { eq: true }");
+      return linearCycle(url, init);
+    }));
+    expect(plain.issues.map(issue => issue.key)).toEqual(["LIN-3", "LIN-4"]);
+    await writeFile(join(primary, ".timber.toml"), `[github]\nmilestone = "v2"\n`);
+    const plainMilestone = await run(primary, "sprint", undefined, { tracker: "github" }, services(fresh(), directory, (url, init) => {
+      if (url.pathname === "/graphql") return githubLinks(init);
+      if (url.pathname === "/user") return Response.json({ login: "Octo" });
+      if (url.pathname.endsWith("/milestones")) return Response.json([{ number: 7, title: "v2" }]);
+      expect(url.searchParams.has("assignee")).toBeFalse();
+      return Response.json([restIssue(42)]);
+    }));
+    expect(plainMilestone.issues.map(issue => issue.key)).toEqual(["42"]);
+  });
+});
+
+test("sprint --assigned reports no current sprint, sign-in and login failures as sprint does", async () => {
+  await withFixture(async ({ primary, directory }) => {
+    const mine = { assigned: true };
+    const githubSeen = fresh();
+    const github = await run(primary, "sprint", undefined, { tracker: "github", ...mine }, services(githubSeen, directory, () => Response.json({ data: {
+      repositoryOwner: { projectV2: { fields: { nodes: [{ name: "Iteration", configuration: { iterations: [iterations[0]] } }] } } } } })));
+    const jira = await run(primary, "sprint", undefined, mine, services(fresh(), directory, () => Response.json({ values: [] })));
+    const linear = await run(primary, "sprint", undefined, { tracker: "linear", ...mine }, services(fresh(), directory, () =>
+      Response.json({ data: { teams: { nodes: [{ activeCycle: null }] } } })));
+    for (const record of [github, jira, linear]) {
+      expect(record).toMatchObject({ query: "sprint", outcome: "none", sprint: null, issues: [], reason: null, diagnostic: null });
+    }
+    // No current iteration: the login is never read.
+    expect(githubSeen.requests.map(request => new URL(request.url).pathname)).toEqual(["/graphql"]);
+
+    const signedOut = await run(primary, "sprint", undefined, { tracker: "github", ...mine }, services(fresh(), directory, noFetch,
+      { githubToken: async () => { throw new Error("gh is signed out"); } }));
+    expect(signedOut).toMatchObject({ outcome: "failed", reason: "sign-in-needed", issues: [] });
+
+    // With nothing to filter by, a login that cannot be read fails the list instead of listing everyone's issues.
+    const noUser = await run(primary, "sprint", undefined, { tracker: "github", ...mine }, services(fresh(), directory, (url, init) => {
+      if (url.pathname === "/user") return new Response(null, { status: 403 });
+      const { query } = graphqlBody(init);
+      if (query.includes("TimberProjectIterations")) {
+        return Response.json({ data: { repositoryOwner: { projectV2: { fields: { nodes: [{ name: "Iteration", configuration: { iterations } }] } } } } });
+      }
+      throw new Error("must not list items without the login");
+    }));
+    expect(noUser).toMatchObject({ outcome: "failed", reason: "forbidden", issues: [], sprint: null });
+    expect(noUser.diagnostic).toContain("its own account");
+
+    const jiraSignedOut = await run(primary, "sprint", undefined, mine, services(fresh(), directory, () => new Response(null, { status: 401 })));
+    expect(jiraSignedOut).toMatchObject({ outcome: "failed", reason: "sign-in-needed", issues: [] });
+    const linearSignedOut = await run(primary, "sprint", undefined, { tracker: "linear", ...mine }, services(fresh(), directory, noFetch,
+      { linearToken: async () => { throw new Error("Linear credentials are missing."); } }));
+    expect(linearSignedOut).toMatchObject({ outcome: "failed", reason: "sign-in-needed", issues: [] });
+
+    // A missing milestone answers before the login is read.
+    await writeFile(join(primary, ".timber.toml"), `[jira]\nsite_url = "https://acme.atlassian.net"\nsprint_jql = "labels = now"\n[github]\nmilestone = "v2"\n`);
+    const milestoneSeen = fresh();
+    const missing = await run(primary, "sprint", undefined, { tracker: "github", ...mine }, services(milestoneSeen, directory,
+      () => Response.json([{ number: 1, title: "v1" }])));
+    expect(missing).toMatchObject({ outcome: "failed", reason: "not-found" });
+    expect(milestoneSeen.requests.map(request => new URL(request.url).pathname)).toEqual(["/repos/acme/widgets/milestones"]);
+
+    // A rejected saved query reports as for sprint.
+    const rejected = await run(primary, "sprint", undefined, { tracker: "jira", ...mine }, services(fresh(), directory, () => new Response(null, { status: 400 })));
+    expect(rejected).toMatchObject({ outcome: "failed", reason: "failed" });
+    expect(rejected.diagnostic).toContain("[jira].sprint_jql");
+  });
+});
+
+test("a saved Jira query gains the assignee before its ORDER BY clause", () => {
+  expect(assignedJql("labels = now")).toBe("(labels = now) AND assignee = currentUser()");
+  expect(assignedJql("a = 1 OR b = 2 ORDER BY Rank ASC")).toBe("(a = 1 OR b = 2) AND assignee = currentUser() ORDER BY Rank ASC");
+  expect(assignedJql("project = ENG order   by created")).toBe("(project = ENG) AND assignee = currentUser() order   by created");
+  expect(assignedJql("ORDER BY created DESC")).toBe("assignee = currentUser() ORDER BY created DESC");
+  expect(assignedJql(`summary ~ 'it\\'s order by' AND text ~ "order by"`)).toBe(`(summary ~ 'it\\'s order by' AND text ~ "order by") AND assignee = currentUser()`);
+  // A word that only contains "order" is not the clause.
+  expect(assignedJql("labels = reorder")).toBe("(labels = reorder) AND assignee = currentUser()");
+});
+
 test("the current iteration is the one whose dates include today, end date exclusive", () => {
   const at = (day: number) => new Date(2026, 10, day, 23, 59);
   expect(currentIteration(iterations, at(15))?.id).toBe("past");
@@ -644,6 +802,12 @@ test("missing settings and invalid input fail without reading a login or contact
       ["open", undefined, { tracker: "github", limit: "0" }, "failed", "--limit"],
       ["open", undefined, { tracker: "github", limit: "101" }, "failed", "--limit"],
       ["sprint", undefined, { tracker: "github", limit: "5" }, "failed", "listed whole"],
+      ["assigned", undefined, { tracker: "jira", assigned: true }, "failed", "--assigned applies only to sprint"],
+      ["open", undefined, { tracker: "github", assigned: true }, "failed", "--assigned applies only to sprint"],
+      ["search", "x", { tracker: "linear", assigned: true }, "failed", "--assigned applies only to sprint"],
+      ["sprint", undefined, { tracker: "github", assigned: true }, "not-configured", "[github].project"],
+      ["sprint", undefined, { tracker: "jira", assigned: true }, "not-configured", "[jira].board"],
+      ["sprint", undefined, { tracker: "linear", assigned: true }, "not-configured", "[linear].team"],
     ];
     for (const [query, text, options, reason, diagnostic] of cases) {
       const seen = fresh();
@@ -746,6 +910,8 @@ test("the CLI prints one record per call with no prompt, no token and no change"
     const offline = await cli(primary, ["open", "--tracker", "github"], { ...home, GH_TOKEN: githubToken,
       HTTPS_PROXY: "http://127.0.0.1:9", https_proxy: "http://127.0.0.1:9" });
     const invalid = await cli(primary, ["everything"], home);
+    const notSprint = await cli(primary, ["assigned", "--assigned", "--tracker", "linear"], home);
+    const mineSignedOut = await cli(primary, ["sprint", "--assigned", "--tracker", "linear"], home);
     expect(await snapshot(directory, all)).toBe(before);
 
     await writeFile(join(primary, ".timber.toml"), "");
@@ -758,7 +924,9 @@ test("the CLI prints one record per call with no prompt, no token and no change"
     }
     expect(jiraOut.record).toMatchObject({ query: "search", tracker: "jira" });
     expect(invalid.record).toMatchObject({ query: null, tracker: null });
-    for (const result of [linearOpen, signedOut, jiraOut, offline, invalid, noTeam]) {
+    expect(notSprint).toMatchObject({ exitCode: 1, record: { query: "assigned", outcome: "failed", reason: "failed", diagnostic: "--assigned applies only to sprint." } });
+    expect(mineSignedOut).toMatchObject({ exitCode: 1, record: { query: "sprint", tracker: "linear", outcome: "failed", reason: "sign-in-needed" } });
+    for (const result of [linearOpen, signedOut, jiraOut, offline, invalid, noTeam, notSprint, mineSignedOut]) {
       expect(result.stdout.trim().split("\n")).toHaveLength(1);
       expect(result.stdout + result.stderr).not.toContain(githubToken);
     }
