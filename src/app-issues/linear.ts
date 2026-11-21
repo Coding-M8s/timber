@@ -3,13 +3,15 @@ import { IssueReadFailure, json, linearCategories, linearLogin, send, throwLinea
 import type { IssueSummary } from "../app-issue/trackers";
 import { isJiraTicketKey } from "../jira/branch";
 import { missingIssue } from "../linear/client";
-import { keyPrefix, maxSprintIssues, NotConfigured } from "./lists";
-import type { IssueList, IssueQuery, ListContext } from "./lists";
+import { pullUrl } from "./github";
+import { batches, keyPrefix, maxSprintIssues, NotConfigured } from "./lists";
+import type { IssueList, IssueQuery, LinkedPullRequest, ListContext, PullRequestLinks } from "./lists";
 
-const issueFields = "identifier url title state { name type } assignee { displayName }";
+const issueFields = "id identifier url title state { name type } assignee { displayName }";
 const closedTypes = ["completed", "canceled", "duplicate"];
 
 const node = z.object({
+  id: z.string().min(1),
   identifier: z.string().refine(isJiraTicketKey),
   url: z.string().refine(value => { try { return new URL(value).hostname === "linear.app"; } catch { return false; } }),
   title: z.string(),
@@ -19,7 +21,11 @@ const node = z.object({
 const connection = z.object({ pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable().optional() }).optional(),
   nodes: z.array(node) });
 
-const summary = (issue: z.infer<typeof node>): IssueSummary => ({
+type Node = z.infer<typeof node>;
+/** Turns a listed node into a summary, remembering its Linear id for the pull request read. */
+type Summarize = (issue: Node) => IssueSummary;
+
+const toSummary = (issue: Node): IssueSummary => ({
   tracker: "linear", key: issue.identifier, url: issue.url, title: issue.title,
   assignee: issue.assignee?.displayName.trim() || null,
   status: { name: issue.state.name, category: linearCategories[issue.state.type] ?? "open" },
@@ -45,7 +51,7 @@ function teamFilter(team: string | undefined): Record<string, unknown> {
   return team === undefined ? {} : { team: { key: { eq: team } } };
 }
 
-async function cycle(ctx: ListContext, token: string, team: string): Promise<IssueList | null> {
+async function cycle(ctx: ListContext, token: string, team: string, summary: Summarize): Promise<IssueList | null> {
   const query = `query TimberLinearCycle($team: String!, $after: String) {
     teams(first: 1, filter: { key: { eq: $team } }) { nodes { activeCycle { name number
       issues(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { ${issueFields} } } } } } }`;
@@ -69,7 +75,7 @@ async function cycle(ctx: ListContext, token: string, team: string): Promise<Iss
   return { sprint: { name, source: "linear-cycle" }, issues: issues.slice(0, maxSprintIssues), truncated: more || issues.length > maxSprintIssues };
 }
 
-async function listed(ctx: ListContext, token: string, kind: "assigned" | "open", team: string | undefined): Promise<IssueList> {
+async function listed(ctx: ListContext, token: string, kind: "assigned" | "open", team: string | undefined, summary: Summarize): Promise<IssueList> {
   const filter = { state: { type: { nin: closedTypes } }, ...teamFilter(team) };
   const query = kind === "assigned"
     ? `query TimberLinearAssigned($first: Int!, $filter: IssueFilter) { viewer { assignedIssues(first: $first, orderBy: updatedAt, filter: $filter) { pageInfo { hasNextPage } nodes { ${issueFields} } } } }`
@@ -83,7 +89,7 @@ async function listed(ctx: ListContext, token: string, kind: "assigned" | "open"
   return { sprint: null, issues: result.nodes.map(summary).slice(0, ctx.limit), truncated: result.pageInfo?.hasNextPage ?? false };
 }
 
-async function search(ctx: ListContext, token: string, team: string | undefined): Promise<IssueList> {
+async function search(ctx: ListContext, token: string, team: string | undefined, summary: Summarize): Promise<IssueList> {
   const text = ctx.text.trim();
   if (text.length === 0) return { sprint: null, issues: [], truncated: false };
   const key = keyPrefix(text);
@@ -108,6 +114,63 @@ async function search(ctx: ListContext, token: string, team: string | undefined)
   return { sprint: null, issues: issues.slice(0, ctx.limit), truncated: rest.more || issues.length > ctx.limit };
 }
 
+const pullRequestsPerIssue = 20;
+const pullMetadata = z.object({
+  number: z.number().int().positive(),
+  branch: z.string().min(1),
+  draft: z.boolean().optional(),
+  status: z.string().optional(),
+  closedAt: z.string().nullable(),
+  mergedAt: z.string().nullable(),
+});
+const attachments = data(z.object({ issues: z.object({ nodes: z.array(z.object({
+  id: z.string(),
+  attachments: z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }),
+    nodes: z.array(z.object({ url: z.string(), metadata: z.unknown() })) }),
+})) }) }));
+
+/** Open pull requests among one issue's GitHub attachments; null when one cannot be read or some were left out. */
+function openPullRequests(found: z.infer<typeof attachments>["data"]["issues"]["nodes"][number]): LinkedPullRequest[] | null {
+  if (found.attachments.pageInfo.hasNextPage) return null;
+  const links: LinkedPullRequest[] = [];
+  for (const attachment of found.attachments.nodes) {
+    // The GitHub integration also attaches issues and commits; only pull requests count.
+    if (!pullUrl.test(attachment.url)) continue;
+    const pull = pullMetadata.safeParse(attachment.metadata);
+    if (!pull.success) return null;
+    const { number, branch, draft, status, closedAt, mergedAt } = pull.data;
+    if (closedAt !== null || mergedAt !== null || status === "closed" || status === "merged") continue;
+    // Linear does not record the head repository, so a fork cannot be told apart.
+    links.push({ number, url: attachment.url, branch, fromFork: null, draft: draft ?? null });
+  }
+  return links;
+}
+
+/**
+ * Reads the pull requests Linear's GitHub integration attached to each issue.
+ * One query per 100 issues; an issue Linear does not return is null.
+ */
+async function linearPullRequests(ctx: ListContext, token: string, ids: ReadonlyMap<string, string>,
+  issues: readonly IssueSummary[], links: PullRequestLinks): Promise<void> {
+  const wanted = [...new Map(issues.flatMap(issue => {
+    const id = ids.get(issue.url);
+    return id === undefined ? [] : [[id, issue.url] as const];
+  })).entries()];
+  await Promise.all(batches(wanted).map(async batch => {
+    const body = await graphql(ctx, token, `query TimberLinearPullRequests($ids: [ID!], $first: Int!) {
+      issues(first: $first, filter: { id: { in: $ids } }) { nodes { id
+        attachments(first: ${pullRequestsPerIssue}, filter: { sourceType: { eq: "github" } }) { pageInfo { hasNextPage } nodes { url metadata } } } } }`,
+    { ids: batch.map(([id]) => id), first: batch.length });
+    const parsed = attachments.safeParse(body);
+    if (!parsed.success) throw unusable("linear");
+    const answered = new Map(parsed.data.data.issues.nodes.map(found => [found.id, found]));
+    for (const [id, url] of batch) {
+      const found = answered.get(id);
+      links.set(url, found === undefined ? null : openPullRequests(found));
+    }
+  }));
+}
+
 /** One read-only Linear list. Returns null when the team has no active cycle. */
 export async function listLinear(query: IssueQuery, ctx: ListContext): Promise<IssueList | null> {
   const { team } = ctx.settings.linear;
@@ -115,7 +178,10 @@ export async function listLinear(query: IssueQuery, ctx: ListContext): Promise<I
     throw new NotConfigured("No Linear team is configured. Set [linear].team to a team key.");
   }
   const token = await linearLogin(ctx.runtime, ctx.signal);
-  if (query === "sprint") return cycle(ctx, token, team!);
-  if (query === "assigned" || query === "open") return listed(ctx, token, query, team);
-  return search(ctx, token, team);
+  const ids = new Map<string, string>();
+  const summarize: Summarize = issue => { ids.set(issue.url, issue.id); return toSummary(issue); };
+  const list = query === "sprint" ? await cycle(ctx, token, team!, summarize)
+    : query === "assigned" || query === "open" ? await listed(ctx, token, query, team, summarize)
+      : await search(ctx, token, team, summarize);
+  return list && { ...list, pullRequests: (issues, links) => linearPullRequests(ctx, token, ids, issues, links) };
 }

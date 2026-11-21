@@ -238,7 +238,8 @@ async function iterationSprint(ctx: ListContext, token: string, setting: string)
     issues: issues.slice(0, maxSprintIssues), truncated: issues.length > maxSprintIssues || more };
 }
 
-const pullUrl = /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/u;
+/** A github.com pull request address. */
+export const pullUrl = /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/u;
 const pullRequestsPerIssue = 20;
 const linkedPullRequest = z.object({
   number: z.number().int().positive(),
