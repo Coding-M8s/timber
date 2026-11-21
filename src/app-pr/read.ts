@@ -4,8 +4,12 @@ import { readGithubToken } from "../github/auth";
 import type { GithubRuntime } from "../github/client";
 import { PullRequestLookupFailure, readPullRequests } from "../github/pull-requests";
 import type { PullRequestFailureReason, PullRequestHead, PullRequestSummary } from "../github/pull-requests";
-import { readGithubRemote, resolveGithubRepository } from "../github/repository";
-import type { GithubRepository } from "../github/repository";
+import { pullRequestRepositoryOfRemote } from "../github/repository";
+import type { GithubRepository, PullRequestRepository } from "../github/repository";
+import { readBitbucketLogin } from "../bitbucket/auth";
+import type { BitbucketRuntime } from "../bitbucket/client";
+import type { BitbucketLogin } from "../bitbucket/credentials";
+import { readBitbucketPullRequests } from "../bitbucket/pull-requests";
 import type { Branch, RepositoryConfig, RepositoryContext, WorktreeInventory } from "../types";
 
 export interface AppPullRequestEntry {
@@ -23,14 +27,19 @@ export interface AppPullRequestEntry {
 export interface AppPullRequestsRecord {
   schemaVersion: 1;
   repository: { commonGitDir: string; primaryWorktreeRoot: string; currentWorktreeRoot: string } | null;
-  /** The github.com repository pull requests were read from; null when none was selected. */
+  /** The github.com or bitbucket.org repository pull requests were read from; null when none was selected. */
+  pullRequestRepository: PullRequestRepository | null;
+  /** Kept for existing consumers: the same repository when it is on github.com, otherwise null. */
   github: GithubRepository | null;
   /** Set when the repository or its worktrees could not be read at all. */
   diagnostic: string | null;
   worktrees: AppPullRequestEntry[];
 }
 
-/** Local reads are real Git; GitHub access is the seam. `github.timeoutMs` bounds sign-in and every request together. */
+/**
+ * Local reads are real Git; GitHub and Bitbucket access are the seams. The selected
+ * host's `timeoutMs` bounds sign-in and every request together.
+ */
 export interface AppPullRequestServices {
   discoverRepository(cwd: string): Promise<RepositoryContext>;
   loadConfig(repository: RepositoryContext): Promise<RepositoryConfig>;
@@ -38,43 +47,55 @@ export interface AppPullRequestServices {
   listBranches(repository: RepositoryContext): Promise<readonly Branch[]>;
   env: NodeJS.ProcessEnv;
   github: GithubRuntime;
+  bitbucket: BitbucketRuntime;
 }
 
 export const defaultPullRequestTimeoutMs = 15_000;
 
-const notGithub = "The selected remote is not a github.com repository. Pull requests are read from github.com only; check the remote setting or the origin fetch URL.";
+const notSupported = "The selected remote is not a github.com or bitbucket.org repository. Pull requests are read from github.com and bitbucket.org only; check the remote setting or the origin fetch URL.";
 
-/** Where GitHub would hold each branch: its github.com upstream when it has one, otherwise the same name in the base repository. */
-async function headsFor(repository: RepositoryContext, base: GithubRepository, branches: readonly Branch[],
-  names: readonly string[]): Promise<Map<string, PullRequestHead>> {
-  const owners = new Map<string, Promise<string | null>>();
-  const ownerOf = (remote: string) => {
-    if (!owners.has(remote)) owners.set(remote, readGithubRemote(repository, remote).then(value => value.owner, () => null));
-    return owners.get(remote)!;
+const hostName = { github: "GitHub", bitbucket: "Bitbucket" } as const;
+
+/** A branch on the host: the repository that holds it and its name there. */
+interface Head { owner: string; name: string; branch: string }
+
+/**
+ * Where the host would hold each branch: its upstream when that remote is on the same
+ * host, otherwise the same name in the base repository.
+ */
+async function headsFor(repository: RepositoryContext, base: PullRequestRepository, branches: readonly Branch[],
+  names: readonly string[]): Promise<Map<string, Head>> {
+  const remotes = new Map<string, Promise<PullRequestRepository | null>>();
+  const remoteOf = (remote: string) => {
+    if (!remotes.has(remote)) remotes.set(remote, pullRequestRepositoryOfRemote(repository, remote, "upstream").then(value => value, () => null));
+    return remotes.get(remote)!;
   };
-  const heads = new Map<string, PullRequestHead>();
+  const heads = new Map<string, Head>();
   await Promise.all(names.map(async name => {
     const local = branches.find(branch => branch.kind === "local" && branch.name === name);
     const upstream = local?.kind === "local" ? local.upstream : null;
-    const owner = upstream === null ? null : await ownerOf(upstream.remote);
-    heads.set(name, owner === null || upstream === null ? { owner: base.owner, branch: name } : { owner, branch: upstream.name });
+    const held = upstream === null ? null : await remoteOf(upstream.remote);
+    heads.set(name, held === null || upstream === null || held.host !== base.host
+      ? { owner: base.owner, name: base.name, branch: name } : { owner: held.owner, name: held.name, branch: upstream.name });
   }));
   return heads;
 }
 
-function failure(error: unknown, signal: AbortSignal): PullRequestLookupFailure {
+function failure(error: unknown, signal: AbortSignal, host: string): PullRequestLookupFailure {
   if (error instanceof PullRequestLookupFailure) return error;
-  if (signal.aborted) return new PullRequestLookupFailure("offline", "GitHub did not answer in time; check connectivity and try again.");
+  if (signal.aborted) return new PullRequestLookupFailure("offline", `${host} did not answer in time; check connectivity and try again.`);
   return new PullRequestLookupFailure("failed", error instanceof Error && error.message ? error.message : "Pull request lookup failed.");
 }
 
 /**
  * One read-only answer for every worktree in the repository containing `cwd`.
- * Never prompts, writes, fetches or changes a ref. GitHub is not contacted when
- * no remote is on github.com or no worktree has a branch.
+ * Never prompts, writes, fetches or changes a ref. No host is contacted and no login
+ * read when the selected remote is on neither github.com nor bitbucket.org, or no
+ * worktree has a branch.
  */
 export async function readAppPullRequests(cwd: string, services: AppPullRequestServices): Promise<AppPullRequestsRecord> {
-  const record: AppPullRequestsRecord = { schemaVersion: 1, repository: null, github: null, diagnostic: null, worktrees: [] };
+  const record: AppPullRequestsRecord = { schemaVersion: 1, repository: null, pullRequestRepository: null, github: null,
+    diagnostic: null, worktrees: [] };
   const secrets = knownSecrets(services.env);
   let repository: RepositoryContext;
   let trees: readonly WorktreeInventory[];
@@ -98,35 +119,62 @@ export async function readAppPullRequests(cwd: string, services: AppPullRequestS
     for (const entry of named) Object.assign(entry, { outcome: "failed", reason, diagnostic });
   };
   if (named.length === 0) return record;
-  let github: GithubRepository;
-  try { github = await resolveGithubRepository(repository, config); } catch {
-    fail("not-github", notGithub);
+  const remote = config.remote ?? (repository.remotes.some(value => value.name === "origin") ? "origin" : null);
+  let base: PullRequestRepository;
+  try {
+    if (remote === null) throw new Error("No remote selected.");
+    base = await pullRequestRepositoryOfRemote(repository, remote, "selected");
+  } catch {
+    fail("not-github", notSupported);
     return record;
   }
-  record.github = github;
+  record.pullRequestRepository = base;
+  if (base.host === "github") record.github = { owner: base.owner, name: base.name };
+  const host = hostName[base.host];
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = () => new PullRequestLookupFailure("offline", `${host} did not answer in time; check connectivity and try again.`);
   // The race keeps the time limit even if a request ignores its abort signal.
   const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      reject(new PullRequestLookupFailure("offline", "GitHub did not answer in time; check connectivity and try again."));
-    }, services.github.timeoutMs);
+    timer = setTimeout(() => { controller.abort(); reject(late()); },
+      base.host === "github" ? services.github.timeoutMs : services.bitbucket.timeoutMs);
   });
-  let token = "";
+  // Credentials read here are secrets too, even when they did not come from the environment.
+  const read: string[] = [];
+  const key = (head: Head) => `${head.owner.toLowerCase()}\0${head.name.toLowerCase()}\0${head.branch}`;
   const lookup = async () => {
-    const heads = await headsFor(repository, github, await services.listBranches(repository), named.map(entry => entry.branch!));
-    try {
-      token = await services.github.token(controller.signal);
-    } catch {
-      throw controller.signal.aborted
-        ? new PullRequestLookupFailure("offline", "Reading the GitHub login did not finish in time; try again.")
-        : new PullRequestLookupFailure("sign-in-needed",
-          "No usable GitHub login. Sign in with gh auth login, or set GH_TOKEN or GITHUB_TOKEN to a valid token.");
-    }
-    const key = (head: PullRequestHead) => `${head.owner.toLowerCase()}\0${head.branch}`;
+    const heads = await headsFor(repository, base, await services.listBranches(repository), named.map(entry => entry.branch!));
     const unique = [...new Map([...heads.values()].map(head => [key(head), head])).values()];
-    const answers = await readPullRequests(github, unique, token, services.github, controller.signal);
+    let answers: (PullRequestSummary | null)[];
+    if (base.host === "github") {
+      let token: string;
+      try {
+        token = await services.github.token(controller.signal);
+      } catch {
+        throw controller.signal.aborted
+          ? new PullRequestLookupFailure("offline", "Reading the GitHub login did not finish in time; try again.")
+          : new PullRequestLookupFailure("sign-in-needed",
+            "No usable GitHub login. Sign in with gh auth login, or set GH_TOKEN or GITHUB_TOKEN to a valid token.");
+      }
+      read.push(token);
+      const github: GithubRepository = { owner: base.owner, name: base.name };
+      answers = await readPullRequests(github, unique.map((head): PullRequestHead => ({ owner: head.owner, branch: head.branch })),
+        token, services.github, controller.signal);
+    } else {
+      let login: BitbucketLogin;
+      try {
+        login = await services.bitbucket.login(controller.signal);
+      } catch {
+        throw controller.signal.aborted
+          ? new PullRequestLookupFailure("offline", "Reading the Bitbucket login did not finish in time; try again.")
+          : new PullRequestLookupFailure("sign-in-needed",
+            "No usable Bitbucket login. Run timber setup to save an Atlassian email and Bitbucket API token, or set BITBUCKET_EMAIL and BITBUCKET_API_TOKEN.");
+      }
+      read.push(login.token, login.email);
+      answers = await readBitbucketPullRequests({ owner: base.owner, name: base.name },
+        unique.map(head => ({ repository: { owner: head.owner, name: head.name }, branch: head.branch })),
+        { ...services.bitbucket, login: async () => login }, controller.signal);
+    }
     const byHead = new Map(unique.map((head, index) => [key(head), answers[index] ?? null]));
     return named.map(entry => byHead.get(key(heads.get(entry.branch!)!)) ?? null);
   };
@@ -137,9 +185,9 @@ export async function readAppPullRequests(cwd: string, services: AppPullRequestS
       if (found[index]) Object.assign(entry, { outcome: "found", pullRequest: found[index] });
     });
   } catch (error) {
-    const reason = failure(error, controller.signal);
-    // The token read here is a secret too, even when it did not come from the environment.
-    if (token) secrets.unshift(token);
+    const reason = failure(error, controller.signal, host);
+    for (const value of read) if (value) secrets.push(value);
+    secrets.sort((left, right) => right.length - left.length);
     fail(reason.reason, reason.message);
   } finally {
     clearTimeout(timer);
@@ -150,4 +198,10 @@ export async function readAppPullRequests(cwd: string, services: AppPullRequestS
 
 export function defaultGithubRuntime(env: NodeJS.ProcessEnv): GithubRuntime {
   return { token: signal => readGithubToken(signal, { env }), fetch: (url, init) => fetch(url, init), timeoutMs: defaultPullRequestTimeoutMs };
+}
+
+/** The login timber pr uses, read from `env` and the saved credentials, with the same time limit as GitHub. */
+export function defaultAppBitbucketRuntime(env: NodeJS.ProcessEnv): BitbucketRuntime {
+  return { login: signal => readBitbucketLogin(env, undefined, signal), fetch: (url, init) => fetch(url, init),
+    timeoutMs: defaultPullRequestTimeoutMs };
 }

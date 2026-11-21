@@ -1,4 +1,4 @@
-import { defaultGithubRuntime, readAppPullRequests } from "../app-pr/read";
+import { defaultAppBitbucketRuntime, defaultGithubRuntime, readAppPullRequests } from "../app-pr/read";
 import { loadRepositoryConfig } from "../config";
 import { listBranches } from "../git/branches";
 import { discoverRepository } from "../git/repository";
@@ -15,7 +15,7 @@ export async function runAppPullRequests(context: CommandContext, env: NodeJS.Pr
     loadConfig: repository => loadRepositoryConfig(repository, env),
     listWorktreeInventory: repository => listWorktreeInventory(repository),
     listBranches: repository => listBranches(repository),
-    env, github: defaultGithubRuntime(env),
+    env, github: defaultGithubRuntime(env), bitbucket: defaultAppBitbucketRuntime(env),
   });
   context.io.stdout(JSON.stringify(record) + "\n");
   return record.diagnostic === null && record.worktrees.every(entry => entry.outcome !== "failed") ? 0 : 1;

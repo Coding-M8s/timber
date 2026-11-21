@@ -52,6 +52,11 @@ function services(seen: Seen, byBranch: Record<string, unknown[]>, overrides: Pa
       timeoutMs: 5_000,
       ...overrides,
     },
+    bitbucket: {
+      login: async () => { throw new Error("must not read a Bitbucket login"); },
+      fetch: async () => { throw new Error("must not contact Bitbucket"); },
+      timeoutMs: 5_000,
+    },
   };
 }
 
@@ -99,6 +104,7 @@ test("open, draft, merged and closed pull requests report state, checks and revi
     expect(await snapshot(directory, paths)).toBe(before);
     expect(record.diagnostic).toBeNull();
     expect(record.github).toEqual({ owner: "acme", name: "widgets" });
+    expect(record.pullRequestRepository).toEqual({ host: "github", owner: "acme", name: "widgets" });
     expect(record.repository?.primaryWorktreeRoot).toBe(primary);
     const byBranch = Object.fromEntries(record.worktrees.map(entry => [entry.branch ?? "(detached)", entry]));
     expect(record.worktrees[0]).toMatchObject({ path: primary, branch: "trunk", isPrimary: true, outcome: "none", pullRequest: null, reason: null });
@@ -259,7 +265,7 @@ test("a branch pushed to a fork is matched on the fork's owner and upstream bran
   });
 });
 
-test("a remote that is not on github.com reports not-github without reading a login or contacting anything", async () => {
+test("a remote on neither github.com nor bitbucket.org reports not-github without reading a login or contacting anything", async () => {
   await withWorktrees(async ({ primary, directory, paths }) => {
     await git(primary, "remote", "set-url", "origin", "https://gitlab.example.invalid/acme/widgets.git");
     const seen: Seen = { requests: [], tokenReads: 0 };
@@ -270,11 +276,12 @@ test("a remote that is not on github.com reports not-github without reading a lo
     expect(await snapshot(directory, paths)).toBe(before);
     expect(seen.tokenReads).toBe(0);
     expect(record.github).toBeNull();
+    expect(record.pullRequestRepository).toBeNull();
     for (const item of record.worktrees) {
       if (item.branch === null) expect(item.outcome).toBe("none");
       else expect(item).toMatchObject({ outcome: "failed", reason: "not-github", pullRequest: null });
     }
-    expect(record.worktrees.find(item => item.branch !== null)!.diagnostic).toContain("github.com");
+    expect(record.worktrees.find(item => item.branch !== null)!.diagnostic).toContain("github.com or bitbucket.org");
   });
 });
 

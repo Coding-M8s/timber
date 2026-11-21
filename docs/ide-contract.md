@@ -813,9 +813,9 @@ type ConnectionCheck = {
 
 ## Pull requests for app consumers (experimental v1)
 
-An app can show each worktree's GitHub pull request, its checks, its review
-decision and its reviewers with one hidden, read-only command run in any
-worktree of the repository:
+An app can show each worktree's pull request on GitHub or Bitbucket Cloud, its
+checks, its review state and its reviewers with one hidden, read-only command
+run in any worktree of the repository:
 
 ```sh
 timber __app-pr
@@ -826,14 +826,16 @@ exits 0, or 1 when the repository could not be read or any lookup failed; the
 record is printed in both cases. It never prompts (run it with stdin closed),
 never writes files, never fetches or changes a ref, and never acts on a pull
 request. One call answers for every worktree, so an app can refresh on an
-interval. The network part, reading the login and every GitHub request
+interval. The network part, reading the login and every request to the host
 together, stops after 15 seconds.
 
 ```ts
 type PullRequestsRecord = {
   schemaVersion: 1;
   repository: RepositoryIdentity | null; // null when discovery failed
-  github: { owner: string; name: string } | null; // repository the pull requests were read from
+  pullRequestRepository: { host: "github" | "bitbucket"; owner: string; name: string } | null;
+                              // repository the pull requests were read from; owner is the Bitbucket workspace
+  github: { owner: string; name: string } | null; // the same repository when it is on github.com, otherwise null
   diagnostic: string | null;  // set only when the repository or its worktrees could not be read
   worktrees: PullRequestEntry[]; // primary first, then by registered path; empty when diagnostic is set
 };
@@ -853,74 +855,119 @@ type PullRequest = {
   url: string;
   title: string;
   state: "open" | "draft" | "merged" | "closed";
-  baseBranch: string;         // branch name on GitHub, not a local ref
+  baseBranch: string;         // branch name on the host, not a local ref
   checks: {
     summary: "passing" | "failing" | "pending" | "none";
     runs: { name: string; status: "passing" | "failing" | "pending" | "skipped"; url: string | null }[];
   };
   review: "approved" | "changes-requested" | "review-required" | "none";
-  reviewers: Reviewer[];      // requested reviewers first, then people who reviewed, in GitHub's order
+  reviewers: Reviewer[];      // requested reviewers first, then people who reviewed, in the host's order
   reviewersComplete: boolean; // false when some reviewers could not be read
   description: string;        // the pull request body as written; may be empty
 };
 
 type Reviewer = {
   kind: "user" | "team" | "bot";
-  name: string;               // login, or "org/team-slug" for a team
+  name: string;               // GitHub login or "org/team-slug"; Bitbucket display name
   state: "requested" | "approved" | "changes-requested" | "commented" | "dismissed";
-  url: string | null;         // https link to the profile or team, when GitHub gives one
+  url: string | null;         // https link to the profile or team, when the host gives one
 };
 ```
 
-- The pull requests are read from the github.com repository of the configured
-  `remote`, or `origin` when none is configured. When that remote is missing or
-  not on github.com, every entry with a branch is `failed` with `not-github`,
-  and Timber reads no login and contacts nothing.
-- A branch's pull request is one whose head is that branch on GitHub: the
-  branch's upstream when it tracks a github.com remote (so a branch pushed to a
-  fork is found under the fork's owner and upstream branch name), otherwise the
-  same branch name in the selected repository. Among the ten most recently
-  created pull requests for that branch name, an open one wins; otherwise the
-  newest is reported. A pull request from
-  another owner's branch of the same name is not matched.
+- The pull requests are read from the github.com or bitbucket.org repository
+  of the configured `remote`, or `origin` when none is configured.
+  `pullRequestRepository` names the host and repository. `github` is kept for
+  existing consumers: it is set only for a github.com repository and is null
+  for Bitbucket, so read `pullRequestRepository` to cover both hosts. When the
+  remote is missing or on any other host, every entry with a branch is
+  `failed` with `not-github`, which now means "not on github.com or
+  bitbucket.org", and Timber reads no login and contacts nothing.
+- A branch's pull request is one whose head is that branch on the host: the
+  branch's upstream when it tracks a remote on the same host (so a branch
+  pushed to a fork is found under the fork and the upstream branch name),
+  otherwise the same branch name in the selected repository. An open pull
+  request wins; otherwise the newest is reported. On GitHub this is among the
+  ten most recently created pull requests for that branch name. A pull request
+  from another owner's branch of the same name is not matched.
 - `none` means no pull request was found, and is always the outcome for a
   detached worktree. It does not mean the branch was pushed.
-- `checks.summary` is GitHub's combined state for the head commit; `none`
-  means no checks or statuses were reported. `runs` lists at most 100 check
-  runs and commit statuses. A neutral conclusion counts as passing; cancelled,
-  timed out and other unsuccessful conclusions count as failing.
-- `review` is GitHub's review decision; `none` means the repository requires
-  no review decision for this pull request.
-- `reviewers` lists each reviewer once. `requested` means a review was
-  requested and the reviewer has not submitted one since, including a
+- On GitHub, `checks.summary` is GitHub's combined state for the head commit;
+  `none` means no checks or statuses were reported. `runs` lists at most 100
+  check runs and commit statuses. A neutral conclusion counts as passing;
+  cancelled, timed out and other unsuccessful conclusions count as failing.
+- On GitHub, `review` is GitHub's review decision; `none` means the repository
+  requires no review decision for this pull request.
+- `reviewers` lists each reviewer once. On GitHub, `requested` means a review
+  was requested and the reviewer has not submitted one since, including a
   reviewer asked again after reviewing; a team can only be `requested`. For
   everyone else `state` is their latest submitted review, except that a later
   comment never hides an earlier approval or request for changes, which is how
   GitHub works out the decision. Draft reviews and reviews by deleted accounts
-  are not listed. Bots that review, such as Copilot or Dependabot, have
-  `kind: "bot"`. With no requests and no reviews the list is empty and
+  are not listed. Bots that review, such as Copilot or Dependabot, have `kind:
+  "bot"`. With no requests and no reviews the list is empty and
   `reviewersComplete` is true.
-- `reviewersComplete` is false when GitHub did not let the login read some
-  reviewers, such as a requested team it cannot see or a login without
-  `read:org`, or when a pull request has more than 100 review requests or
-  reviews. The reviewers Timber could read are still listed and the lookup
+- On GitHub, `reviewersComplete` is false when GitHub did not let the login
+  read some reviewers, such as a requested team it cannot see or a login
+  without `read:org`, or when a pull request has more than 100 review requests
+  or reviews. The reviewers Timber could read are still listed and the lookup
   does not fail. If GitHub refuses the whole query for naming team fields,
   Timber asks once more without them, within the same time limit.
 - A failure applies to every entry with a branch, since one lookup answers for
   all of them. `sign-in-needed` means no usable login or a rejected one;
-  `offline` means GitHub could not be reached or did not answer within the time
-  limit; `failed` covers denied access, rate limits, a missing or inaccessible
-  repository and invalid responses. Retry on the next refresh; Timber never
-  retries on its own.
-- The login is the one `timber new github:<n>` uses: `GH_TOKEN` or
+  `offline` means the host could not be reached or did not answer within the
+  time limit; `failed` covers denied access, rate limits, a missing or
+  inaccessible repository and invalid responses. Retry on the next refresh;
+  Timber never retries on its own.
+- The GitHub login is the one `timber new github:<n>` uses: `GH_TOKEN` or
   `GITHUB_TOKEN` when set, otherwise the GitHub CLI login for github.com. The
-  app needs no separate sign-in, and sign-in is not part of this interface.
-  Tokens never appear in stdout, stderr or diagnostics.
-- Titles, descriptions and reviewer names are text from GitHub. Display them as
-  untrusted text; do not render them as trusted markup or pass them to a shell.
+  Bitbucket login is the one `timber pr` uses: `BITBUCKET_EMAIL` and
+  `BITBUCKET_API_TOKEN` when either is set (they must form a complete pair),
+  otherwise the login saved by `timber setup`. The token needs only pull
+  request read access. The app needs no separate sign-in, and sign-in is not
+  part of this interface. Tokens never appear in stdout, stderr or
+  diagnostics, and neither does the text of a host's error response.
+- Titles, descriptions and reviewer names are text from the host. Display them
+  as untrusted text; do not render them as trusted markup or pass them to a
+  shell.
 
-Other hosts, review comments and pull request actions are not part of this
-interface.
+On Bitbucket Cloud the fields are filled as follows:
+
+- `state`: `OPEN` is `open`, or `draft` for a draft pull request; `MERGED` is
+  `merged`; `DECLINED` and `SUPERSEDED` are `closed`.
+- Per 20 branches, Timber asks once for open pull requests, then once for
+  merged, declined and superseded ones from the branches with none open, so an
+  open pull request always wins. The state is part of the query and checked
+  again in the answer. When one busy branch fills the page of 50 and Bitbucket
+  has more, the branches still unanswered are asked again together.
+- `checks` are the build statuses Bitbucket lists for the pull request's head
+  commit, at most 100. `SUCCESSFUL` is passing, `INPROGRESS` is pending,
+  `FAILED` and `STOPPED` are failing, and any other state is pending;
+  Bitbucket has no skipped status. To save
+  requests, checks are read only for open and draft pull requests; merged and
+  closed ones always report `none` with no runs.
+- `reviewers` come from the pull request's participants. A reviewer who has
+  neither approved nor requested changes is `requested`; anyone who approved
+  or requested changes has that state; anyone else who took part, such as by
+  commenting, is `commented`. The author is not listed. Bitbucket reviewers
+  are users only: `team` and `dismissed` never occur, and an app account is
+  `kind: "bot"`. `name` is the display name, which is not unique, and `url` is
+  the account's Bitbucket page. `reviewersComplete` is false when Bitbucket
+  left out the participants or one of them could not be read.
+- `review` is worked out by Timber, since Bitbucket has no review decision:
+  any request for changes gives `changes-requested`, otherwise any approval
+  (including one from a participant who was not asked) gives `approved`,
+  otherwise any reviewer gives `review-required`, and otherwise `none`. It
+  does not reflect the repository's merge checks.
+- `description` is the pull request description in Bitbucket's raw markup.
+- Each refresh costs up to two requests per 20 branch worktrees, one more
+  for each busy branch that fills a page, and one per open or draft pull
+  request found. Bitbucket allows a user about 1,000 API requests
+  an hour, shared with `timber pr` and anything else using the token, and a
+  rate-limited refresh fails every entry. Refresh Bitbucket repositories no
+  more than once a minute.
+
+Other hosts, Bitbucket Data Center, review comments and pull request actions
+are not part of this interface.
 
 ## Linked issues for app consumers (experimental v1)
 

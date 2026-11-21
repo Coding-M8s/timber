@@ -329,7 +329,8 @@ bare `#<n>` names a Bitbucket issue, so a GitHub issue is mentioned as
 `Refs https://github.com/<owner>/<repo>/issues/<n>` when its repository is
 known, and its link or `owner/repo#<n>` count as an existing mention. Without a
 known GitHub repository, no GitHub mention is added. Jira and Linear keys are
-mentioned as `Refs <KEY>`. `__app-pr` still reads only GitHub.
+mentioned as `Refs <KEY>`. `__app-pr` reads pull requests from both GitHub and
+Bitbucket Cloud; see the [IDE contract](ide-contract.md).
 
 ## Saved worktree bases (#79)
 
