@@ -1,6 +1,6 @@
 import { execa } from "execa";
 import { lstat } from "node:fs/promises";
-import { listWorktrees } from "../git/worktrees";
+import { listWorktreeInventory } from "../git/worktrees";
 import { validateArenaAttempt } from "./storage";
 import type { ArenaAttemptRecord, ArenaManifest } from "./types";
 import type { RepositoryContext } from "../types";
@@ -33,7 +33,8 @@ export async function inspectArenaRemoval(repository: RepositoryContext, attempt
     let exists = true;
     try { await lstat(attempt.path); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") exists = false; else throw error; }
-    const registered = (await listWorktrees(repository)).some(w => w.path === attempt.path);
+    // The inventory names registered paths without running status in any worktree.
+    const registered = (await listWorktreeInventory(repository)).some(w => w.path === attempt.path);
     state.worktree = exists || registered ? "present" : "absent";
   } catch { /* Unknown is not absence. */ }
   try {
