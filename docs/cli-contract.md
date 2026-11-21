@@ -1020,6 +1020,27 @@ Git to validate. Do not slugify punctuation or append suffixes. Sentence-derived
 names are truncated only when `max_generated_branch_name_length` is configured;
 inputs without U+0020 spaces remain exact regardless of this setting.
 
+### Explicit branch for an issue (#214)
+
+`timber new <issue> --branch <name>` creates the worktree on `<name>` instead of
+the generated issue name and saves the issue link as usual. `<issue>` must resolve
+to an issue: an explicit `github:`, `linear:` or `jira:` selector, or input matching
+the default tracker. Literal routes, including the None tracker, refuse `--branch`
+before base resolution, credentials or lookups. A default tracker lookup that finds
+no issue refuses instead of falling back to a literal branch, since there would be
+no link to save.
+
+After the lookup, `<name>` goes through the same checks as a typed replacement at
+the over-length prompt: non-blank, no control characters, a valid Git branch name,
+and starting with the canonical issue ID returned by the tracker plus `-` (exact
+case; `GH-<number>-` for GitHub, and a moved Linear issue's new key). The name is
+used exactly, without normalization. `max_generated_branch_name_length` does not
+apply and no prompt is shown, because the name is not generated. A failed check
+prints its reason, then `No worktree was created.` on its own line, and exits 1 before any Git
+mutation. The existing branch guard below then applies to `<name>` unchanged,
+including the remote check and the interactive offer to open an existing branch,
+which keeps the issue link.
+
 ### Existing branch guard
 
 For the final resolved name, `new` inspects the exact local ref, each eligible
@@ -1109,7 +1130,9 @@ trailing separators, and may exceed the limit (for example limit 10 turns
 still validated as a Git branch name. A typed replacement must be
 non-blank, within the limit, a valid Git branch name, and for issues start with
 `<ID>-`; invalid input is asked again. Cancelling or end of input aborts with no
-Git changes. Non-interactive runs use the shortened proposal without prompting.
+Git changes. Non-interactive runs use the shortened proposal without prompting;
+pass `--branch <name>` to choose an issue branch name without a terminal
+([explicit branch](#explicit-branch-for-an-issue-214)).
 Names within the limit are never prompted. Installed Git validates the final name, and existing branch/path
 collision checks still refuse without mutation or automatic collision suffixes.
 Explicit names without spaces, existing branches opened by `open`, and Arena's
@@ -1210,7 +1233,7 @@ GitHub closed, Jira done, Linear completed/canceled/duplicate. Unknown or delete
 states always fail. Without `-c`, known terminal issues refuse with flag guidance;
 no flow offers Jira suggestions. `--remote` stays GitHub-only;
 issue-only flags fail on literal routes, including None. Valid default lookups may
-still fall back on missing with those flags. Base selection remains independent and
+still fall back on missing with those flags, except `--branch`, which refuses. Base selection remains independent and
 finishes before credentials/HTTP. Canonical key/title/browse URL are safely displayed
 after creation, before scripts or foreground/Orca launches. Branch naming and link
 output do not add persisted issue association metadata. Existing Git preservation,

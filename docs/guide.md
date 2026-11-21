@@ -565,7 +565,10 @@ longer than the limit is cut mid-word. In an interactive terminal, Timber shows 
 generated and shortened names and lets you accept the shortened one, finish the
 word the limit cut (offered only when the limit cut a word; the result is over the
 limit), or type your own (within the limit, and starting with the issue ID for issue names). Without a
-terminal it uses the shortened name. Git still validates the result.
+terminal it uses the shortened name. To pick an issue branch name up front, with or without a terminal,
+pass `--branch`, as in `timber new jira:ENG-123 --branch ENG-123-login-fix`. The name must start with
+the issue ID and a hyphen (`GH-<number>-` for GitHub issues), keeps the issue link, and is not limited
+by this setting. Git still validates the result.
 Explicit branch names without spaces and existing branches keep their exact names;
 Arena names are unaffected. With no setting, issue names keep their existing
 120-character cap and sentences remain uncapped. See the
@@ -976,7 +979,8 @@ and link before running setup scripts. This does not create new saved issue meta
 
 If an unprefixed default lookup reports a missing issue, Timber prints a notice
 and creates a literal branch with the original name. Providers can hide inaccessible
-issues as missing. Explicit selectors never fall back. Authentication, explicit
+issues as missing. Explicit selectors never fall back, and neither does `--branch`:
+it refuses, because there would be no issue to link. Authentication, explicit
 access denial, network, rate-limit, malformed response and other lookup errors stop
 before branch creation or setup scripts. Git creation errors also stop; Timber
 never retries those as literal branches.
@@ -999,6 +1003,7 @@ The check confirms your account, not access to every repository or issue.
 timber new github:123
 timber new github:123 --remote upstream --base main
 timber new github:123 -c
+timber new github:123 --branch GH-123-short-name
 timber open GH-123
 ```
 

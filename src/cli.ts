@@ -96,12 +96,14 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
   resultOptions(workflowOptions(agentOptions(editorOptions(program.command("new <branch...>")))))
     .description("Create a worktree from a branch, sentence, or default tracker issue; explicit github:<number>, linear:<KEY>, jira:<KEY> and named workflows are supported")
     .option("--base <ref>", "Override the configured base branch, or start from a full commit hash")
+    .option("--branch <name>", "Use this branch name for an issue selector instead of generating one; must start with the issue ID, for example GH-12- or ENG-42-")
     .option("--remote <name>", "Select the GitHub issue remote only; does not change --base")
     .option("-c", "Allow a closed or completed GitHub, Linear, or Jira issue; does not reopen it")
     .option("--no-setup", "Skip post_create hooks; run them later with timber open --setup")
-    .addHelpText("after", "\nChecks local branches and the configured (or every) remote before creating, so it needs network access when remotes exist.\nIf the name already exists on a remote, asks whether you meant timber open (Cancel is the default); without a terminal it refuses and prints the exact timber open command.\nA remote that cannot be checked also refuses. --base cannot be combined with an existing branch.")
-    .action(async (branch: string[], options: { resultFile?: string; base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; c?: boolean; setup?: boolean }) => {
+    .addHelpText("after", "\nChecks local branches and the configured (or every) remote before creating, so it needs network access when remotes exist.\nIf the name already exists on a remote, asks whether you meant timber open (Cancel is the default); without a terminal it refuses and prints the exact timber open command.\nA remote that cannot be checked also refuses. --base cannot be combined with an existing branch.\n--branch keeps the issue link and skips max_generated_branch_name_length. It is refused without an issue,\nincluding when a default tracker lookup finds no issue.")
+    .action(async (branch: string[], options: { resultFile?: string; base?: string; workflow?: string; w?: string; editor?: boolean; agent?: boolean; remote?: string; branch?: string; c?: boolean; setup?: boolean }) => {
       const normalized: NewOptions = {
+        ...(options.branch === undefined ? {} : { branch: options.branch }),
         ...(options.setup === false ? { setup: false as const } : {}),
         ...(options.remote === undefined ? {} : { remote: options.remote }),
         ...(options.c === true ? { allowClosed: true } : {}),
