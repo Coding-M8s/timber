@@ -5,6 +5,7 @@ import { execa } from "execa";
 import { fileURLToPath } from "node:url";
 import { candidates } from "./helpers/completion";
 import { git, withRepository } from "./helpers/git";
+import { waitForProcessExit } from "./helpers/process";
 
 test("completion reads fresh Git targets from primary, nested and linked checkouts", async () => {
   await withRepository(async (primary, directory) => {
@@ -209,6 +210,6 @@ test("a stalled Git read ends quietly within the completion deadline", async () 
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
     const pid = Number(await readFile(pidFile, "utf8"));
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(await waitForProcessExit(pid)).toBe(true);
   });
 });
