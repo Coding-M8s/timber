@@ -1,7 +1,7 @@
 # Install a local standalone build
 
 Use this to install the current checkout's Linux x86_64 executable as `timber`,
-for example to try an unreleased build. Building requires Git and Bun 1.4.4.
+for example to try an unreleased build. Building requires Git and Bun 1.4.5.
 For a published release, use the
 [one-line install](guide.md#one-line-install) instead.
 

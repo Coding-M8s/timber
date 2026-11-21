@@ -16,7 +16,7 @@ and tinycc under the GNU Lesser General Public License version 2.1. The full
 texts of both licenses are reproduced at the end of this file.
 
 Corresponding source for those libraries is published by the Bun project:
-  Bun 1.4.4:        https://github.com/oven-sh/bun/tree/bun-v1.4.4
+  Bun 1.4.5:        https://github.com/oven-sh/bun/tree/bun-v1.4.5
   Patched WebKit:   https://github.com/oven-sh/WebKit
   tinycc:           https://github.com/tinycc/tinycc
 To relink a Timber executable against a modified library, build a modified Bun
@@ -618,8 +618,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ========================================================================
-Bun 1.4.4 upstream licensing inventory
-Source: https://raw.githubusercontent.com/oven-sh/bun/bun-v1.4.4/LICENSE.md
+Bun 1.4.5 upstream licensing inventory
+Source: https://raw.githubusercontent.com/oven-sh/bun/bun-v1.4.5/LICENSE.md
 
 Bun itself is MIT-licensed.
 

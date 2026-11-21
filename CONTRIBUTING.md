@@ -28,7 +28,7 @@ contribute.
 
 ## Set up
 
-You need Git and Bun 1.4.4 (pinned in `.bun-version`). Python 3 is needed for
+You need Git and Bun 1.4.5 (pinned in `.bun-version`). Python 3 is needed for
 PTY tests; Bash, Zsh, and Fish are needed for their completion suites.
 
 ```bash
