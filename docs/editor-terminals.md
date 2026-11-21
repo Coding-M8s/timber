@@ -217,10 +217,13 @@ sends keystrokes.
   protocol 1.
 - Workspace Trust. VS Code cannot start terminal processes in Restricted Mode,
   and a new worktree opens untrusted unless a parent folder is trusted. Trust
-  the parent folder that holds your worktrees once (for example from the
-  Restricted Mode banner, "Trust the parent folder"), so every new worktree
-  window starts trusted. The extension reports the window's trust in its
+  the folder that holds your worktrees once: click Manage in the Restricted
+  Mode banner, then Add Folder under Trusted Folders & Workspaces. The plain
+  Trust button trusts only the current worktree. Every new worktree window
+  in a trusted folder then starts trusted. The extension reports the window's trust in its
   answer, and Timber stops before creating any terminal when it is untrusted.
+  The error names the folder to trust, and `timber setup` mentions this when
+  you choose VS Code terminals.
 
 ### Configuration
 
@@ -268,7 +271,7 @@ The general [failure rules](#failures-and-recovery) apply. In addition:
 | Terminal request not claimed within 10 s | Request cancelled; it can never run | Run the printed retry |
 | Extension rejected the request (protocol, invalid, or the process did not start) | Reported definitively | Update Timber and the extension together, or run the printed retry |
 | Request claimed but not acknowledged | Reported as uncertain; nothing replayed | Inspect the terminals in the worktree window before retrying |
-| Worktree window is in Restricted Mode (untrusted) | Stopped at readiness, or the terminal request is rejected; no terminal created | Trust the folder or its parent worktrees folder in VS Code, then run the printed retry |
+| Worktree window is in Restricted Mode (untrusted) | Stopped at readiness, or the terminal request is rejected; no terminal created | Trust the folder that holds your worktrees (Manage, then Add Folder), then run the printed retry |
 | Spool directory not private | Refused before any window opens | Remove `/tmp/timber-vscode-<uid>` and retry |
 
 ### Observed on VS Code 1.146.0, Linux x86_64
@@ -283,3 +286,26 @@ the extension installed from the VSIX.
   editor args), `timber new smoke-one --agent` printed
   `Agent handed off to VS Code terminal "Timber agent" (pid ...)`, and both the
   setup hook and the agent ran with `pwd` equal to the exact worktree path.
+
+### Observed on VS Code 1.147.0, Linux x86_64
+
+A second manual smoke used an isolated `--user-data-dir` and `--extensions-dir`
+with the VSIX. VS Code 1.147 keeps Workspace Trust and recent folders in
+`~/.vscode-shared`, shared by all profiles, so trusting a folder in a test
+profile also trusts it in your normal VS Code.
+
+- Untrusted: `timber new` stopped at readiness in about 4 seconds with the
+  Restricted Mode error naming the worktrees folder; no terminal started.
+- Trusting only the worktree (Trust button) made the printed retry work, but
+  the next new worktree opened in Restricted Mode again.
+- After adding the worktrees folder with Manage, then Add Folder, a brand-new
+  worktree ran setup and the agent on the first try.
+- Setup and agent terminals ran with `pwd` equal to the worktree and stayed
+  open at a shell prompt afterwards.
+- `wait_for_setup = true` with a failing hook: setup failure and retry
+  printed, the agent never started, branch and worktree retained.
+- With the spool directory deleted while a worktree window was open,
+  `timber open --editor --agent` on that worktree still reached the same window.
+- With the extension missing: the install hint and retry, before any window
+  opened.
+- The spool was mode 0700 and empty after every run.

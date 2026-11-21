@@ -2,7 +2,7 @@ import { retryForDisplay, safeDisplay, workflowRetryFlag } from "../display";
 import type { CommandIO, EditorTerminalLaunch } from "../services";
 import { createOrcaSession, OrcaSelectionFailure } from "./orca";
 import { createVscodeSession } from "./vscode";
-import { createTerminalRequest, RunnerStartupFailure } from "./request";
+import { createTerminalRequest, RunnerStartupFailure, UncertainHandoff } from "./request";
 import type { SelfCommand, TerminalRequest } from "./request";
 import type { TerminalTask } from "./protocol";
 import type { EditorConfig, Worktree } from "../types";
@@ -65,7 +65,11 @@ export function createEditorTerminalLauncher(dependencies: Dependencies) {
           selectionError = error; // Terminal exists: observe its runner, never fence or recreate it.
         } else if (await request.fence()) {
           await request.cleanup(); // A fenced request can never run, even from a terminal the editor queued late.
-          throw new Error(`${error instanceof Error ? error.message : `${label} terminal creation failed.`} ${definitive(flags)}`);
+          // Fencing settled an uncertain handoff: any terminal the editor started cannot run the task.
+          const message = error instanceof UncertainHandoff
+            ? `${label} did not confirm the Timber ${task.kind} terminal, so Timber cancelled the request and the ${task.kind} never ran. An idle Timber terminal may remain in the worktree window; close it.`
+            : error instanceof Error ? error.message : `${label} terminal creation failed.`;
+          throw new Error(`${message} ${definitive(flags)}`);
         } else creationError = error; // Runner already claimed it: observe, never replay.
       }
       if (handle) handles.set(request, handle);

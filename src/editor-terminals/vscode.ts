@@ -2,11 +2,13 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { readFile, rename, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execa } from "execa";
+import { safeDisplay } from "../display";
 import { resolveNativeCommand } from "../platform/executable";
 import type { EditorConfig, Worktree } from "../types";
 import { supportsEditorTerminals } from "./process-identity";
+import { UncertainHandoff } from "./request";
 import {
   compareVersions, ensureSpool, EXTENSION_ID, isPrivate, MIN_EXTENSION_VERSION, parseAck, publishSpoolFile,
   spoolDirectory, spoolErrorCodes, spoolNames, VSCODE_PROTOCOL,
@@ -24,13 +26,16 @@ interface Options {
 }
 
 const install = `Install the Timber VS Code extension (${EXTENSION_ID}) ${MIN_EXTENSION_VERSION} or newer with code --install-extension <file>.vsix, then retry.`;
-const restricted = "VS Code opened the worktree in Restricted Mode, so it cannot start Timber terminals. Trust the folder (or its parent worktrees folder) in VS Code, then retry.";
+/** Names the folder that holds the worktree: trusting it once covers every worktree created there. */
+function restricted(worktreePath: string): string {
+  return `VS Code opened the worktree in Restricted Mode, so it cannot start Timber terminals. Trust the folder that holds your worktrees, ${safeDisplay(dirname(worktreePath))}, once in VS Code: click Manage in the Restricted Mode banner, then Add Folder under Trusted Folders & Workspaces. New worktrees there then open trusted. Then retry.`;
+}
 const uncertain = "VS Code terminal handoff is uncertain. Inspect terminals in the worktree window before retrying; terminal creation was not replayed.";
 const errorMessages: Record<SpoolErrorCode, string> = {
   protocol: `The Timber VS Code extension does not speak this Timber's request protocol; update Timber and the extension together. ${install}`,
   invalid: "The Timber VS Code extension rejected the terminal request as invalid; no terminal was created.",
   "create-failed": "VS Code could not start the Timber terminal process.",
-  untrusted: restricted,
+  untrusted: "VS Code is in Restricted Mode for this worktree, so it cannot start Timber terminals.",
 };
 
 function tooOld(version: string): Error {
@@ -84,7 +89,7 @@ export async function createVscodeSession(editor: EditorConfig, worktree: Worktr
         } catch {}
       }
       // A malformed outcome proves the request was claimed but says nothing else.
-      throw new Error(uncertain);
+      throw new UncertainHandoff(uncertain);
     }
     return null;
   }
@@ -93,8 +98,12 @@ export async function createVscodeSession(editor: EditorConfig, worktree: Worktr
     try { await rename(join(spool, names.request), join(spool, names.cancelled)); return true; }
     catch { return false; }
   }
+  /** Claim markers go before outcomes: an extension that answers late sees the claim gone and removes its own outcome. */
   async function cleanup(id: string): Promise<void> {
-    await Promise.all(Object.values(spoolNames(id)).map(name => rm(join(spool, name), { force: true }).catch(() => {})));
+    const names = spoolNames(id);
+    const remove = (name: string) => rm(join(spool, name), { force: true }).catch(() => {});
+    await Promise.all([names.request, names.claimed, names.cancelled].map(remove));
+    await Promise.all([names.ack, names.error].map(remove));
   }
   /** Resolves with the outcome, null once the request was fenced unclaimed, or "claimed" without an outcome. */
   async function exchange(request: SpoolRequest, timeoutMs: number) {
@@ -135,11 +144,11 @@ export async function createVscodeSession(editor: EditorConfig, worktree: Worktr
     if (outcome === null || outcome === "claimed") {
       throw new Error("The Timber VS Code extension did not answer from the worktree window in time; no terminals started. Check that the extension is installed and enabled in a local window.");
     }
-    if ("error" in outcome) throw new Error(errorMessages[outcome.error]);
+    if ("error" in outcome) throw new Error(outcome.error === "untrusted" ? restricted(worktree.path) : errorMessages[outcome.error]);
     if (outcome.ack.protocol !== VSCODE_PROTOCOL) throw new Error(errorMessages.protocol);
     if ((compareVersions(outcome.ack.extensionVersion, MIN_EXTENSION_VERSION) ?? -1) < 0) throw tooOld(outcome.ack.extensionVersion);
     // Older extensions omit trust; treat that as trusted for compatibility.
-    if (outcome.ack.trusted === false) throw new Error(restricted);
+    if (outcome.ack.trusted === false) throw new Error(restricted(worktree.path));
     window = outcome.ack.window;
   }
   const createMs = options.createMs ?? 10_000;
@@ -150,9 +159,9 @@ export async function createVscodeSession(editor: EditorConfig, worktree: Worktr
       const outcome = await exchange({ protocol: VSCODE_PROTOCOL, kind: "terminal", cwd: worktree.path,
         expires: Date.now() + createMs, window, title, shellPath: argv[0]!, shellArgs: argv.slice(1) }, createMs);
       if (outcome === null) throw new Error("VS Code did not accept the terminal request in time; no terminal was created. Keep the worktree window open with the Timber extension enabled.");
-      if (outcome === "claimed") throw new Error(uncertain);
-      if ("error" in outcome) throw new Error(errorMessages[outcome.error]);
-      if (outcome.ack.window !== window || outcome.ack.processId === undefined) throw new Error(uncertain);
+      if (outcome === "claimed") throw new UncertainHandoff(uncertain);
+      if ("error" in outcome) throw new Error(outcome.error === "untrusted" ? restricted(worktree.path) : errorMessages[outcome.error]);
+      if (outcome.ack.window !== window || outcome.ack.processId === undefined) throw new UncertainHandoff(uncertain);
       return `"${title}" (pid ${outcome.ack.processId})`;
     },
     /** VS Code has already focused the worktree window; there is nothing more to select. */

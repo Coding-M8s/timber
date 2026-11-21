@@ -6,6 +6,8 @@ import type { TerminalTask, TaskResult } from "./protocol";
 export interface SelfCommand { executable: string; entry?: string }
 /** The request was fenced or the runner proved that the executable never started. */
 export class RunnerStartupFailure extends Error {}
+/** The editor may or may not have started the terminal. The launcher fences the runner request, which settles it. */
+export class UncertainHandoff extends Error {}
 export interface TerminalRequest {
   directory: string;
   bootstrap: string;
