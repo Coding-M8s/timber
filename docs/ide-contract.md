@@ -548,8 +548,10 @@ The record has `command: "pr"`, `materialized: false`, no `worktrees`, no
 - A missing login is `failed` and stops before the push. On GitHub the user
   signs in with `gh auth login` or sets `GH_TOKEN`; on Bitbucket the user saves
   a login with `timber setup` or sets `BITBUCKET_EMAIL` and `BITBUCKET_API_TOKEN`
-  ([Bitbucket Cloud](cli-contract.md#bitbucket-cloud-175)). The app retries
-  deliberately. Settings for app consumers cannot yet save the Bitbucket login.
+  ([Bitbucket Cloud](cli-contract.md#bitbucket-cloud-175)). An app can save
+  and check that login through
+  [settings for app consumers](#settings-for-app-consumers-experimental-v1).
+  The app retries deliberately.
 - `failed` after the push leaves the branch published: `published` says whether
   this run moved it. A rejected creation (for example no commits between the
   base and the branch, a base branch missing on the host, or drafts unsupported)
@@ -680,6 +682,7 @@ type SettingsRead = {
   credentials: {
     jira: { configured: boolean; state: CredentialState; environmentOverride: boolean };
     linear: { state: CredentialState; environmentOverride: boolean };
+    bitbucket: { state: CredentialState; environmentOverride: boolean };
   };
 };
 type CredentialState = "saved" | "none" | "unreadable";
@@ -694,9 +697,10 @@ type CredentialState = "saved" | "none" | "unreadable";
   pair saved for the effective Jira site and token mode; `configured` is false
   when no Jira site applies. `unreadable` means the private store exists but
   failed its ownership, permission or format checks. `environmentOverride` is
-  true when `JIRA_EMAIL`/`JIRA_API_TOKEN` or `LINEAR_API_KEY` is set for the
-  process, because those replace saved credentials at run time. No email, token
-  or key is ever part of this object. Timber stores no GitHub token.
+  true when `JIRA_EMAIL`/`JIRA_API_TOKEN`, `LINEAR_API_KEY` or
+  `BITBUCKET_EMAIL`/`BITBUCKET_API_TOKEN` is set for the process, because those
+  replace saved credentials at run time. No email, token or key is ever part of
+  this object. Timber stores no GitHub token.
 
 ### Saving settings
 
@@ -712,6 +716,7 @@ type SettingsInput = {
   credentials?: {            // omit a provider to leave its saved login alone
     jira?: { email: string; token: string } | null;   // null removes the saved pair
     linear?: { token: string } | null;                // null removes the saved key
+    bitbucket?: { email: string; token: string } | null; // null removes the saved login
   };
 };
 
@@ -721,7 +726,7 @@ type ConfigApplyRecord = {
   path: string | null;       // destination; null when the run stopped before finding it
   revision: string | null;   // revision of the saved content; null unless "saved"
   invalidFields: string[];   // for example "editor.command is invalid"
-  credentials: { jira: CredentialChange; linear: CredentialChange };
+  credentials: { jira: CredentialChange; linear: CredentialChange; bitbucket: CredentialChange };
 };
 type CredentialChange = "saved" | "removed" | "unchanged";
 ```
@@ -771,21 +776,25 @@ are refused.
 Saved credentials follow the existing store rules: plaintext, private to the
 user, outside every Git worktree, shared across repositories, and keyed for
 Jira by site and token mode. Jira credentials need a Jira site in the draft or
-inherited from machine defaults. Credential values never appear in result
-files, stdout, stderr or diagnostics, and `read` never returns them, so an app
-cannot prefill a saved token.
+inherited from machine defaults. The Bitbucket login is the single pair
+`timber pr` uses for bitbucket.org, saved in `credentials/bitbucket.json` as by
+`timber setup`: an Atlassian account email and an API token without whitespace,
+otherwise `invalid` with `credentials.bitbucket is invalid`. Credential values
+never appear in result files, stdout, stderr or diagnostics, and `read` never
+returns them, so an app cannot prefill a saved token.
 
 ### Checking a connection
 
-`check <github|linear|jira> [--scope <scope>] [--input-file <path>]` makes the
-same single read-only current-user request as setup and prints one JSON object
-plus newline to stdout. It exits 0 when `ok` is true and 1 otherwise. It saves
-nothing, with or without a draft.
+`check <github|linear|jira|bitbucket> [--scope <scope>] [--input-file <path>]`
+makes one read-only current-user request (the same one setup makes for GitHub,
+Linear and Jira; for Bitbucket, `GET https://api.bitbucket.org/2.0/user`) and
+prints one JSON object plus newline to stdout. It exits 0 when `ok` is true and
+1 otherwise. It saves nothing, with or without a draft.
 
 ```ts
 type ConnectionCheck = {
   schemaVersion: 1;
-  integration: "github" | "linear" | "jira";
+  integration: "github" | "linear" | "jira" | "bitbucket";
   ok: boolean;
   source: "draft" | "saved" | "environment" | "github-cli" | null;
   account: string | null;    // GitHub login on success; otherwise null
@@ -810,6 +819,12 @@ type ConnectionCheck = {
   access are not checked. A failure is a result, not a crash: rejected logins,
   denied access, rate limits, timeouts (10 seconds) and network errors all
   return `ok: false` with a diagnostic that contains no credential.
+- For Bitbucket, a token limited to the pull request scopes that `timber pr`
+  needs cannot read the account. Bitbucket answers such a recognised login with
+  a 403 whose JSON error lists the required scopes, and that answer counts as
+  accepted. Any other 403, such as one from a proxy, fails. Scopes are not
+  checked, `account` stays null, and a draft login is checked even when
+  `BITBUCKET_EMAIL` or `BITBUCKET_API_TOKEN` is set.
 
 ## Pull requests for app consumers (experimental v1)
 

@@ -297,7 +297,9 @@ On a bitbucket.org base, Timber never prompts for the login. If either
 complete pair of an Atlassian account email and a nonblank API token without
 whitespace; that pair overrides the saved login, and an incomplete or invalid
 pair fails without fallback. Otherwise use the single private pair saved by
-`timber setup` at `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/bitbucket.json`
+`timber setup` (or by
+[settings for app consumers](ide-contract.md#settings-for-app-consumers-experimental-v1))
+at `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/bitbucket.json`
 (`{ "version": 1, "email", "token" }`), under the same private-storage rules as
 `linear.json`. A missing login points to `timber setup` and the variables. The
 pair is sent as HTTP Basic credentials to the fixed `https://api.bitbucket.org/2.0`

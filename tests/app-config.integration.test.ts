@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { git, withRepository } from "./helpers/git";
 import { checkAppIntegration } from "../src/app-config/check";
+import { knownSecrets, safeAppDiagnostic } from "../src/app-config/input";
 import type { AppConfigInput } from "../src/app-config/input";
 import { configFileSchema, parseConfigSource } from "../src/config";
 import { renderConfig } from "../src/setup/render";
@@ -15,6 +16,10 @@ const json = async (path: string) => JSON.parse(await readFile(path, "utf8"));
 const jiraToken = "JIRA-SECRET-TOKEN-7f3a";
 const jiraEmail = "private.person@example.invalid";
 const linearToken = "lin_api_SECRET_91c2";
+const bitbucketToken = "ATATT_BITBUCKET_SECRET_5d1e";
+const bitbucketEmail = "bitbucket.person@example.invalid";
+const bitbucketLogin = { email: bitbucketEmail, token: bitbucketToken };
+const bitbucketBasic = `Basic ${Buffer.from(`${bitbucketEmail}:${bitbucketToken}`).toString("base64")}`;
 
 interface Fixture {
   primary: string;
@@ -37,7 +42,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>): Promise<vo
     const cli: Fixture["cli"] = async (...args) => {
       const result = await execa(process.execPath, ["--no-env-file", entry, "__app-config", ...args], {
         cwd: primary, reject: false, timeout: 20_000, stdin: "ignore",
-        env: { ...env, JIRA_EMAIL: undefined, JIRA_API_TOKEN: undefined, LINEAR_API_KEY: undefined, GH_TOKEN: undefined, GITHUB_TOKEN: undefined },
+        env: { ...env, JIRA_EMAIL: undefined, JIRA_API_TOKEN: undefined, LINEAR_API_KEY: undefined, BITBUCKET_EMAIL: undefined, BITBUCKET_API_TOKEN: undefined, GH_TOKEN: undefined, GITHUB_TOKEN: undefined },
       });
       return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr, args };
     };
@@ -74,7 +79,8 @@ test("read reports scope values, inherited effective values and the destination 
     const local = JSON.parse(run.stdout);
     expect(local).toMatchObject({ schemaVersion: 1, scope: "repository", path: fixture.config, exists: true, tracked: false,
       values: { base_branch: "trunk", agent: false }, effective: { base_branch: "trunk", remote: "upstream" },
-      credentials: { jira: { configured: false, state: "none", environmentOverride: false }, linear: { state: "none", environmentOverride: false } } });
+      credentials: { jira: { configured: false, state: "none", environmentOverride: false }, linear: { state: "none", environmentOverride: false },
+        bitbucket: { state: "none", environmentOverride: false } } });
     expect(local.effective.agent).toBeUndefined();
     expect(local.revision).toMatch(/^[a-f0-9]{64}$/);
     const machine = await fixture.read("global");
@@ -112,7 +118,8 @@ test("apply saves the file setup would save, hides it from Git, and returns the 
     expect(saved).toBe(renderConfig(configFileSchema.parse(draft)));
     expect(record).toMatchObject({ schemaVersion: 1, command: "config", outcome: "succeeded", exitCode: 0, worktree: null,
       materialized: false, diagnostic: null, repository: { primaryWorktreeRoot: fixture.primary },
-      config: { result: "saved", scope: "repository", path: fixture.config, invalidFields: [], credentials: { jira: "unchanged", linear: "unchanged" } } });
+      config: { result: "saved", scope: "repository", path: fixture.config, invalidFields: [],
+        credentials: { jira: "unchanged", linear: "unchanged", bitbucket: "unchanged" } } });
     expect(await readFile(join(fixture.primary, ".git/info/exclude"), "utf8")).toContain("/.timber.toml\n");
     expect(await git(fixture.primary, "status", "--porcelain")).toBe("");
     // The returned revision lets the app keep editing without another read.
@@ -263,29 +270,34 @@ test("credentials are saved privately and never reach arguments, streams, record
   await withFixture(async fixture => {
     const store = join(fixture.env.XDG_CONFIG_HOME, "timber/credentials");
     const saved = await fixture.apply({ schemaVersion: 1, revision: null, values: draft,
-      credentials: { jira: { email: jiraEmail, token: jiraToken }, linear: { token: linearToken } } });
+      credentials: { jira: { email: jiraEmail, token: jiraToken }, linear: { token: linearToken }, bitbucket: bitbucketLogin } });
     expect(saved.run.exitCode).toBe(0);
-    expect(saved.record.config).toMatchObject({ result: "saved", credentials: { jira: "saved", linear: "saved" } });
-    for (const secret of [jiraToken, jiraEmail, linearToken]) expect(saved.streams).not.toContain(secret);
+    expect(saved.record.config).toMatchObject({ result: "saved", credentials: { jira: "saved", linear: "saved", bitbucket: "saved" } });
+    for (const secret of [jiraToken, jiraEmail, linearToken, bitbucketToken, bitbucketEmail]) expect(saved.streams).not.toContain(secret);
+    expect(await readFile(fixture.config, "utf8")).not.toContain(bitbucketToken);
     expect(await readFile(fixture.config, "utf8")).not.toContain(jiraToken);
     // The existing private stores hold them under the existing rules.
     expect((await json(join(store, "jira.json"))).records).toEqual([{ siteUrl: "https://example.atlassian.net", email: jiraEmail, token: jiraToken }]);
     expect(await json(join(store, "linear.json"))).toEqual({ version: 1, token: linearToken });
+    expect(await json(join(store, "bitbucket.json"))).toEqual({ version: 1, email: bitbucketEmail, token: bitbucketToken });
     if (process.platform !== "win32") {
       expect((await stat(join(store, "jira.json"))).mode & 0o777).toBe(0o600);
+      expect((await stat(join(store, "bitbucket.json"))).mode & 0o777).toBe(0o600);
       expect((await stat(store)).mode & 0o777).toBe(0o700);
     }
     const read = await fixture.cli("read", "--scope", "repository");
     expect(JSON.parse(read.stdout).credentials).toEqual({ jira: { configured: true, state: "saved", environmentOverride: false },
-      linear: { state: "saved", environmentOverride: false } });
-    for (const secret of [jiraToken, jiraEmail, linearToken]) expect(read.stdout + read.stderr).not.toContain(secret);
+      linear: { state: "saved", environmentOverride: false }, bitbucket: { state: "saved", environmentOverride: false } });
+    for (const secret of [jiraToken, jiraEmail, linearToken, bitbucketToken, bitbucketEmail]) expect(read.stdout + read.stderr).not.toContain(secret);
     // Leaving credentials out keeps them; null removes them.
     const kept = await fixture.apply({ schemaVersion: 1, revision: saved.record.config.revision, values: { ...draft, remote: "origin" } });
-    expect(kept.record.config.credentials).toEqual({ jira: "unchanged", linear: "unchanged" });
+    expect(kept.record.config.credentials).toEqual({ jira: "unchanged", linear: "unchanged", bitbucket: "unchanged" });
+    expect((await fixture.read()).credentials.bitbucket.state).toBe("saved");
     expect((await fixture.read()).credentials.jira.state).toBe("saved");
     const removed = await fixture.apply({ schemaVersion: 1, revision: kept.record.config.revision, values: draft,
-      credentials: { jira: null, linear: null } });
-    expect(removed.record.config.credentials).toEqual({ jira: "removed", linear: "removed" });
+      credentials: { jira: null, linear: null, bitbucket: null } });
+    expect(removed.record.config.credentials).toEqual({ jira: "removed", linear: "removed", bitbucket: "removed" });
+    expect(await exists(join(store, "bitbucket.json"))).toBe(false);
     expect(await exists(join(store, "jira.json"))).toBe(false);
     expect(await exists(join(store, "linear.json"))).toBe(false);
   });
@@ -295,9 +307,9 @@ test("a failed save keeps credentials unpublished and a shared draft file is ref
   await withFixture(async fixture => {
     await writeFile(fixture.config, 'remote = "theirs"\n');
     const stale = await fixture.apply({ schemaVersion: 1, revision: null, values: draft,
-      credentials: { jira: { email: jiraEmail, token: jiraToken }, linear: { token: linearToken } } });
+      credentials: { jira: { email: jiraEmail, token: jiraToken }, linear: { token: linearToken }, bitbucket: bitbucketLogin } });
     expect(stale.record.config.result).toBe("conflict");
-    for (const secret of [jiraToken, jiraEmail, linearToken]) expect(stale.streams).not.toContain(secret);
+    for (const secret of [jiraToken, jiraEmail, linearToken, bitbucketToken, bitbucketEmail]) expect(stale.streams).not.toContain(secret);
     expect(await exists(join(fixture.env.XDG_CONFIG_HOME, "timber/credentials"))).toBe(false);
     if (process.platform === "win32") return;
     const inputFile = join(fixture.directory, "shared.json"), resultFile = join(fixture.directory, "shared-result.json");
@@ -308,6 +320,68 @@ test("a failed save keeps credentials unpublished and a shared draft file is ref
     expect(run.exitCode).toBe(1);
     expect(run.stderr).toContain("mode 0600");
     expect(await readFile(fixture.config, "utf8")).toBe('remote = "theirs"\n');
+  });
+});
+
+test("an invalid Bitbucket login is named without echoing it and saves nothing", async () => {
+  await withFixture(async fixture => {
+    for (const login of [{ email: "not-an-email SECRET", token: bitbucketToken }, { email: bitbucketEmail, token: "has space SECRET" },
+      { email: bitbucketEmail, token: "" }]) {
+      const { run, record, streams } = await fixture.apply({ schemaVersion: 1, revision: null, values: draft, credentials: { bitbucket: login } });
+      expect(run.exitCode).toBe(1);
+      expect(record.config).toMatchObject({ result: "invalid", invalidFields: ["credentials.bitbucket is invalid"],
+        credentials: { bitbucket: "unchanged" } });
+      for (const secret of [login.email, login.token, "SECRET"].filter(Boolean)) expect(streams).not.toContain(secret);
+    }
+    const extra = await fixture.apply({ schemaVersion: 1, revision: null, values: draft,
+      credentials: { bitbucket: { ...bitbucketLogin, username: "SECRET" } } });
+    expect(extra.record.diagnostic).toContain("credentials.bitbucket.username is not supported");
+    expect(extra.streams).not.toContain(bitbucketToken);
+    expect(await exists(fixture.config)).toBe(false);
+    expect(await exists(join(fixture.env.XDG_CONFIG_HOME, "timber"))).toBe(false);
+  });
+});
+
+test("a Bitbucket draft is hidden from diagnostics, and an unreadable or absent store is reported without values", async () => {
+  await withFixture(async fixture => {
+    const secrets = knownSecrets({}, { schemaVersion: 1, values: {}, credentials: { bitbucket: bitbucketLogin } });
+    expect(secrets).toEqual(expect.arrayContaining([bitbucketToken, bitbucketEmail]));
+    expect(safeAppDiagnostic(new Error(`failed for ${bitbucketEmail}:${bitbucketToken}`), secrets, "fallback"))
+      .toBe("failed for [hidden]:[hidden]");
+    // Removing a login that was never saved changes nothing.
+    const none = await fixture.apply({ schemaVersion: 1, revision: null, values: {}, credentials: { bitbucket: null } });
+    expect(none.record.config).toMatchObject({ result: "saved", credentials: { bitbucket: "unchanged" } });
+    const store = join(fixture.env.XDG_CONFIG_HOME, "timber/credentials");
+    expect(await exists(join(store, "bitbucket.json"))).toBe(false);
+    await mkdir(store, { recursive: true, mode: 0o700 });
+    await writeFile(join(store, "bitbucket.json"), `{"version":1,"email":"${bitbucketEmail}"`, { mode: 0o600 });
+    const read = await fixture.cli("read", "--scope", "global");
+    expect(read.exitCode).toBe(0);
+    expect(JSON.parse(read.stdout).credentials.bitbucket).toEqual({ state: "unreadable", environmentOverride: false });
+    expect(read.stdout + read.stderr).not.toContain(bitbucketEmail);
+  });
+});
+
+test("a config publish that fails after the credentials published rolls the Bitbucket login back", async () => {
+  await withFixture(async fixture => {
+    const store = join(fixture.env.XDG_CONFIG_HOME, "timber/credentials/bitbucket.json");
+    // A shared rule that unignores the file cannot be overridden by the Git-local exclusion.
+    await writeFile(join(fixture.primary, ".gitignore"), "!.timber.toml\n");
+    const first = await fixture.apply({ schemaVersion: 1, revision: null, values: draft, credentials: { bitbucket: bitbucketLogin } });
+    expect(first.record.config).toMatchObject({ result: "refused", credentials: { bitbucket: "unchanged" } });
+    for (const secret of [bitbucketToken, bitbucketEmail]) expect(first.streams).not.toContain(secret);
+    expect(await exists(store)).toBe(false);
+    expect(await exists(fixture.config)).toBe(false);
+    // An existing login survives a replacement and a removal that fail the same way.
+    const global = await fixture.apply({ schemaVersion: 1, revision: null, values: {}, credentials: { bitbucket: bitbucketLogin } }, "--scope", "global");
+    expect(global.record.config).toMatchObject({ result: "saved", credentials: { bitbucket: "saved" } });
+    const before = await readFile(store, "utf8");
+    for (const bitbucket of [{ email: "other@example.invalid", token: "ATATT_OTHER" }, null]) {
+      const failed = await fixture.apply({ schemaVersion: 1, revision: null, values: draft, credentials: { bitbucket } });
+      expect(failed.record.config.result).toBe("refused");
+      expect(await readFile(store, "utf8")).toBe(before);
+    }
+    expect(await exists(fixture.config)).toBe(false);
   });
 });
 
@@ -367,8 +441,8 @@ function runtime(env: Record<string, string>, respond: (url: string) => Response
     return respond(url);
   } } };
 }
-const ok = (body: unknown) => () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
-const status = (code: number) => () => new Response(`denied ${jiraToken} ${linearToken}`, { status: code });
+const ok = (body: unknown, code = 200) => () => new Response(JSON.stringify(body), { status: code, headers: { "content-type": "application/json" } });
+const status = (code: number) => () => new Response(`denied ${jiraToken} ${linearToken} ${bitbucketToken}`, { status: code });
 const input = (values: Record<string, unknown>, credentials?: AppConfigInput["credentials"]): AppConfigInput =>
   ({ schemaVersion: 1, values, ...(credentials === undefined ? {} : { credentials }) });
 
@@ -464,6 +538,101 @@ test("the check command prints one object, exits by result, and keeps a draft's 
     }
     expect(await exists(fixture.config)).toBe(false);
     expect(await exists(join(fixture.env.XDG_CONFIG_HOME, "timber"))).toBe(false);
+  });
+});
+
+test("check bitbucket sends one read-only request with the draft, saved or environment login", async () => {
+  await withFixture(async fixture => {
+    const env = { XDG_CONFIG_HOME: fixture.env.XDG_CONFIG_HOME };
+    const methods: string[] = [];
+    const draftCheck = runtime(env, ok({ account_id: "abc" }));
+    const recording = { ...draftCheck.runtime, fetch: async (url: string, init: RequestInit) => {
+      methods.push(`${init.method} ${init.redirect}`); return draftCheck.runtime.fetch(url, init);
+    } };
+    expect(await checkAppIntegration("bitbucket", fixture.primary, undefined, input({}, { bitbucket: bitbucketLogin }), recording))
+      .toEqual({ schemaVersion: 1, integration: "bitbucket", ok: true, source: "draft", account: null, diagnostic: null });
+    expect(draftCheck.calls).toEqual([{ url: "https://api.bitbucket.org/2.0/user", authorization: bitbucketBasic }]);
+    expect(methods).toEqual(["GET error"]);
+    // A token with only the pull request scopes cannot read the account; Bitbucket still recognised the login.
+    // The body Bitbucket sent for a real API token lacking a scope, with the scope lists shortened.
+    const scoped = runtime(env, () => new Response(JSON.stringify({ type: "error", error: {
+      message: "Your credentials lack one or more required privilege scopes.",
+      detail: { required: ["read:user:bitbucket"], granted: ["read:pullrequest:bitbucket", "write:pullrequest:bitbucket"] } } }),
+    { status: 403, headers: { "content-type": "application/json" } }));
+    expect(await checkAppIntegration("bitbucket", fixture.primary, undefined, input({}, { bitbucket: bitbucketLogin }), scoped.runtime))
+      .toMatchObject({ ok: true, source: "draft", diagnostic: null });
+    expect(await exists(join(fixture.env.XDG_CONFIG_HOME, "timber"))).toBe(false);
+    // Without a draft: the saved login, unless the environment overrides it, and the draft wins over both.
+    await fixture.apply({ schemaVersion: 1, revision: null, values: {}, credentials: { bitbucket: bitbucketLogin } }, "--scope", "global");
+    const saved = runtime(env, ok({}));
+    expect(await checkAppIntegration("bitbucket", fixture.primary, undefined, undefined, saved.runtime)).toMatchObject({ ok: true, source: "saved" });
+    expect(saved.calls[0]!.authorization).toBe(bitbucketBasic);
+    const overrideEnv = { ...env, BITBUCKET_EMAIL: "env@example.invalid", BITBUCKET_API_TOKEN: "ATATT_ENVIRONMENT" };
+    const override = runtime(overrideEnv, ok({}));
+    expect(await checkAppIntegration("bitbucket", fixture.primary, undefined, undefined, override.runtime)).toMatchObject({ ok: true, source: "environment" });
+    expect(override.calls[0]!.authorization).toBe(`Basic ${Buffer.from("env@example.invalid:ATATT_ENVIRONMENT").toString("base64")}`);
+    const partial = runtime({ ...env, BITBUCKET_API_TOKEN: "ATATT_ENVIRONMENT" }, ok({}));
+    const failed = await checkAppIntegration("bitbucket", fixture.primary, undefined, undefined, partial.runtime);
+    expect(failed).toMatchObject({ ok: false, source: "environment" });
+    expect(failed.diagnostic).toContain("No saved login was used");
+    expect(JSON.stringify(failed)).not.toContain("ATATT_ENVIRONMENT");
+    expect(partial.calls).toEqual([]);
+    const preferred = runtime(overrideEnv, ok({}));
+    expect(await checkAppIntegration("bitbucket", fixture.primary, undefined, input({}, { bitbucket: bitbucketLogin }), preferred.runtime))
+      .toMatchObject({ ok: true, source: "draft" });
+    expect(preferred.calls[0]!.authorization).toBe(bitbucketBasic);
+  });
+});
+
+test("a failed Bitbucket check returns a fixed diagnostic and no credential", async () => {
+  await withFixture(async fixture => {
+    const env = { XDG_CONFIG_HOME: fixture.env.XDG_CONFIG_HOME, BITBUCKET_EMAIL: "env@example.invalid", BITBUCKET_API_TOKEN: "ATATT_ENVIRONMENT" };
+    const leaky = () => { throw new Error(`socket failed for ${bitbucketToken} ${bitbucketEmail}`); };
+    const redirected = () => { const response = new Response("{}", { status: 200 }); Object.defineProperty(response, "redirected", { value: true }); return response; };
+    const late = () => new Promise<Response>(() => {});
+    for (const [respond, expected] of [[status(401), "did not accept the login"], [status(403), "network device denied"],
+      [ok({ type: "error", error: { message: "Forbidden" } }, 403), "network device denied"], [status(429), "rate limited"], [status(500), "retry when Bitbucket"],
+      [status(404), "retry when Bitbucket"], [leaky, "network or redirect failure"], [redirected, "retry when Bitbucket"],
+      [ok([`${bitbucketToken}`]), "invalid current-user response"], [late, "in time"]] as const) {
+      const check = runtime(env, respond);
+      const result = await checkAppIntegration("bitbucket", fixture.primary, undefined, input({}, { bitbucket: bitbucketLogin }),
+        { ...check.runtime, timeoutMs: 200 });
+      expect(result).toMatchObject({ integration: "bitbucket", ok: false, source: "draft", account: null });
+      expect(result.diagnostic).toContain(expected);
+      for (const secret of [bitbucketToken, bitbucketEmail, "ATATT_ENVIRONMENT", "env@example.invalid"]) expect(JSON.stringify(result)).not.toContain(secret);
+      expect(check.calls).toHaveLength(1);
+    }
+    // Problems found before any request are results too.
+    const none = runtime({ XDG_CONFIG_HOME: fixture.env.XDG_CONFIG_HOME }, ok({}));
+    expect((await checkAppIntegration("bitbucket", fixture.primary, undefined, input({}, { bitbucket: null }), none.runtime)).diagnostic).toContain("removes");
+    const invalid = await checkAppIntegration("bitbucket", fixture.primary, undefined,
+      input({}, { bitbucket: { email: bitbucketEmail, token: "has space" } }), none.runtime);
+    expect(invalid).toMatchObject({ source: null, diagnostic: "Invalid settings draft: credentials.bitbucket is invalid." });
+    expect(JSON.stringify(invalid)).not.toContain(bitbucketEmail);
+    expect((await checkAppIntegration("bitbucket", fixture.primary, undefined, undefined, none.runtime)).diagnostic).toContain("Bitbucket login is missing");
+    expect(none.calls).toEqual([]);
+  });
+});
+
+test("the check and read commands handle Bitbucket from the command line", async () => {
+  await withFixture(async fixture => {
+    const inputFile = join(fixture.directory, "bitbucket.json");
+    await writeFile(inputFile, JSON.stringify({ schemaVersion: 1, values: {}, credentials: { bitbucket: { email: bitbucketEmail, token: "has space SECRET" } } }), { mode: 0o600 });
+    const run = await fixture.cli("check", "bitbucket", "--input-file", inputFile);
+    expect(run.exitCode).toBe(1);
+    expect(JSON.parse(run.stdout)).toEqual({ schemaVersion: 1, integration: "bitbucket", ok: false, source: null, account: null,
+      diagnostic: "Invalid settings draft: credentials.bitbucket is invalid." });
+    for (const secret of ["SECRET", bitbucketEmail]) expect(run.stdout + run.stderr).not.toContain(secret);
+    const usage = await fixture.cli("check", "gitlab");
+    expect(usage.stderr).toContain("github, linear, jira, bitbucket");
+    // Either variable alone marks the override, and its value is never printed.
+    for (const variable of ["BITBUCKET_EMAIL", "BITBUCKET_API_TOKEN"]) {
+      const read = await execa(process.execPath, ["--no-env-file", entry, "__app-config", "read", "--scope", "global"],
+        { cwd: fixture.primary, reject: false, stdin: "ignore", env: { ...fixture.env, BITBUCKET_EMAIL: undefined, BITBUCKET_API_TOKEN: undefined, [variable]: "ENV_SECRET_VALUE" } });
+      expect(read.exitCode).toBe(0);
+      expect(JSON.parse(read.stdout).credentials.bitbucket).toEqual({ state: "none", environmentOverride: true });
+      expect(read.stdout + read.stderr).not.toContain("ENV_SECRET_VALUE");
+    }
   });
 });
 

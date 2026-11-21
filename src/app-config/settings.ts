@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { readBitbucketCredentialStore, withBitbucketCredentialSave } from "../bitbucket/credentials";
+import type { BitbucketCredentialStore } from "../bitbucket/credentials";
 import { configFileSchema, configIssueFields, effectiveConfigValues } from "../config";
 import type { ConfigFile, ConfigScopes } from "../config";
 import { discoverRepository } from "../git/repository";
@@ -34,6 +36,7 @@ export interface AppConfigRead {
   credentials: {
     jira: { configured: boolean; state: CredentialState; environmentOverride: boolean };
     linear: { state: CredentialState; environmentOverride: boolean };
+    bitbucket: { state: CredentialState; environmentOverride: boolean };
   };
 }
 
@@ -44,12 +47,12 @@ export interface AppConfigReport {
   /** Revision of the saved content; null unless result is "saved". */
   revision: string | null;
   invalidFields: string[];
-  credentials: { jira: CredentialChange; linear: CredentialChange };
+  credentials: { jira: CredentialChange; linear: CredentialChange; bitbucket: CredentialChange };
 }
 
 export function createAppConfigReport(scope: AppConfigScope): AppConfigReport {
   return { result: "failed", scope, path: null, revision: null, invalidFields: [],
-    credentials: { jira: "unchanged", linear: "unchanged" } };
+    credentials: { jira: "unchanged", linear: "unchanged", bitbucket: "unchanged" } };
 }
 
 /** Settings this interface never edits: an apply carries them over from the saved file. */
@@ -90,6 +93,8 @@ export async function readAppConfig(scope: AppConfigScope, cwd: string, env: Nod
         environmentOverride: env.JIRA_EMAIL !== undefined || env.JIRA_API_TOKEN !== undefined },
       linear: { state: await state(async () => (await readLinearCredentialStore(env)).get() !== null),
         environmentOverride: env.LINEAR_API_KEY !== undefined },
+      bitbucket: { state: await state(async () => (await readBitbucketCredentialStore(env)).get() !== null),
+        environmentOverride: env.BITBUCKET_EMAIL !== undefined || env.BITBUCKET_API_TOKEN !== undefined },
     },
   };
 }
@@ -136,6 +141,7 @@ export async function applyAppConfig(
     const credentials = input.credentials ?? {};
     let jiraStore: CredentialStore | undefined;
     let linearStore: LinearCredentialStore | undefined;
+    let bitbucketStore: BitbucketCredentialStore | undefined;
     if (credentials.jira !== undefined) {
       if (jira === null) throw new AppConfigInvalid(["credentials.jira needs a configured Jira site"]);
       jiraStore = await readCredentialStore(env);
@@ -147,6 +153,11 @@ export async function applyAppConfig(
       try { linearStore.set(credentials.linear?.token ?? null); }
       catch { throw new AppConfigInvalid(["credentials.linear is invalid"]); }
     }
+    if (credentials.bitbucket !== undefined) {
+      bitbucketStore = await readBitbucketCredentialStore(env);
+      try { bitbucketStore.set(credentials.bitbucket); }
+      catch { throw new AppConfigInvalid(["credentials.bitbucket is invalid"]); }
+    }
     if (input.revision !== revisionOf(target.file.source)) {
       throw new SetupChangedError(`Settings at ${target.path} changed since they were read. Read them again before applying; nothing was saved.`);
     }
@@ -156,7 +167,9 @@ export async function applyAppConfig(
     }
     const source = renderConfig(file);
     const publish = () => saveSetupConfig(target, source, target.tracked && options.editTracked);
-    const publishLinear = () => linearStore ? withLinearCredentialSave(linearStore, publish) : publish();
+    // Each credential store publishes before the config and rolls back if anything inside it fails.
+    const publishBitbucket = () => bitbucketStore ? withBitbucketCredentialSave(bitbucketStore, publish) : publish();
+    const publishLinear = () => linearStore ? withLinearCredentialSave(linearStore, publishBitbucket) : publishBitbucket();
     try {
       if (jiraStore) await withCredentialSave(jiraStore, publishLinear); else await publishLinear();
     } catch (error) {
@@ -166,7 +179,8 @@ export async function applyAppConfig(
     }
     report.result = "saved";
     report.revision = revisionOf(source);
-    report.credentials = { jira: credentialChange(jiraStore), linear: credentialChange(linearStore) };
+    report.credentials = { jira: credentialChange(jiraStore), linear: credentialChange(linearStore),
+      bitbucket: credentialChange(bitbucketStore) };
   } catch (error) {
     if (error instanceof AppConfigInvalid) { report.result = "invalid"; report.invalidFields = [...error.fields]; }
     if (error instanceof SetupChangedError) report.result = "conflict";
