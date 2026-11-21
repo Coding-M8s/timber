@@ -368,7 +368,7 @@ test("new resolves a moved Jira issue from nested linked worktree using canonica
     });
     expect(harness.requests).toHaveLength(1);
     expect(new URL(harness.requests[0]!.url).pathname).toBe("/rest/api/3/issue/ENG-834");
-    expect(new URL(harness.requests[0]!.url).searchParams.get("fields")).toBe("summary,status");
+    expect(new URL(harness.requests[0]!.url).searchParams.get("fields")).toBe("summary,status,assignee");
     expect(await git(primary, "rev-parse", "refs/heads/XYZ-91-fix-cafe-login")).toBe(base);
     expect(await git(target, "rev-parse", "HEAD")).toBe(base);
     expect(await readFile(join(target, "tracked.txt"), "utf8")).toBe("original\n");

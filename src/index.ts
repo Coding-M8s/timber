@@ -55,6 +55,7 @@ import { resolveJiraTicket } from "./jira/client";
 import { resolveGithubRepository } from "./github/repository";
 import { resolveLinearTicket } from "./linear/client";
 import { resolveGithubTicket } from "./github/client";
+import { assignIssue, readTrackerUser } from "./issue-assignment";
 import { createLinearSetupSession } from "./setup/linear";
 import { createBitbucketSetupSession } from "./setup/bitbucket";
 import { createGithubSetupSession } from "./setup/github";
@@ -150,6 +151,7 @@ process.exitCode = await runCli(process.argv.slice(2), {
       resolveGithubRepository, resolveGithubTicket,
       resolveLinearTicket: (key, allowClosed) => resolveLinearTicket(key, undefined, allowClosed),
       createWorktree, inspectNewBranchCollision, writeBaseAssociation, writeIssueLink, runSetup, launchEditor, launchAgent, launchEditorTerminals,
+      readTrackerUser, assignIssue,
       openExisting: openHandler,
     }),
     open: openHandler,

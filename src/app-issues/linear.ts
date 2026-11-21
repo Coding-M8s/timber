@@ -7,7 +7,7 @@ import { pullUrl } from "./github";
 import { batches, keyPrefix, maxSprintIssues, NotConfigured } from "./lists";
 import type { IssueList, IssueQuery, LinkedPullRequest, ListContext, PullRequestLinks } from "./lists";
 
-const issueFields = "id identifier url title state { name type } assignee { displayName }";
+const issueFields = "id identifier url title state { name type } assignee { displayName isMe }";
 const closedTypes = ["completed", "canceled", "duplicate"];
 
 const node = z.object({
@@ -16,7 +16,7 @@ const node = z.object({
   url: z.string().refine(value => { try { return new URL(value).hostname === "linear.app"; } catch { return false; } }),
   title: z.string(),
   state: z.object({ name: z.string(), type: z.string() }),
-  assignee: z.object({ displayName: z.string() }).nullable().optional(),
+  assignee: z.object({ displayName: z.string(), isMe: z.boolean().optional() }).nullable().optional(),
 });
 const connection = z.object({ pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable().optional() }).optional(),
   nodes: z.array(node) });
@@ -179,9 +179,15 @@ export async function listLinear(query: IssueQuery, ctx: ListContext): Promise<I
   }
   const token = await linearLogin(ctx.runtime, ctx.signal);
   const ids = new Map<string, string>();
-  const summarize: Summarize = issue => { ids.set(issue.url, issue.id); return toSummary(issue); };
+  const assigned = new Map<string, boolean | null>();
+  const summarize: Summarize = issue => {
+    ids.set(issue.url, issue.id);
+    assigned.set(issue.url, issue.assignee === undefined ? null : issue.assignee === null ? false : issue.assignee.isMe ?? null);
+    return toSummary(issue);
+  };
   const list = query === "sprint" ? await cycle(ctx, token, team!, summarize)
     : query === "assigned" || query === "open" ? await listed(ctx, token, query, team, summarize)
       : await search(ctx, token, team, summarize);
-  return list && { ...list, pullRequests: (issues, links) => linearPullRequests(ctx, token, ids, issues, links) };
+  return list && { ...list, pullRequests: (issues, links) => linearPullRequests(ctx, token, ids, issues, links),
+    assignedToMe: issue => assigned.get(issue.url) ?? null };
 }

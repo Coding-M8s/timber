@@ -12,7 +12,7 @@ export interface JiraSetupSession {
   review(io: CommandIO): void;
   save(publishConfig: () => Promise<void>, signal?: AbortSignal): Promise<void>;
 }
-type ConnectionCheck = (config: JiraConfig, credentials: JiraCredentials, signal?: AbortSignal) => Promise<void>;
+type ConnectionCheck = (config: JiraConfig, credentials: JiraCredentials, signal?: AbortSignal) => Promise<unknown>;
 
 const defaultCheck: ConnectionCheck = (config, credentials, signal) => checkJiraConnection(config, {
   env: { JIRA_EMAIL: credentials.email, JIRA_API_TOKEN: credentials.token },

@@ -3,7 +3,7 @@ import { githubHeaders, githubLogin, IssueReadFailure, json, send, unusable } fr
 import type { IssueSummary, MissingWording } from "../app-issue/trackers";
 import { jsonDisplay } from "../display";
 import type { GithubRepository } from "../github/repository";
-import { batches, keyPrefix, maxSprintIssues, NotConfigured, searchWords } from "./lists";
+import { batches, keyPrefix, maxSprintIssues, mine, NotConfigured, searchWords } from "./lists";
 import type { IssueList, IssueQuery, LinkedPullRequest, ListContext, PullRequestLinks } from "./lists";
 
 const api = "https://api.github.com";
@@ -16,19 +16,33 @@ const restIssue = z.object({
   title: z.string(),
   state: z.enum(["open", "closed"]),
   assignee: z.object({ login: z.string() }).nullable().optional(),
+  assignees: z.array(z.object({ login: z.string() })).optional(),
   pull_request: z.unknown().optional(),
 });
 type RestIssue = z.infer<typeof restIssue>;
 
 const issueUrl = /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9_.-]+\/issues\/[1-9][0-9]*$/u;
 
-function summary(number: number, url: string, title: string, open: boolean, assignee: string | null): IssueSummary {
+/** Assignee logins per listed issue; undefined when GitHub left the list out. */
+const assigneeLogins = new WeakMap<IssueSummary, readonly string[] | undefined>();
+
+function summary(number: number, url: string, title: string, open: boolean, assignee: string | null,
+  assignees: readonly string[] | undefined): IssueSummary {
   if (!issueUrl.test(url)) throw unusable("github");
-  return { tracker: "github", key: String(number), url, title, assignee,
+  const result: IssueSummary = { tracker: "github", key: String(number), url, title, assignee,
     status: open ? { name: "Open", category: "open" } : { name: "Closed", category: "closed" } };
+  assigneeLogins.set(result, assignees);
+  return result;
 }
 
-const fromRest = (issue: RestIssue) => summary(issue.number, issue.html_url, issue.title, issue.state === "open", issue.assignee?.login ?? null);
+const fromRest = (issue: RestIssue) => summary(issue.number, issue.html_url, issue.title, issue.state === "open", issue.assignee?.login ?? null,
+  issue.assignees?.map(user => user.login));
+
+async function login(ctx: ListContext, token: string): Promise<string> {
+  const user = z.object({ login: z.string().min(1) }).safeParse((await get(ctx, token, `${api}/user`)).body);
+  if (!user.success) throw unusable("github");
+  return user.data.login;
+}
 
 const repositoryWording: MissingWording = {
   forbidden: "The GitHub login cannot read issues in this repository; check its access.",
@@ -60,10 +74,8 @@ async function listIssues(ctx: ListContext, token: string, first: string, limit:
 }
 
 async function assigned(ctx: ListContext, token: string, repo: GithubRepository): Promise<IssueList> {
-  const user = z.object({ login: z.string().min(1) }).safeParse((await get(ctx, token, `${api}/user`)).body);
-  if (!user.success) throw unusable("github");
   const url = new URL(`${repoPath(repo)}/issues`);
-  for (const [key, value] of Object.entries({ state: "open", assignee: user.data.login, sort: "updated", direction: "desc", per_page: "100" })) {
+  for (const [key, value] of Object.entries({ state: "open", assignee: await login(ctx, token), sort: "updated", direction: "desc", per_page: "100" })) {
     url.searchParams.set(key, value);
   }
   return listIssues(ctx, token, url.href, ctx.limit);
@@ -172,7 +184,7 @@ const itemsQuery = `query TimberProjectItems($owner: String!, $number: Int!, $fi
       pageInfo { hasNextPage endCursor }
       nodes {
         fieldValueByName(name: $field) { ... on ProjectV2ItemFieldIterationValue { iterationId } }
-        content { ... on Issue { number url title state assignees(first: 1) { nodes { login } } } }
+        content { ... on Issue { number url title state assignees(first: 10) { totalCount nodes { login } } } }
       }
     }
   } } }
@@ -191,7 +203,7 @@ const itemsPage = z.object({ items: z.object({
   nodes: z.array(z.object({
     fieldValueByName: z.object({ iterationId: z.string().optional() }).nullable().optional(),
     content: z.object({ number: z.number().optional(), url: z.string().optional(), title: z.string().optional(),
-      state: z.string().optional(), assignees: z.object({ nodes: z.array(z.object({ login: z.string() })) }).optional() }).nullable().optional(),
+      state: z.string().optional(), assignees: z.object({ totalCount: z.number().optional(), nodes: z.array(z.object({ login: z.string() })) }).optional() }).nullable().optional(),
   }).nullable()),
 }) });
 
@@ -229,7 +241,11 @@ async function iterationSprint(ctx: ListContext, token: string, setting: string)
       // Pull requests and draft items have no issue number; they are not issues.
       if (node?.fieldValueByName?.iterationId !== iteration.id || content?.number === undefined) continue;
       if (content.url === undefined || content.title === undefined || content.state === undefined) throw unusable("github");
-      issues.push(summary(content.number, content.url, content.title, content.state === "OPEN", content.assignees?.nodes[0]?.login ?? null));
+      const assignees = content.assignees;
+      // A list cut short could leave the login out, so it counts as unknown.
+      const complete = assignees !== undefined && (assignees.totalCount === undefined || assignees.totalCount <= assignees.nodes.length);
+      issues.push(summary(content.number, content.url, content.title, content.state === "OPEN", assignees?.nodes[0]?.login ?? null,
+        complete ? assignees.nodes.map(user => user.login) : undefined));
     }
     more = items.pageInfo.hasNextPage;
     after = items.pageInfo.endCursor;
@@ -322,5 +338,11 @@ export async function listGithub(query: IssueQuery, ctx: ListContext): Promise<I
     return search(ctx, token, repo!);
   };
   const list = await read();
-  return list && { ...list, pullRequests: (issues, links) => githubPullRequests(ctx, token, issues, links) };
+  // The account is read only when an issue has an assignee to compare; every issue in the assigned list is the login's.
+  const account = list === null || query === "assigned"
+    || !list.issues.some(issue => (assigneeLogins.get(issue)?.length ?? 0) > 0) ? null
+    : await login(ctx, token).catch(error => { if (ctx.signal.aborted) throw error; return null; });
+  return list && { ...list, pullRequests: (issues, links) => githubPullRequests(ctx, token, issues, links),
+    assignedToMe: issue => query === "assigned" ? true
+      : mine(assigneeLogins.get(issue), account, (a, b) => a.toLowerCase() === b.toLowerCase()) };
 }

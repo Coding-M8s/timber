@@ -11,6 +11,7 @@ import type { RebaseReport } from "./git/rebase";
 import type { BaseChangeReport } from "./commands/base";
 import type { PublishReport } from "./git/publish";
 import type { PullRequestReport } from "./github/pull-request";
+import type { AssignmentReport } from "./issue-assignment";
 import type { CommandContext } from "./services";
 import type { RepositoryContext, Worktree } from "./types";
 
@@ -40,6 +41,8 @@ export interface MachineReporter {
   arenaNew(report: ArenaNewReport): void;
   /** Attaches the live arena pick report; it is read once the handler has finished. */
   arenaPick(report: ArenaPickReport): void;
+  /** Attaches the live `new --assign` report; it is read once the handler has finished. */
+  assignment(report: AssignmentReport): void;
   /** `new` or `open` with --no-setup left configured post_create hooks for the caller to run. */
   setupSkipped(): void;
   cancelled(): void;
@@ -102,6 +105,8 @@ export interface MachineRecord {
   arenaNew?: ArenaNewReport;
   /** Present only for arena-pick, once a winner was chosen. */
   arenaPick?: ArenaPickReport;
+  /** Present only for new with --assign or --reassign, once the issue and the signed-in account were read. */
+  assignment?: AssignmentReport;
   /** Present, and true, only when --no-setup skipped configured post_create hooks. */
   setupSkipped?: true;
 }
@@ -162,6 +167,7 @@ export async function runMachineCommand(
     backupDelete: report => { record.backupDelete = report; },
     arenaNew: report => { record.arenaNew = report; },
     arenaPick: report => { record.arenaPick = report; },
+    assignment: report => { record.assignment = report; },
     setupSkipped: () => { record.setupSkipped = true; },
     cancelled: () => { record.outcome = "cancelled"; },
   };

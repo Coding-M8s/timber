@@ -1,9 +1,14 @@
 import { z } from "zod";
 import { isJiraTicketKey } from "../jira/branch";
 import { SetupCancelled } from "../setup/types";
+import type { TrackerUser } from "../types";
 import { readLinearKey } from "./auth";
 
-export interface LinearTicket { key: string; title: string; url: string }
+export interface LinearTicket {
+  key: string; title: string; url: string; assignees?: readonly TrackerUser[];
+  /** Linear's own issue ID, which mutations take; undefined when the response left it out. */
+  id?: string;
+}
 export interface LinearRuntime {
   token: (signal: AbortSignal) => Promise<string>;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
@@ -29,14 +34,23 @@ export function missingIssue(body: unknown): boolean {
   return result.success;
 }
 
+/** Wording for a request whose failure does not stop worktree creation. */
+interface LinearWording { timeout: string; failed: string; malformed: () => Error }
+const lookupWording: LinearWording = {
+  timeout: "Linear lookup timed out; no workspace was created.",
+  failed: "Linear query failed; check authentication, Read permission, issue access and rate limits. No workspace was created.",
+  malformed,
+};
+
 async function request<T>(query: string, variables: Record<string, string>, runtime: LinearRuntime,
-  validate: (data: Record<string, unknown>) => T, signal?: AbortSignal, issueLookup = false): Promise<T> {
+  validate: (data: Record<string, unknown>) => T, signal?: AbortSignal, issueLookup = false,
+  wording: LinearWording = lookupWording): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancel!: () => void;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
-      reject(new Error("Linear lookup timed out; no workspace was created."));
+      reject(new Error(wording.timeout));
       controller.abort();
     }, runtime.timeoutMs);
     cancel = () => { reject(new SetupCancelled()); controller.abort(); };
@@ -65,20 +79,20 @@ async function request<T>(query: string, variables: Record<string, string>, runt
       throw new Error("Linear request failed or redirected; check connectivity and permissions.");
     }
     let body: unknown;
-    try { body = await response.json(); } catch { throw malformed(); }
+    try { body = await response.json(); } catch { throw wording.malformed(); }
     controller.signal.throwIfAborted();
     if (issueLookup && missingIssue(body)) throw new LinearLookupFailure("Linear issue is missing or inaccessible to this account.", "not-found");
-    if (!response.ok) throw new Error("Linear query failed; check authentication, Read permission, issue access and rate limits. No workspace was created.");
+    if (!response.ok) throw new Error(wording.failed);
     const envelope = object.safeParse(body);
-    if (!envelope.success) throw malformed();
+    if (!envelope.success) throw wording.malformed();
     if ("errors" in envelope.data) {
       const errors = envelope.data.errors;
       if (!Array.isArray(errors) || errors.length > 0) {
-        throw new Error("Linear query failed; check authentication, Read permission, issue access and rate limits. No workspace was created.");
+        throw new Error(wording.failed);
       }
     }
     const data = object.safeParse(envelope.data.data);
-    if (!data.success) throw malformed();
+    if (!data.success) throw wording.malformed();
     return validate(data.data);
   };
   try { return await Promise.race([deadline, operation()]); }
@@ -86,6 +100,7 @@ async function request<T>(query: string, variables: Record<string, string>, runt
 }
 
 const issueSchema = z.object({
+  id: z.string().min(1).optional(),
   trashed: z.boolean().nullable(),
   identifier: z.string().refine(isJiraTicketKey),
   title: z.string().refine(value => value.trim().length > 0),
@@ -97,11 +112,12 @@ const issueSchema = z.object({
     } catch { return false; }
   }),
   state: z.object({ type: z.string() }),
+  assignee: z.object({ id: z.string().min(1), displayName: z.string() }).nullable().optional(),
 });
 
 export async function resolveLinearTicket(key: string, runtime: LinearRuntime = defaultRuntime, allowClosed = false): Promise<LinearTicket> {
   if (!isJiraTicketKey(key)) throw new Error("Invalid Linear issue key; use an uppercase key such as ENG-123.");
-  return request("query TimberLinearIssue($id: String!) { issue(id: $id) { identifier title url trashed state { type } } }", { id: key }, runtime, data => {
+  return request("query TimberLinearIssue($id: String!) { issue(id: $id) { id identifier title url trashed state { type } assignee { id displayName } } }", { id: key }, runtime, data => {
     if (data.issue === null) throw new Error("Linear issue is missing or inaccessible to this account.");
     const issue = issueSchema.safeParse(data.issue);
     if (!issue.success) throw malformed();
@@ -111,13 +127,40 @@ export async function resolveLinearTicket(key: string, runtime: LinearRuntime = 
       throw new Error("Linear issue has an unsupported state; no workspace was created.");
     }
     if (terminal && !allowClosed) throw new Error("Linear issue is completed, canceled or duplicate; rerun with -c to create a branch anyway.");
-    return { key: issue.data.identifier, title: issue.data.title, url: issue.data.url };
+    const { assignee } = issue.data;
+    return { key: issue.data.identifier, title: issue.data.title, url: issue.data.url,
+      ...(issue.data.id === undefined ? {} : { id: issue.data.id }),
+      ...(assignee === undefined ? {} : { assignees: assignee === null ? [] : [{ id: assignee.id, name: assignee.displayName.trim() || assignee.id }] }) };
   }, undefined, true);
 }
 
-export async function checkLinearConnection(runtime: LinearRuntime = defaultRuntime, signal?: AbortSignal): Promise<void> {
-  await request("query TimberLinearConnection { viewer { id } }", {}, runtime, data => {
-    const parsed = z.object({ id: z.string().refine(value => value.trim().length > 0) }).safeParse(data.viewer);
+/** Checks the key and returns its user. */
+export async function checkLinearConnection(runtime: LinearRuntime = defaultRuntime, signal?: AbortSignal): Promise<TrackerUser> {
+  return request("query TimberLinearConnection { viewer { id displayName } }", {}, runtime, data => {
+    const parsed = z.object({ id: z.string().refine(value => value.trim().length > 0), displayName: z.string().optional() }).safeParse(data.viewer);
     if (!parsed.success) throw malformed();
+    return { id: parsed.data.id, name: parsed.data.displayName?.trim() || parsed.data.id };
   }, signal);
+}
+
+const assignWording: LinearWording = {
+  timeout: "Linear assignment timed out.",
+  failed: "Linear refused or failed the assignment; check the personal API key's Write permission, its team access and rate limits.",
+  malformed: () => new Error("Linear returned an invalid response to the assignment."),
+};
+
+/**
+ * Assign one issue to a user. `issue` is Linear's issue ID from the lookup, or
+ * the key when the lookup did not return one. Linear has one assignee, so this
+ * replaces any other.
+ */
+export async function assignLinearIssue(issue: string, userId: string, runtime: LinearRuntime = defaultRuntime): Promise<void> {
+  if (!/^[A-Za-z0-9-]{1,64}$/u.test(issue)) throw new Error("Invalid Linear issue ID.");
+  await request("mutation TimberLinearAssign($id: String!, $assignee: String!) { issueUpdate(id: $id, input: { assigneeId: $assignee }) { success issue { assignee { id } } } }",
+    { id: issue, assignee: userId }, runtime, data => {
+      const parsed = z.object({ success: z.boolean(), issue: z.object({ assignee: z.object({ id: z.string() }).nullable() }).nullable() })
+        .safeParse(data.issueUpdate);
+      if (!parsed.success) throw assignWording.malformed();
+      if (!parsed.data.success || parsed.data.issue?.assignee?.id !== userId) throw new Error("Linear did not assign the issue.");
+    }, undefined, false, assignWording);
 }

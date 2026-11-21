@@ -126,7 +126,8 @@ the `rebase` object, which exists only on `rebase`, the `publish` object, which
 exists only on `publish`, the `pr` object, which exists only on `pr`, the `config` object, which exists only on a
 [settings apply](#saving-settings), the `backupRestore` object, which exists only on `backup-restore`, and the
 `backupDelete` object, which exists only on `backup-delete`, and the `arenaNew` and
-`arenaPick` objects, described under [arenas](#arenas-for-app-consumers-experimental-v1).
+`arenaPick` objects, described under [arenas](#arenas-for-app-consumers-experimental-v1),
+and the `assignment` object, which exists only on `new` with `--assign` or `--reassign`.
 There are no `undefined` values.
 
 ```ts
@@ -243,6 +244,16 @@ type RecordV1 = {
   arenaNew?: ArenaNewReport;    // arena-new, once the arena was reserved
   arenaPick?: ArenaPickReport;  // arena-pick, once a winner was chosen
   setupSkipped?: true;          // new/open: --no-setup skipped configured post_create hooks
+  assignment?: AssignmentRecord; // new with --assign or --reassign, once the issue and account were read
+};
+
+type AssignmentRecord = {
+  tracker: "github" | "jira" | "linear";
+  key: string;                // the GitHub number or the Jira/Linear key
+  result: "not-attempted" | "assigned" | "reassigned" | "already-mine" | "failed";
+  me: string;                 // the signed-in account's display name (the login for GitHub)
+  previous: string[];         // display names of the assignees before Timber wrote anything
+  diagnostic: string | null;  // terminal-safe reason; non-null only when result is failed
 };
 ```
 
@@ -379,6 +390,20 @@ With `--no-setup`, New/Open run no hook. When ordinary or selected workflow hook
 were configured, the record has `setupSkipped: true`, and the caller runs them with
 `timber open --setup -- <path>`, repeating `--workflow <name>` when one was given.
 Without configured hooks the field is absent.
+
+With `--assign` or `--reassign`, New adds `assignment` once it has read the
+issue's assignees and the signed-in account, before anything is created; see
+[Assign the issue](cli-contract.md#assign-the-issue-on-new-215). A refusal
+because someone else is assigned returns `failed` with `assignment.result:
+"not-attempted"` and `previous` naming them; nothing was created, so the app can
+ask and rerun with `--reassign`. `not-attempted` also remains when a later step
+failed or was cancelled before the write, and when New opened an existing remote
+branch instead of creating one (an issue already assigned to the account then
+reports `already-mine`). A failed write is not a failed command: the outcome stays
+`succeeded`, exit 0, `diagnostic` stays null, and the reason is in
+`assignment.diagnostic` (and as a warning on stderr). Without either option, or
+when New refused before reading the account, the field is absent. It is an
+additive v1 field: `schemaVersion` stays 1.
 
 Publication/close failures return nonzero even if Git/setup completed, and may leave
 no usable result. Signal termination follows existing process behavior and need not
@@ -1111,6 +1136,7 @@ type IssueListRecord = {
 type ListedIssue = Issue & {   // Issue as in __app-issue
   worktree: { path: string; branch: string | null } | null; // the worktree linked to this issue, if any
   pullRequests: LinkedPullRequest[] | null; // open pull requests the tracker links to it; null when they could not be read
+  assignedToMe: boolean | null; // assigned to the signed-in account; false when unassigned; null when unknown
 };
 
 type LinkedPullRequest = {
@@ -1125,7 +1151,18 @@ type LinkedPullRequest = {
 `pullRequests` is an additive v1 field: `schemaVersion` stays 1, and a
 consumer written before it ignores it like any other additional field. A
 consumer that reads it must accept a record without it from an older Timber
-and treat that like `null`.
+and treat that like `null`. `assignedToMe` is additive in the same way.
+
+`assignedToMe` tells the app whether `timber new --assign` would write nothing
+(`true`), assign (`false` with `assignee` null) or need `--reassign` (`false`
+with an `assignee`). Every issue in an `assigned` list is `true`. Otherwise
+Timber compares the issue's assignees with the signed-in account: the GitHub
+login without case, read with `GET /user`; the Jira account ID, read with
+`GET /rest/api/3/myself`; Linear's own `isMe`. The account is read once, after
+the list, and only when some listed issue has an assignee. It is `null` when the
+account or an issue's assignees cannot be read, for example a Jira scoped token
+that may not read `/myself`; that never fails the list. On GitHub, `assignee` is
+the first assignee only, and an issue whose list GitHub did not return is `null`.
 
 Each list reads:
 

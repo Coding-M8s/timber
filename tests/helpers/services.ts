@@ -11,6 +11,8 @@ export function createServiceDouble(overrides: Partial<CommandServices> = {}): C
     resolveLinearTicket: unexpected("resolveLinearTicket"),
     resolveGithubRepository: unexpected("resolveGithubRepository"),
     resolveGithubTicket: unexpected("resolveGithubTicket"),
+    readTrackerUser: unexpected("readTrackerUser"),
+    assignIssue: unexpected("assignIssue"),
     discoverRepository: unexpected("discoverRepository"),
     loadConfig: unexpected("loadConfig"),
     resolveJiraTicket: unexpected("resolveJiraTicket"),

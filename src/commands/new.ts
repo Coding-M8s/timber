@@ -1,6 +1,6 @@
 import { handOffToApp } from "../app-handoff";
 import { reportAgentResult } from "../agent";
-import { FormattedError, failureWithRetry, retryNamingWorkflow, safeDisplay, shellQuoteForDisplay, workflowRetryFlag } from "../display";
+import { FormattedError, failureWithRetry, retryNamingWorkflow, safeDiagnostic, safeDisplay, shellQuoteForDisplay, workflowRetryFlag } from "../display";
 import type { CommandContext, CommandHandlers, CommandServices, OpenOptions } from "../services";
 import { decideNewBranchCollision, remoteSelector } from "../git/new-collision";
 import { JiraLookupFailure } from "../jira/client";
@@ -13,16 +13,30 @@ import { resolveIssueInput } from "../issue-input";
 import { editorOwnsTerminals, resolveWorkflowAgent, selectWorkflow, workflowEditor } from "../workflow";
 import { reportSkippedSetup } from "../hooks";
 import { issueSelector, type IssueLink } from "../git/issue-link";
+import { planAssignment, type AssignTarget, type AssignmentPlan, type AssignmentReport } from "../issue-assignment";
+import type { TrackerUser } from "../types";
 
 export type NewServices = Pick<CommandServices,
   "discoverRepository" | "loadConfig" | "resolveBase" | "resolveJiraTicket" |
   "resolveGithubRepository" | "resolveGithubTicket" | "resolveLinearTicket" | "inspectNewBranchCollision" |
-  "createWorktree" | "writeBaseAssociation" | "writeIssueLink" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals"> & {
+  "createWorktree" | "writeBaseAssociation" | "writeIssueLink" | "runSetup" | "launchEditor" | "launchAgent" | "launchEditorTerminals" |
+  "readTrackerUser" | "assignIssue"> & {
   /** The `open` handler; the only way `new` may materialize an existing remote branch. */
   openExisting?: CommandHandlers["open"];
 };
 
 const terminalControl = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+
+const providers = { github: "GitHub", linear: "Linear", jira: "Jira" } as const;
+
+/** Display names, joined for one line of terminal text. */
+function names(users: readonly TrackerUser[]): string {
+  return users.map(user => safeDisplay(user.name)).join(", ");
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "unknown error";
+}
 
 const sentenceSeparators: ReadonlySet<string> = new Set(["-", "_", ".", "/"]);
 
@@ -136,6 +150,10 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     if (options.allowClosed !== undefined && input.kind === "literal") {
       throw new Error("The -c option requires an issue selector or an input matching the default tracker.");
     }
+    const assign = options.assign === true || options.reassign === true;
+    if (assign && input.kind === "literal") {
+      throw new Error("The --assign and --reassign options require an issue selector (github:<number>, jira:<KEY>, linear:<KEY>) or an input matching the default tracker.");
+    }
     const workflow = selectWorkflow(config, options.workflow ?? null);
     const selectedEditor = workflowEditor(config, workflow, options.editor);
     const editorConfig = selectedEditor === config.editor ? config : { ...config, editor: selectedEditor };
@@ -144,26 +162,53 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     const agentCommand = resolveWorkflowAgent(config, workflow, options.agent, canHostAgent, true);
     const base = await services.resolveBase(repository, config, options.base);
     const jiraConfig = config.jira;
-    let ticket: { key: string; title: string; url: string } | undefined;
+    let ticket: { key: string; title: string; url: string; assignees?: readonly TrackerUser[] } | undefined;
+    let target: AssignTarget | undefined;
     try {
       if (input.kind === "github") {
         const issueRepository = await services.resolveGithubRepository(repository, config, options.remote);
+        target = { tracker: "github", repository: issueRepository, number: input.number };
         ticket = await services.resolveGithubTicket(issueRepository, input.number, options.allowClosed === true);
       } else if (input.kind === "linear") {
-        ticket = await services.resolveLinearTicket(input.key, options.allowClosed === true);
+        const linear = await services.resolveLinearTicket(input.key, options.allowClosed === true);
+        ticket = linear;
+        target = { tracker: "linear", key: linear.key, ...(linear.id === undefined ? {} : { id: linear.id }) };
       } else if (input.kind === "jira") {
         if (!jiraConfig) throw new Error("Jira site settings are missing or disabled. Configure Jira with timber setup before looking up tickets.");
         ticket = await services.resolveJiraTicket(jiraConfig, input.key, options.allowClosed === true);
+        target = { tracker: "jira", config: jiraConfig, key: ticket.key };
       }
     } catch (error) {
       const missing = (input.kind === "github" && error instanceof GithubLookupFailure)
         || (input.kind === "linear" && error instanceof LinearLookupFailure)
         || (input.kind === "jira" && error instanceof JiraLookupFailure);
-      // An explicit --branch never falls back to a literal branch: there would be no link to save.
+      // An explicit --branch or --assign never falls back to a literal branch: there would be no issue to link or assign.
       if (input.kind === "literal" || input.origin !== "default" || !missing || error.reason !== "not-found"
-        || options.branch !== undefined) throw error;
-      const provider = { github: "GitHub", linear: "Linear", jira: "Jira" }[input.kind];
+        || options.branch !== undefined || assign) throw error;
+      const provider = providers[input.kind];
       context.io.stdout(`${provider} ticket ${safeDisplay(branch)} was not found. Creating literal branch ${safeDisplay(branchInput)}.\n`);
+    }
+    // Decide the assignment before any prompt or creation, so a refusal leaves nothing behind.
+    let assignment: { report: AssignmentReport; plan: AssignmentPlan; me: TrackerUser; target: AssignTarget } | undefined;
+    if (assign && ticket !== undefined && target !== undefined && input.kind !== "literal") {
+      const provider = providers[input.kind];
+      let me: TrackerUser;
+      try {
+        me = await services.readTrackerUser(target);
+      } catch (error) {
+        throw new FormattedError(`Could not read the signed-in ${provider} account, so the issue cannot be assigned. Nothing was created.\n${safeDiagnostic(errorText(error))}`);
+      }
+      if (ticket.assignees === undefined) {
+        throw new FormattedError(`${provider} did not report who ${safeDisplay(ticket.key)} is assigned to, so it cannot be assigned. Nothing was created.`);
+      }
+      const plan = planAssignment(input.kind, me, ticket.assignees, options.reassign === true);
+      const report: AssignmentReport = { tracker: input.kind, key: input.kind === "github" ? String(input.number) : ticket.key,
+        result: "not-attempted", me: me.name, previous: ticket.assignees.map(user => user.name), diagnostic: null };
+      context.machine?.assignment(report);
+      if (plan.kind === "refuse") {
+        throw new FormattedError(`${provider} issue ${safeDisplay(ticket.key)} is assigned to ${names(plan.others)}. Nothing was created.\nTo replace them with you, rerun with --reassign.`);
+      }
+      assignment = { report, plan, me, target };
     }
     const maximum = config.maxGeneratedBranchNameLength;
     let selectedName: string | null;
@@ -228,6 +273,11 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
         ...(options.setup === false ? { setup: false } : {}),
       };
       if (services.openExisting === undefined) throw new Error("Opening an existing branch is unavailable in this build; no worktree was created.");
+      // open may run the agent in this terminal, so the notice comes first. Nothing is written on this path.
+      if (assignment?.plan.kind === "already-mine") assignment.report.result = "already-mine";
+      else if (assignment !== undefined) {
+        context.io.stdout(`${safeDisplay(ticket!.key)} was not assigned: timber new opened an existing branch instead of creating one.\n`);
+      }
       const status = await services.openExisting(remoteSelector(match.remote, selectedBranch), openOptions, context);
       if (skipIssue) {
         context.io.stdout(`Issue ${issue} was not linked: timber open links GitHub issues from the default issue repository, not the one --remote selected.\n`);
@@ -257,6 +307,7 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
       const provider = input.kind === "github" ? "GitHub" : input.kind === "linear" ? "Linear" : "Jira";
       context.io.stdout(`${provider}: ${ticket.url}\n${safeDisplay(ticket.key)} - ${safeDisplay(ticket.title)}\n`);
     }
+    if (assignment !== undefined) await assignAfterCreation(services, assignment, ticket!.key, context);
 
     const hasSetup = Boolean(config.hooks?.postCreate.length || workflow?.postCreate.length);
     if (editorOwnsTerminals(editorConfig.editor)) {
@@ -284,4 +335,30 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     if (agentCommand === null) return;
     return reportAgentResult(await services.launchAgent(worktree, agentCommand), worktree, context.io, options.workflow);
   };
+}
+
+/** A failed write keeps the worktree: it warns, records the reason and lets setup and launch go on. */
+async function assignAfterCreation(services: Pick<NewServices, "assignIssue">,
+  { report, plan, me, target }: { report: AssignmentReport; plan: AssignmentPlan; me: TrackerUser; target: AssignTarget },
+  key: string, context: CommandContext): Promise<void> {
+  if (plan.kind === "already-mine") {
+    report.result = "already-mine";
+    context.io.stdout(`${safeDisplay(key)} is already assigned to you.\n`);
+    return;
+  }
+  try {
+    await services.assignIssue(target, me, plan.kind === "reassign");
+  } catch (error) {
+    report.result = "failed";
+    report.diagnostic = safeDiagnostic(errorText(error));
+    context.io.stderr(`Warning: could not assign ${safeDisplay(key)} to ${safeDisplay(me.name)}. The worktree was kept.\n${report.diagnostic}\n`);
+    return;
+  }
+  if (plan.kind === "reassign") {
+    report.result = "reassigned";
+    context.io.stdout(`Assigned ${safeDisplay(key)} to ${safeDisplay(me.name)}, replacing ${names(plan.others)}.\n`);
+  } else {
+    report.result = "assigned";
+    context.io.stdout(`Assigned ${safeDisplay(key)} to ${safeDisplay(me.name)}.\n`);
+  }
 }

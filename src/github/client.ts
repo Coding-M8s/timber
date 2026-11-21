@@ -1,7 +1,8 @@
 import { readGithubToken } from "./auth";
 import type { GithubRepository } from "./repository";
+import type { TrackerUser } from "../types";
 
-export interface GithubTicket { key: string; title: string; url: string }
+export interface GithubTicket { key: string; title: string; url: string; assignees?: readonly TrackerUser[] }
 export interface GithubRuntime {
   token: (signal: AbortSignal) => Promise<string>;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
@@ -12,7 +13,7 @@ const malformed = () => new Error("GitHub returned an invalid response; no works
 
 /** Per-call wording and verbs; defaults keep issue lookup behavior. */
 export interface GithubRequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH";
   body?: unknown;
   /** Diagnostic for a timeout; it says what this request leaves behind. */
   timeout?: string;
@@ -83,15 +84,59 @@ export async function resolveGithubTicket(repo: GithubRepository, number: number
     if (body.state === "closed" && !allowClosed) {
       throw new Error(`GitHub issue #${number} is closed. To create a worktree anyway, rerun with -c.`);
     }
+    const assignees = githubAssignees("assignees" in body ? body.assignees : undefined);
     return { key: `GH-${number}`, title: body.title,
-      url: `https://github.com/${repo.owner}/${repo.name}/issues/${number}` };
+      url: `https://github.com/${repo.owner}/${repo.name}/issues/${number}`,
+      ...(assignees === undefined ? {} : { assignees }) };
   });
+}
+
+/** Ordinary logins, Enterprise Managed User logins such as `name_short`, and app bots such as `name[bot]`. */
+const githubLogin = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}(?:\[bot\])?$/u;
+
+/** The logins in an issue's `assignees`; undefined when the field is missing or unusable. */
+export function githubAssignees(value: unknown): TrackerUser[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const users: TrackerUser[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || !("login" in entry) || typeof entry.login !== "string"
+      || !githubLogin.test(entry.login)) return undefined;
+    users.push({ id: entry.login, name: entry.login });
+  }
+  return users;
 }
 
 export async function checkGithubConnection(runtime: GithubRuntime = defaultGithubRuntime): Promise<string> {
   return request("/user", runtime, body => {
     if (typeof body !== "object" || body === null || !("login" in body) || typeof body.login !== "string"
-      || !/^[A-Za-z0-9][A-Za-z0-9-]*$/u.test(body.login)) throw malformed();
+      || !githubLogin.test(body.login)) throw malformed();
     return body.login;
+  });
+}
+
+/**
+ * Assign one issue to `me`. Without `replace` the login is added, so an
+ * assignee who appeared since the lookup is never removed; with `replace` the
+ * assignee list becomes only `me`. The answer must list `me`, because GitHub
+ * silently drops assignees who may not be assigned.
+ */
+export async function assignGithubIssue(repo: GithubRepository, number: number, me: string, replace: boolean,
+  runtime: GithubRuntime = defaultGithubRuntime): Promise<void> {
+  const issuePath = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/issues/${number}`;
+  const invalid = () => new Error("GitHub returned an invalid response to the assignment.");
+  await request(replace ? issuePath : `${issuePath}/assignees`, runtime, body => {
+    const assignees = typeof body === "object" && body !== null && "assignees" in body ? githubAssignees(body.assignees) : undefined;
+    if (assignees === undefined) throw invalid();
+    if (!assignees.some(user => user.id.toLowerCase() === me.toLowerCase())) {
+      throw new Error("GitHub did not assign the issue; the login may lack write access to this repository.");
+    }
+  }, {
+    method: replace ? "PATCH" : "POST",
+    body: { assignees: [me] },
+    timeout: "GitHub assignment timed out.",
+    malformed: invalid,
+    rejected: status => status === 403 || status === 422
+      ? new Error(`GitHub refused the assignment (${status}); check the login's write access to this repository's issues and rate limits.`)
+      : undefined,
   });
 }
