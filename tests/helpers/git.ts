@@ -13,6 +13,9 @@ export async function withRepository(run: (primary: string, directory: string) =
   try {
     await mkdir(primary);
     await git(primary, "init", "-b", "trunk");
+    // Commands such as `rebase --abort` start a detached `git maintenance run --auto`, whose
+    // `worktree prune` can remove a fixture placed in .git/worktrees while a test is still using it.
+    await git(primary, "config", "maintenance.auto", "false");
     if (process.platform === "win32") await git(primary, "config", "core.autocrlf", "false");
     await writeFile(join(primary, "tracked.txt"), "original\n");
     await writeFile(join(primary, "old name.txt"), "rename me\n");
