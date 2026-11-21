@@ -121,6 +121,8 @@ async function resolveBase(repository: RepositoryContext, config: RepositoryConf
     throw new Error(`This worktree has no saved base to open the pull request against; ${baseHint}.`);
   } else if (saved.kind === "invalid") {
     throw new Error(`The saved base cannot be used (${saved.reason}); ${baseHint}.`);
+  } else if (saved.kind === "commit") {
+    throw new Error(`The saved base is the commit ${saved.commit}, which cannot be a pull request base; ${baseHint}.`);
   } else if (saved.ref.startsWith("refs/heads/")) {
     throw new Error(`The saved base is the local branch ${safeDisplay(saved.ref.slice("refs/heads/".length))}, which cannot be a pull request base; ${baseHint}.`);
   } else {

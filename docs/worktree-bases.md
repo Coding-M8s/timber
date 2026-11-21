@@ -1,6 +1,6 @@
 # Remembered worktree bases
 
-Timber remembers the branch selected when `timber new` creates a worktree. `timber ls`
+Timber remembers the branch, or the commit, selected when `timber new` creates a worktree. `timber ls`
 shows that choice in its BASE column. The saved base is the
 intended target for future rebases and cleanup; it follows the branch's current tip.
 
@@ -47,6 +47,29 @@ local branch's current commit and checks that it has not changed before starting
 It warns on every invocation that the branch must be up to date. Timber does not
 fetch, pull, or advance the local base branch. `ls` shows local bases as
 `refs/heads/main` to distinguish them from `origin/main`.
+
+## Commit bases
+
+A base can also be a fixed commit, such as the commit you started from or a
+release commit that no branch marks. Give its full hash:
+
+```sh
+timber new hotfix --base 3f2c9e1d0b7a4c6e8f1a2b3c4d5e6f708192a3b4
+timber base my-feature --set "$(git rev-parse v1.2.0^{commit})"
+```
+
+Timber checks offline that the hash names a commit in the repository. It refuses
+abbreviated hashes and never guesses which commit you meant. A branch whose name
+looks like a short hash, such as `1234567`, still works as long as it exists. `ls` shows the first 12 characters of the hash, and
+`ls --json` reports `{ "kind": "commit", "commit": "<hash>" }`.
+
+A commit base never moves. `rebase` onto it needs no network and does not fetch.
+`done` checks the branch against that commit without refreshing it. That counts
+only while another branch or a tag contains the commit, since a bare commit keeps
+nothing safe on its own. Merged work usually counts through its published upstream
+instead; use
+`timber done my-feature --base origin/main` to check against a branch once. If the
+saved commit no longer exists, `rebase` and `done` stop instead of falling back.
 
 ## Existing worktrees and recovery
 

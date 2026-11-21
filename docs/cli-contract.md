@@ -345,7 +345,8 @@ rebasing, or `rebase --base <ref>` to assign one while rebasing.
 Arena creation is unchanged.
 
 `ls` shows a BASE column after BRANCH: remote bases display `remote/branch`, local
-bases display `refs/heads/branch`, absent records display `-`, and invalid records
+bases display `refs/heads/branch`, commit bases display the first 12 characters of
+their hash, absent records display `-`, and invalid records
 show `?` plus a warning without hiding the Git row. Listing remains offline and does
 not validate whether a saved branch still exists. Never infer parent branches from
 history or from a feature branch's publication upstream.
@@ -361,6 +362,38 @@ Git outcome and recovery guidance; it never resets or aborts Git. Conflicts reta
 native Git continuation/abort behavior. A later native abort does not restore the
 previous saved association. Cleanup uses the same saved-base precedence, with invocation-local overrides that never save a new association.
 
+## Commit bases (#187)
+
+A saved base may be a commit instead of a branch. `new --base`, `rebase --base`,
+`base --set` and `done --base` accept a full commit hash (40 hex characters, or 64
+in a SHA-256 repository, in any case). Timber checks offline that it names an
+existing commit object in the repository, refusing tags and other objects rather
+than peeling them, and stores it in lowercase. A commit no branch contains is
+valid. Hex-only input of 7 or more characters that is not a full hash is refused
+as an abbreviated hash and never resolved, unless a local or remote-tracking
+branch has exactly that name, which keeps its existing branch meaning. A full
+hash that names no commit is refused. Refusals change no refs, files or saved base.
+
+The private record stores `commit` in place of `ref`; branch records are
+unchanged. `ls` shows the first 12 characters in its BASE column, and
+`ls --json` reports `{ "kind": "commit", "commit": "<hash>" }`; see the
+[app interface](ide-contract.md#saved-base). Timber releases before this change
+read a commit record as malformed.
+
+`rebase` onto a commit base verifies the commit locally and never fetches or
+warns about freshness, so it works offline. It saves the hash on the same
+outcomes as a branch base. `done` checks containment and content integration
+against the pinned commit; it never refreshes it, and a saved commit that no
+longer exists stops cleanup without falling back. A commit keeps nothing
+reachable by itself, so this evidence counts only while a branch, remote-tracking
+branch or tag other than the cleanup target contains the commit; otherwise
+ancestry is unknown and verified publication or explicit interactive discard
+decides, as for any unproven base. The branch's own tip is therefore never a
+preserving base. Since a fixed commit rarely contains a branch's later work,
+cleanup usually needs verified publication, or `done --base <ref>` for a one-off
+integration target. `pr` refuses a saved commit
+base with `--base` guidance, as it does a local branch.
+
 ## Set or clear a saved base (#186)
 
 `timber base <branch-or-worktree> --set <ref>` saves a worktree's base, and
@@ -370,7 +403,8 @@ filtered to registered worktrees. It never opens a chooser: ambiguous input is
 refused with exact-selection guidance. Detached, dirty and paused worktrees are
 eligible, since nothing but Timber's metadata changes.
 
-`--set` accepts the forms of `rebase --base` and applies the same checks:
+`--set` accepts the forms of `rebase --base`, including a full commit hash (see
+[Commit bases](#commit-bases-187)), and applies the same checks:
 `refs/heads/<branch>` must be a direct, existing local branch other than the
 worktree's own; other forms (plain name, `remote/branch`, `refs/remotes/...`)
 must name a branch the live remote advertises. Remote bases are checked with

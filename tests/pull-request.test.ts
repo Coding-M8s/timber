@@ -150,6 +150,7 @@ test("an unusable base, title or remote is refused before the login is read or a
     [{ kind: "unassigned" }, { title: "t" }, "no saved base", null],
     [{ kind: "invalid", reason: "stale" }, { title: "t" }, "cannot be used (stale)", null],
     [{ kind: "assigned", ref: "refs/heads/parent" }, { title: "t" }, "local branch parent", null],
+    [{ kind: "commit", commit: "a".repeat(40) }, { title: "t" }, `the commit ${"a".repeat(40)}, which cannot be a pull request base`, null],
     [{ kind: "assigned", ref: "refs/remotes/gone/main" }, { title: "t" }, "no longer configured", null],
     [undefined, { title: "t", base: "refs/heads/main" }, "not a local branch", null],
     [undefined, { title: "t", base: "HEAD" }, "not a local branch", null],

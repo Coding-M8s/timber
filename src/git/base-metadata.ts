@@ -6,9 +6,11 @@ import { shellQuoteForDisplay } from "../display";
 import type { RepositoryContext, Worktree } from "../types";
 import { WorktreeReadPhase, type WorktreeMetadataLocation } from "./worktree-read-phase";
 import { preparePrivateDirectory, readPrivateRecord, replacePrivateFile } from "./private-record";
+import { isFullCommitHash } from "./commit-base";
 
 export type BaseAssociationRead =
   | { kind: "assigned"; ref: string }
+  | { kind: "commit"; commit: string }
   | { kind: "unassigned" }
   | { kind: "invalid"; reason: "malformed" | "stale" | "unreadable" };
 
@@ -24,14 +26,21 @@ async function location(
   return { ...place, file: join(place.directory, "base.json") };
 }
 
-function validRecord(value: unknown): value is Record<string, unknown> & {
-  version: 1; ref: string; worktreePath: string; commonGitDir: string; worktreeGitDir: string;
-} {
+type Identity = { version: 1; worktreePath: string; commonGitDir: string; worktreeGitDir: string };
+type SavedRecord = Identity & ({ ref: string } | { commit: string });
+
+const lowercaseHash = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+/** A branch record keeps `ref`; a commit record keeps a lowercase full `commit` hash instead. */
+function validRecord(value: unknown): value is SavedRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  return Object.keys(record).sort().join(",") ===
-      "commonGitDir,ref,version,worktreeGitDir,worktreePath"
-    && record.version === 1 && typeof record.ref === "string" && refPattern.test(record.ref)
+  const keys = Object.keys(record).sort().join(",");
+  const target = keys === "commonGitDir,ref,version,worktreeGitDir,worktreePath"
+    ? typeof record.ref === "string" && refPattern.test(record.ref)
+    : keys === "commit,commonGitDir,version,worktreeGitDir,worktreePath"
+      && typeof record.commit === "string" && lowercaseHash.test(record.commit);
+  return target && record.version === 1
     && typeof record.worktreePath === "string" && typeof record.commonGitDir === "string"
     && typeof record.worktreeGitDir === "string"
     && isAbsolute(record.worktreePath) && isAbsolute(record.commonGitDir) && isAbsolute(record.worktreeGitDir);
@@ -42,12 +51,13 @@ async function readAt(place: Location): Promise<BaseAssociationRead> {
   if (read.kind === "missing") return { kind: "unassigned" };
   if (read.kind === "invalid") return read;
   try {
-    if (!validRecord(read.value) || !await validRef(place.worktreePath, read.value.ref)) return { kind: "invalid", reason: "malformed" };
+    if (!validRecord(read.value)) return { kind: "invalid", reason: "malformed" };
+    if ("ref" in read.value && !await validRef(place.worktreePath, read.value.ref)) return { kind: "invalid", reason: "malformed" };
   } catch { return { kind: "invalid", reason: "unreadable" }; }
   const record = read.value;
   if (!samePath(record.worktreePath, place.worktreePath) || !samePath(record.commonGitDir, place.commonGitDir)
     || !samePath(record.worktreeGitDir, place.worktreeGitDir)) return { kind: "invalid", reason: "stale" };
-  return { kind: "assigned", ref: record.ref };
+  return "commit" in record ? { kind: "commit", commit: record.commit } : { kind: "assigned", ref: record.ref };
 }
 
 async function validRef(cwd: string, ref: string): Promise<boolean> {
@@ -70,11 +80,15 @@ export async function readBaseAssociation(
   catch { return { kind: "invalid", reason: "stale" }; }
 }
 
-/** Publish only a canonical branch ref and worktree identity, never executable or prompt content. */
+/**
+ * Publish only a canonical branch ref or a full commit hash and the worktree identity, never
+ * executable or prompt content. Callers verify that a commit exists; this checks only its form.
+ */
 export async function writeBaseAssociation(
   repository: RepositoryContext, worktree: Worktree, ref: string,
 ): Promise<void> {
-  if (!await validRef(worktree.path, ref)) throw new Error("Invalid base ref; no association saved.");
+  const commit = isFullCommitHash(ref) ? ref.toLowerCase() : null;
+  if (commit === null && !await validRef(worktree.path, ref)) throw new Error("Invalid base ref; no association saved.");
   let place: Location;
   try { place = await location(repository, worktree); }
   catch { throw new Error("Cannot verify this Git worktree; no base association saved."); }
@@ -82,7 +96,7 @@ export async function writeBaseAssociation(
   if (previous.kind === "invalid" && previous.reason !== "stale") {
     throw new Error("Base metadata is malformed or unreadable; inspect the worktree's private Git metadata before assigning a base.");
   }
-  const record = JSON.stringify({ version: 1, ref, worktreePath: place.worktreePath,
+  const record = JSON.stringify({ version: 1, ...(commit === null ? { ref } : { commit }), worktreePath: place.worktreePath,
     commonGitDir: place.commonGitDir, worktreeGitDir: place.worktreeGitDir }) + "\n";
   if (Buffer.byteLength(record) > maxRecordBytes) {
     throw new Error("Base association is too large to save; use a shorter base ref or worktree path.");
