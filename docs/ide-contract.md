@@ -937,10 +937,12 @@ type Reviewer = {
   `GITHUB_TOKEN` when set, otherwise the GitHub CLI login for github.com. The
   Bitbucket login is the one `timber pr` uses: `BITBUCKET_EMAIL` and
   `BITBUCKET_API_TOKEN` when either is set (they must form a complete pair),
-  otherwise the login saved by `timber setup`. The token needs only pull
-  request read access. The app needs no separate sign-in, and sign-in is not
-  part of this interface. Tokens never appear in stdout, stderr or
-  diagnostics, and neither does the text of a host's error response.
+  otherwise the login saved by `timber setup` or by
+  [settings for app consumers](#settings-for-app-consumers-experimental-v1).
+  The token needs only pull request read access. The app needs no separate
+  sign-in, and sign-in is not part of this interface. Tokens never appear in
+  stdout, stderr or diagnostics, and neither does the text of a host's error
+  response.
 - Titles, descriptions and reviewer names are text from the host. Display them
   as untrusted text; do not render them as trusted markup or pass them to a
   shell.

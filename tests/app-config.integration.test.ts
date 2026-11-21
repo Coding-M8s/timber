@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { access, chmod, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { git, withRepository } from "./helpers/git";
@@ -381,6 +381,13 @@ test("a config publish that fails after the credentials published rolls the Bitb
       expect(failed.record.config.result).toBe("refused");
       expect(await readFile(store, "utf8")).toBe(before);
     }
+    // With every store drafted, each one publishes inside the previous and all of them roll back.
+    const all = await fixture.apply({ schemaVersion: 1, revision: null, values: draft, credentials: {
+      jira: { email: jiraEmail, token: jiraToken }, linear: { token: linearToken }, bitbucket: { email: "other@example.invalid", token: "ATATT_OTHER" } } });
+    expect(all.record.config).toMatchObject({ result: "refused", credentials: { jira: "unchanged", linear: "unchanged", bitbucket: "unchanged" } });
+    for (const secret of [jiraToken, jiraEmail, linearToken, "ATATT_OTHER"]) expect(all.streams).not.toContain(secret);
+    expect(await readFile(store, "utf8")).toBe(before);
+    expect(await readdir(dirname(store))).toEqual(["bitbucket.json"]);
     expect(await exists(fixture.config)).toBe(false);
   });
 });
