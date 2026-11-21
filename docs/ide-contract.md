@@ -1176,7 +1176,11 @@ team = "ENG"           # needed for sprint and open; narrows assigned and search
     is missing. This uses Jira's development information API, which Atlassian
     does not document for public use. It has been tested with Bitbucket
     Cloud; other sources such as GitHub for Jira are untested.
-  - Linear: not read yet; `pullRequests` is always null.
+  - Linear: GitHub pull requests that Linear's GitHub integration attached
+    to the issue and that are not merged or closed. One query per 100
+    issues. Linear does not record the head repository, so `fromFork` is
+    null. GitLab merge requests are not listed. Without the integration,
+    every issue has `[]`.
 - Reading links never fails the list and never sets `reason` or `diagnostic`.
   `pullRequests` is null for an issue whose links could not be read: its own
   read failed, the whole read failed, or the 15 second limit ran out before

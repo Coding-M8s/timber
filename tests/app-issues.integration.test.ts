@@ -93,7 +93,7 @@ const restIssue = (number: number, state = "open", repo = "acme/widgets", extra:
   title: `Issue ${number}`, html_url: `https://github.com/${repo}/issues/${number}`, assignee: { login: "octo" }, ...extra });
 const jiraIssue = (key: string, category = "new", name = "To Do") => ({ key,
   fields: { summary: `Title ${key}`, status: { name, statusCategory: { key: category } }, assignee: { displayName: "Ada" } } });
-const linearNode = (key: string, type = "unstarted") => ({ identifier: key, url: `https://linear.app/acme/issue/${key}/x`,
+const linearNode = (key: string, type = "unstarted") => ({ id: `id-${key}`, identifier: key, url: `https://linear.app/acme/issue/${key}/x`,
   title: `Title ${key}`, state: { name: type === "started" ? "In Progress" : "Todo", type }, assignee: null });
 const graphqlBody = (init: RequestInit) => JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
 
@@ -190,8 +190,36 @@ const jiraSprint: Answer = url => {
   return Response.json({ issues: [jiraIssue("ENG-9", "done", "Done"), jiraIssue("ENG-10", "undefined", "Odd")] });
 };
 
+const linearPull = (number: number, extra: object = {}) => ({ url: `https://github.com/acme/widgets/pull/${number}`, metadata: {
+  number, branch: `lin-${number}`, draft: false, status: "open", closedAt: null, mergedAt: null, ...extra } });
+
+/**
+ * Answers the Linear attachments query from `byIssue`, keyed by issue key: an issue not named has none,
+ * null is left out of the answer, and an object sets the whole attachments connection.
+ */
+function linearLinks(init: RequestInit, byIssue: Record<string, object[] | null | { pageInfo: object; nodes: object[] }> = {}): Response {
+  const { query, variables } = graphqlBody(init);
+  expect(query).toStartWith("query TimberLinearPullRequests(");
+  expect(query).not.toContain("mutation");
+  const ids = variables.ids as string[];
+  expect(variables.first).toBe(ids.length);
+  const nodes = ids.flatMap(id => {
+    const key = id.slice(3);
+    const answer = key in byIssue ? byIssue[key]! : [];
+    if (answer === null) return [];
+    return [{ id, attachments: Array.isArray(answer) ? { pageInfo: { hasNextPage: false }, nodes: answer } : answer }];
+  });
+  return Response.json({ data: { issues: { nodes } } });
+}
+
 const linearCycle: Answer = (_url, init) => {
-  const { variables } = graphqlBody(init);
+  const { query, variables } = graphqlBody(init);
+  if (query.includes("TimberLinearPullRequests")) {
+    return linearLinks(init, { "LIN-3": [linearPull(60, { draft: true, status: "draft" }), linearPull(61, { status: "merged", mergedAt: "2026-11-19T10:00:00.000Z" }),
+      linearPull(62, { status: "closed", closedAt: "2026-11-19T10:00:00.000Z" }),
+      // The GitHub integration also attaches issues; they are not pull requests.
+      { url: "https://github.com/acme/widgets/issues/5", metadata: { number: 5 } }] });
+  }
   expect(variables).toMatchObject({ team: "LIN" });
   return Response.json({ data: { teams: { nodes: [{ activeCycle: { name: null, number: 4, issues: {
     pageInfo: { hasNextPage: false, endCursor: null }, nodes: [linearNode("LIN-3", "started"), linearNode("LIN-4")] } } }] } } });
@@ -242,11 +270,13 @@ test("the current sprint of GitHub, Jira and Linear lists every issue, marks lin
 
     expect(linear).toMatchObject({ tracker: "linear", outcome: "found", sprint: { name: "Cycle 4", source: "linear-cycle" } });
     expect(linear.issues.map(issue => [issue.key, issue.status.category, issue.worktree?.path ?? null, issue.pullRequests])).toEqual([
-      ["LIN-3", "in-progress", paths.linear!, null], ["LIN-4", "open", null, null]]);
+      // Merged and closed pull requests are left out; Linear does not say whether a head is a fork.
+      ["LIN-3", "in-progress", paths.linear!, [{ number: 60, url: "https://github.com/acme/widgets/pull/60", branch: "lin-60", fromFork: null, draft: true }]],
+      ["LIN-4", "open", null, []]]);
 
     const methods = seen.requests.map(request => `${request.init.method} ${new URL(request.url).host}`);
     expect(methods).toEqual(["POST api.github.com", "POST api.github.com", "POST api.github.com", "POST api.github.com",
-      ...Array<string>(7).fill("GET acme.atlassian.net"), "POST api.linear.app"]);
+      ...Array<string>(7).fill("GET acme.atlassian.net"), "POST api.linear.app", "POST api.linear.app"]);
     for (const record of [github, jira, linear]) noSecrets(record);
   });
 });
@@ -282,6 +312,29 @@ test("a failure to read pull request links blanks only those links and keeps the
       "https://github.com/acme/widgets/issues/44": { totalCount: 21, nodes: [githubPull(1)] },
       "https://github.com/acme/widgets/issues/45": [githubPull(2, { url: "https://example.invalid/acme/widgets/pull/2" })] }));
     expect(partial.issues.map(issue => [issue.key, issue.pullRequests])).toEqual([["42", []], ["43", null], ["44", null], ["45", null]]);
+    expect(await snapshot(directory, all)).toBe(before);
+
+    const linearListing = Response.json({ data: { issues: { pageInfo: { hasNextPage: false },
+      nodes: [linearNode("LIN-3"), linearNode("LIN-4"), linearNode("LIN-5"), linearNode("LIN-6")] } } });
+    const linear = (links: (init: RequestInit) => Response | Promise<Response>, timeoutMs?: number) =>
+      run(primary, "open", undefined, { tracker: "linear" }, services(fresh(), directory, (_url, init) =>
+        graphqlBody(init).query.includes("TimberLinearPullRequests") ? links(init) : linearListing.clone(), {}, timeoutMs));
+    const linearFailures: [string, AppIssuesRecord][] = [
+      ["HTTP error", await linear(() => new Response(`no ${linearToken}`, { status: 502 }))],
+      ["login rejected", await linear(() => Response.json({ errors: [{ extensions: { code: "AUTHENTICATION_ERROR" } }] }, { status: 400 }))],
+      ["unreadable", await linear(() => Response.json({ data: { issues: null } }))],
+      ["unreachable", await linear(() => { throw new TypeError("connect failed"); })],
+      ["late", await linear(() => new Promise<Response>(() => {}), 300)],
+    ];
+    for (const [name, record] of linearFailures) {
+      expect({ name, record }).toMatchObject({ name, record: { outcome: "found", reason: null, diagnostic: null } });
+      expect(record.issues.map(issue => [issue.key, issue.pullRequests])).toEqual([["LIN-3", null], ["LIN-4", null], ["LIN-5", null], ["LIN-6", null]]);
+      noSecrets(record);
+    }
+    // One issue Linear leaves out, one with more attachments than were read, and one pull request whose details are unreadable.
+    const linearPartial = await linear(init => linearLinks(init, { "LIN-4": null,
+      "LIN-5": { pageInfo: { hasNextPage: true }, nodes: [linearPull(1)] }, "LIN-6": [linearPull(2, { branch: "" })] }));
+    expect(linearPartial.issues.map(issue => [issue.key, issue.pullRequests])).toEqual([["LIN-3", []], ["LIN-4", null], ["LIN-5", null], ["LIN-6", null]]);
     expect(await snapshot(directory, all)).toBe(before);
 
     await writeFile(join(primary, ".timber.toml"), `[jira]\nsite_url = "https://acme.atlassian.net"\nproject = "ENG"\n`);
@@ -321,7 +374,7 @@ test("a failure to read pull request links blanks only those links and keeps the
 
 test("a sprint of hundreds of issues reads its links in a few batched, read-only requests", async () => {
   await withFixture(async ({ primary, directory }) => {
-    await writeFile(join(primary, ".timber.toml"), `[jira]\nsite_url = "https://acme.atlassian.net"\nsprint_jql = "labels = now"\n[github]\nmilestone = "v2"\n`);
+    await writeFile(join(primary, ".timber.toml"), `[jira]\nsite_url = "https://acme.atlassian.net"\nsprint_jql = "labels = now"\n[github]\nmilestone = "v2"\n[linear]\nteam = "LIN"\n`);
     const seen = fresh();
     const page = (start: number, count: number) => Array.from({ length: count }, (_, index) => restIssue(start + index));
     const github = await run(primary, "sprint", undefined, { tracker: "github" }, services(seen, directory, (url, init) => {
@@ -360,6 +413,25 @@ test("a sprint of hundreds of issues reads its links in a few batched, read-only
     expect(jiraSeen.requests.every(request => request.init.method === "GET")).toBeTrue();
     // One list search, two link searches of at most 100 keys, then a summary and a detail per issue.
     expect(jiraSeen.requests).toHaveLength(1 + 2 + 150 * 2);
+
+    // A Linear cycle reads its pages, then one attachments query per 100 issues.
+    const linearSeen = fresh();
+    const cycleKeys = Array.from({ length: 150 }, (_, index) => `LIN-${index + 1}`);
+    const linear = await run(primary, "sprint", undefined, { tracker: "linear" }, services(linearSeen, directory, (_url, init) => {
+      const { query, variables } = graphqlBody(init);
+      if (query.includes("TimberLinearPullRequests")) return linearLinks(init, { "LIN-150": [linearPull(901)] });
+      const second = variables.after === "p2";
+      return Response.json({ data: { teams: { nodes: [{ activeCycle: { name: "Now", number: 9, issues: {
+        pageInfo: { hasNextPage: !second, endCursor: second ? null : "p2" },
+        nodes: cycleKeys.slice(second ? 100 : 0, second ? 150 : 100).map(key => linearNode(key)) } } }] } } });
+    }));
+    expect(linear.issues).toHaveLength(150);
+    expect(linear.issues.at(-1)!.pullRequests).toEqual([
+      { number: 901, url: "https://github.com/acme/widgets/pull/901", branch: "lin-901", fromFork: null, draft: false }]);
+    expect(linear.issues.slice(0, -1).every(issue => issue.pullRequests?.length === 0)).toBeTrue();
+    const linkQueries = linearSeen.requests.map(request => graphqlBody(request.init)).filter(body => body.query.includes("TimberLinearPullRequests"));
+    expect(linkQueries.map(body => (body.variables.ids as string[]).length)).toEqual([100, 50]);
+    expect(linearSeen.requests).toHaveLength(2 + 2);
   });
 });
 
