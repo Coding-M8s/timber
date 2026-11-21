@@ -130,6 +130,9 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
     if (options.remote !== undefined && input.kind !== "github") {
       throw new Error("The --remote option requires a GitHub issue selector or a number with GitHub selected as the default tracker.");
     }
+    if (options.branch !== undefined && input.kind === "literal") {
+      throw new Error("The --branch option requires an issue selector (github:<number>, linear:<KEY>, jira:<KEY>) or an input matching the default tracker.");
+    }
     if (options.allowClosed !== undefined && input.kind === "literal") {
       throw new Error("The -c option requires an issue selector or an input matching the default tracker.");
     }
@@ -156,16 +159,28 @@ export function createNewHandler(services: NewServices): CommandHandlers["new"] 
       const missing = (input.kind === "github" && error instanceof GithubLookupFailure)
         || (input.kind === "linear" && error instanceof LinearLookupFailure)
         || (input.kind === "jira" && error instanceof JiraLookupFailure);
-      if (input.kind === "literal" || input.origin !== "default" || !missing || error.reason !== "not-found") throw error;
+      // An explicit --branch never falls back to a literal branch: there would be no link to save.
+      if (input.kind === "literal" || input.origin !== "default" || !missing || error.reason !== "not-found"
+        || options.branch !== undefined) throw error;
       const provider = { github: "GitHub", linear: "Linear", jira: "Jira" }[input.kind];
       context.io.stdout(`${provider} ticket ${safeDisplay(branch)} was not found. Creating literal branch ${safeDisplay(branchInput)}.\n`);
     }
     const maximum = config.maxGeneratedBranchNameLength;
-    const generated: GeneratedName = ticket
-      ? generateTicketBranch(ticket.key, ticket.title, maximum)
-      : normalizeBranchInput(branch, maximum);
-    const selectedName = maximum === undefined ? generated.name
-      : await confirmShortenedName(generated, maximum, ticket ? `${ticket.key}-` : undefined, repository, context);
+    let selectedName: string | null;
+    if (options.branch !== undefined) {
+      // Never fall through to a generated or literal name: --branch exists to keep the link.
+      if (!ticket) throw new Error("The --branch option requires an issue; no worktree was created.");
+      // The name is not generated, so max_generated_branch_name_length does not apply.
+      const problem = await replacementProblem(options.branch, Infinity, `${ticket.key}-`, repository);
+      if (problem !== undefined) throw new FormattedError(`${problem}\nNo worktree was created.`);
+      selectedName = options.branch;
+    } else {
+      const generated: GeneratedName = ticket
+        ? generateTicketBranch(ticket.key, ticket.title, maximum)
+        : normalizeBranchInput(branch, maximum);
+      selectedName = maximum === undefined ? generated.name
+        : await confirmShortenedName(generated, maximum, ticket ? `${ticket.key}-` : undefined, repository, context);
+    }
     if (selectedName === null) {
       context.machine?.cancelled();
       context.io.stdout("Cancelled.\n");

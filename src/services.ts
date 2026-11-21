@@ -157,6 +157,8 @@ export interface RebaseOptions {
 }
 
 export interface NewOptions {
+  /** Explicit branch name for an issue; replaces the generated name and keeps the link. */
+  branch?: string;
   remote?: string;
   allowClosed?: boolean;
   base?: string;

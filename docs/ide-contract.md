@@ -27,6 +27,7 @@ provider/branch resolution.
 timber ls --json
 timber backup list --json
 timber new 'feature name' --result-file /private/temp/new.json --no-editor --no-agent
+timber new 'jira:ENG-42' --branch 'ENG-42-short' --result-file /private/temp/new.json --no-editor --no-agent
 timber open 'GH-123' --result-file /private/temp/open.json --no-editor --no-agent
 timber open --setup --result-file /private/temp/retry.json --no-editor --no-agent -- '/absolute/worktree path'
 timber rebase --result-file /private/temp/rebase.json -- '/absolute/worktree path'
@@ -62,6 +63,12 @@ workflow hooks; existing opens rerun them only with `--setup`. Provider resoluti
 workflow selection, saved bases and preflight checks retain their ordinary behavior.
 A workflow applies only to the invocation that names it with `--workflow`; Timber
 does not save it, so it is not part of any record.
+
+To create an issue worktree under a name other than the generated one, pass
+`new <issue> --branch <name>`. The name must start with the issue ID and `-`
+(`GH-<number>-` for GitHub), keeps the issue link, and is never shortened or
+prompted for. A failed check writes a failed record and creates nothing. See
+[explicit branch for an issue](cli-contract.md#explicit-branch-for-an-issue-214).
 
 `rebase` accepts `--result-file <path>` with the same reservation, write and
 failure rules. Rebase launches no editor or agent, so it has no launch flags to
