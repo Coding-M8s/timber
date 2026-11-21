@@ -46,16 +46,22 @@ export function credentialIdentity(config: JiraConfig): string {
 
 export type CredentialChange =
   | { kind: "entry"; config: JiraConfig; action: "save" | "remove"; label: string }
-  | { kind: "association"; config: JiraConfig; repository: string; label: string | null };
+  | { kind: "association"; config: JiraConfig; repository: string; label: string | null }
+  | { kind: "default"; config: JiraConfig; label: string };
 
 /** Entries and associations are scoped to one normalized site and token mode. */
 export interface CredentialStore {
   readonly path: string;
   readonly original: string | null;
+  /** Labels for this site and token mode, default first. */
   labels(config: JiraConfig): readonly string[];
-  /** Without a label, the pair of a sole saved entry for this site and token mode. */
+  /** The entry repositories without an association use for this site and token mode. */
+  defaultLabel(config: JiraConfig): string | null;
+  /** Makes a saved entry the default for its site and token mode without changing any association. */
+  makeDefault(config: JiraConfig, label: string): void;
+  /** Without a label, the pair of the default entry for this site and token mode. */
   get(config: JiraConfig, label?: string): JiraCredentials | null;
-  /** Without a label, replaces the sole entry (or creates "default"). Removing an entry drops its associations. */
+  /** Without a label, replaces the default entry (or creates "default"). Removing an entry drops its associations. */
   set(config: JiraConfig, pair: JiraCredentials | null, label?: string): void;
   association(config: JiraConfig, repository: string): string | null;
   associate(config: JiraConfig, repository: string, label: string | null): void;
@@ -158,17 +164,37 @@ export async function readCredentialStore(env: NodeJS.ProcessEnv = process.env):
     const identity = credentialIdentity(config);
     return [...records.values()].filter(record => credentialIdentity(record) === identity).map(record => record.label);
   };
-  const sole = (config: JiraConfig) => { const names = labels(config); return names.length === 1 ? names[0]! : null; };
+  const fallback = (config: JiraConfig) => labels(config)[0] ?? null;
+  const defaultsOf = () => {
+    const defaults = new Map<string, CredentialRecord>();
+    for (const record of records.values()) if (!defaults.has(credentialIdentity(record))) defaults.set(credentialIdentity(record), record);
+    return defaults;
+  };
+  const initialDefaults = defaultsOf();
   return {
     path, original, labels,
+    defaultLabel: fallback,
+    makeDefault(config, label) {
+      const identity = credentialIdentity(config);
+      const chosen = records.get(entryKey(identity, label));
+      if (!chosen) throw new Error("Cannot make an unsaved Jira credential the default.");
+      const all = [...records];
+      records.clear();
+      // Records of other sites keep their relative order; only this identity's default moves.
+      let placed = false;
+      for (const [key, record] of all) {
+        if (credentialIdentity(record) === identity && !placed) { records.set(entryKey(identity, label), chosen); placed = true; }
+        if (key !== entryKey(identity, label)) records.set(key, record);
+      }
+    },
     get(config, label) {
-      const name = label ?? sole(config);
+      const name = label ?? fallback(config);
       const record = name === null ? undefined : records.get(entryKey(credentialIdentity(config), name));
       return record ? { email: record.email, token: record.token } : null;
     },
     set(config, pair, label) {
       const identity = credentialIdentity(config);
-      const name = label ?? sole(config) ?? defaultCredentialLabel;
+      const name = label ?? fallback(config) ?? defaultCredentialLabel;
       if (!validCredentialLabel(name)) throw new Error("Invalid Jira credential label.");
       if (pair === null) {
         records.delete(entryKey(identity, name));
@@ -212,6 +238,11 @@ export async function readCredentialStore(env: NodeJS.ProcessEnv = process.env):
         if (!after && !records.has(entryKey(credentialIdentity(association.config), association.label))) continue;
         changes.push({ kind: "association", config: association.config, repository: association.repository, label: after?.label ?? null });
       }
+      const defaults = defaultsOf();
+      for (const [identity, before] of initialDefaults) {
+        const after = defaults.get(identity);
+        if (after && after.label !== before.label) changes.push({ kind: "default", config: configOf(after), label: after.label });
+      }
       return changes;
     },
     serialize() {
@@ -228,17 +259,12 @@ export async function readCredentialStore(env: NodeJS.ProcessEnv = process.env):
   };
 }
 
-export function unselectedJiraMessage(): string {
-  return "Several saved Jira credentials exist for this site and token mode, and none is selected for this repository. Run timber setup in this repository to choose one, or set both JIRA_EMAIL and JIRA_API_TOKEN.";
-}
-
-/** Null means no saved pair; several pairs without this repository's association fail instead of guessing. */
+/** Null means no saved pair; otherwise this repository's selected pair, else the default for this site and token mode. */
 export async function loadSavedCredentials(config: JiraConfig, env: NodeJS.ProcessEnv = process.env,
   repository: string | null = null): Promise<JiraCredentials | null> {
   const store = await readCredentialStore(env);
   const selection = store.select(config, repository);
   if (selection.kind === "missing") return null;
-  if (selection.kind === "unselected") throw new Error(unselectedJiraMessage());
   return store.get(config, selection.label);
 }
 

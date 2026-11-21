@@ -22,15 +22,16 @@ export async function repositoryCredentialKey(commonGitDir: string): Promise<str
 
 export type CredentialSelection =
   | { kind: "selected"; label: string }
-  | { kind: "missing" }
-  | { kind: "unselected" };
+  | { kind: "missing" };
 
-/** One saved entry is the global default; several require an explicit repository association. */
+/**
+ * The first saved entry is the default. A repository uses its explicit association,
+ * else the default, so adding another entry never changes what other repositories use.
+ */
 export function selectCredential(labels: readonly string[], association: string | null): CredentialSelection {
   if (association !== null && labels.includes(association)) return { kind: "selected", label: association };
   if (labels.length === 0) return { kind: "missing" };
-  if (labels.length === 1) return { kind: "selected", label: labels[0]! };
-  return { kind: "unselected" };
+  return { kind: "selected", label: labels[0]! };
 }
 
 /** The shared Git directory of the repository at `cwd`, discovered once on first use; undefined outside a repository. */

@@ -3,7 +3,7 @@ import { loadSavedLinearKey, validLinearKey } from "./credentials";
 
 /**
  * `commonGitDir` identifies the repository whose saved-key association applies;
- * without one, only a sole saved key can be used.
+ * without one, the default saved key is used.
  */
 export async function readLinearKey(env: NodeJS.ProcessEnv = process.env,
   saved: (env: NodeJS.ProcessEnv, signal?: AbortSignal, repository?: string | null) => Promise<string | null> = loadSavedLinearKey,

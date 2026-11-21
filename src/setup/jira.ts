@@ -6,7 +6,7 @@ import { readCredentialStore, validCredentials, withCredentialSave } from "../ji
 import type { CredentialStore, JiraCredentials } from "../jira/credentials";
 import { SetupCancelled } from "./types";
 import { repositoryCredentialKey } from "../credential-selection";
-import { chooseEntryAction, chooseNewLabel, confirmRemoval, severalEntriesNotice } from "./credential-entries";
+import { chooseEntryAction, chooseNewLabel, confirmRemoval, addedEntryNotice, newDefaultNotice } from "./credential-entries";
 import type { EntryMenu } from "./credential-entries";
 import type { SetupPrompt } from "./types";
 
@@ -59,10 +59,13 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
       if (action.kind === "forget") { store.associate(config, repository!, null); return; }
       if (action.kind === "remove") {
         if (!await confirmRemoval(prompt, menu, action.label)) return;
+        const wasDefault = store.defaultLabel(config) === action.label;
         store.set(config, null, action.label);
-        if (store.labels(config).length === 1) io.stdout(`The remaining saved login "${store.labels(config)[0]}" is now used by every repository on this site and token mode.\n`);
+        const next = store.defaultLabel(config);
+        if (wasDefault && next !== null) io.stdout(newDefaultNotice(menu.noun, menu.describe(next)));
         return;
       }
+      if (action.kind === "default") { store.makeDefault(config, action.label); return; }
       if (action.kind === "use") { store.associate(config, repository!, action.label); pair = store.get(config, action.label); }
       if (action.kind === "keep") {
         const selection = store.select(config, repository);
@@ -85,12 +88,12 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
           pair = { email, token }; store.set(config, pair, label); break;
         }
         if (action.kind === "add" && labels.length) {
-          io.stdout(severalEntriesNotice("Jira", "login"));
+          io.stdout(addedEntryNotice(menu.noun, menu.describe(labels[0]!)));
           if (repository !== null) {
             const use = await prompt.confirm(`Use "${label}" for this repository?`, true);
             if (use === null) throw new SetupCancelled();
             if (use) store.associate(config, repository, label);
-            else if (menu.association === null && labels.length === 1) store.associate(config, repository, labels[0]!);
+            else { const selection = store.select(config, repository); pair = selection.kind === "selected" ? store.get(config, selection.label) : null; }
           }
         }
       }
@@ -116,7 +119,8 @@ export function createJiraSetupSession(env: NodeJS.ProcessEnv = process.env, che
       for (const change of changes) {
         const site = `${safeDisplay(change.config.siteUrl)} (${change.config.cloudId ? `scoped: ${change.config.cloudId}` : "unscoped"})`;
         if (change.kind === "entry") io.stdout(`Personal credentials: ${change.action === "save" ? "save/replace" : "remove"} "${change.label}" for ${site}; shared across repositories.\n`);
-        else io.stdout(`Jira repository selection: ${change.label === null ? "clear" : `use "${change.label}"`} for ${site} in ${change.repository === current ? "this repository" : safeDisplay(change.repository)}.\n`);
+        else if (change.kind === "default") io.stdout(`Jira default login: "${change.label}" for ${site} in repositories without their own selection.\n`);
+        else io.stdout(`Jira repository selection: ${change.label === null ? "clear (use the default)" : `use "${change.label}"`} for ${site} in ${change.repository === current ? "this repository" : safeDisplay(change.repository)}.\n`);
       }
       io.stdout(`Personal credential destination: ${safeDisplay(store.path)} (plaintext; owner-only).\n`);
     },

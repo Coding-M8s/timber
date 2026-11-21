@@ -1448,21 +1448,23 @@ Git directories are different repositories. Ordinary TOML holds no labels,
 associations or secrets.
 
 Resolution order: a valid environment override; this repository's associated
-entry; otherwise the sole saved entry (per Jira site and mode). Several entries
-without an association fail with setup guidance before HTTP or Git mutation, never
-trying entries in turn. Lookups outside a repository use only a sole entry.
+entry; otherwise the default entry (per Jira site and mode). The default is the
+first stored entry. Entries are never tried in turn. Lookups outside a repository
+use the default.
 
-Repository setup may add, replace, select or remove entries and clear this
-repository's association. Adding a second entry warns that unassociated
-repositories must choose one and asks whether this repository uses the new entry;
-declining associates it with the previous sole entry. Clearing an association
-keeps the entry. Removing an entry selected by other repositories reports their
-count and requires confirmation, then drops those associations; a lone remaining
-entry becomes the default again. Machine-default setup edits entries without
-associating any repository.
+Repository setup may add, replace, select or remove entries, make an entry the
+default, and clear this repository's association. Adding an entry never changes
+the default or any association, so other repositories keep their credentials;
+setup asks whether this repository uses the new entry, and declining leaves it on
+the default without an association. Clearing an association keeps the entry.
+Removing an entry selected by other repositories reports their count and requires
+confirmation, then drops those associations; removing the default promotes the
+next stored entry and reports it. Machine-default setup edits entries and the
+default without associating any repository.
 
 A sole `default` entry without associations keeps the version 1 format; other
-states write version 2 with `entries`/`records` and `associations` arrays. Stores
+states write version 2 with `entries`/`records` and `associations` arrays. Array
+order is significant: the first entry (per Jira site and mode) is the default. Stores
 with duplicate labels or associations, relative repository paths or associations
 to missing entries are refused. Save, cancellation, lock, rollback and
 concurrent-change rules are unchanged. See [credentials](credentials.md).

@@ -119,19 +119,14 @@ export function scopesWithDraft(target: Pick<SetupTarget, "scope" | "scopes" | "
   return target.scope === "global" ? { global: scope, local: null } : { ...target.scopes, local: scope };
 }
 
-function credentialChange(store: { changes(): readonly ({ action: "save" | "remove" } | { kind: "association" })[] } | undefined): CredentialChange {
+function credentialChange(store: { changes(): readonly ({ action: "save" | "remove" } | { kind: "association" | "default" })[] } | undefined): CredentialChange {
   const action = store?.changes().find(change => "action" in change);
   return action === undefined ? "unchanged" : action.action === "save" ? "saved" : "removed";
 }
 
-/**
- * The saved entry a draft replaces or removes: the one this repository selects, else
- * the only one. Several entries without a selection are ambiguous, so nothing is guessed.
- */
-function draftLabel(selection: CredentialSelection, field: string): string | undefined {
-  if (selection.kind === "selected") return selection.label;
-  if (selection.kind === "missing") return undefined;
-  throw new AppConfigInvalid([`${field} is ambiguous: several saved entries exist and none is selected; choose one with timber setup`]);
+/** The saved entry a draft replaces or removes: the one this repository selects, else the default. */
+function draftLabel(selection: CredentialSelection): string | undefined {
+  return selection.kind === "selected" ? selection.label : undefined;
 }
 
 /**
@@ -158,13 +153,13 @@ export async function applyAppConfig(
     if (credentials.jira !== undefined) {
       if (jira === null) throw new AppConfigInvalid(["credentials.jira needs a configured Jira site"]);
       jiraStore = await readCredentialStore(env);
-      const label = draftLabel(jiraStore.select(jira, repository), "credentials.jira");
+      const label = draftLabel(jiraStore.select(jira, repository));
       try { jiraStore.set(jira, credentials.jira, label); }
       catch { throw new AppConfigInvalid(["credentials.jira is invalid"]); }
     }
     if (credentials.linear !== undefined) {
       linearStore = await readLinearCredentialStore(env);
-      const label = draftLabel(linearStore.select(repository), "credentials.linear");
+      const label = draftLabel(linearStore.select(repository));
       try { linearStore.set(credentials.linear?.token ?? null, label); }
       catch { throw new AppConfigInvalid(["credentials.linear is invalid"]); }
     }

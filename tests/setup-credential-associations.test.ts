@@ -35,7 +35,7 @@ async function savedLinear(env: NodeJS.ProcessEnv, entries: Record<string, strin
   await withLinearCredentialSave(store, async () => {});
 }
 
-test("Linear setup adds a second key for this repository and warns that others must select one", async () => {
+test("Linear setup adds a second key for this repository and leaves other repositories on the default", async () => {
   await fixture(async env => {
     await savedLinear(env, { default: "SYNTHETIC_FIRST" });
     const out = capture(); const menus: string[][] = [];
@@ -45,23 +45,39 @@ test("Linear setup adds a second key for this repository and warns that others m
     session.review(out.io);
     expect(out.output()).toContain("Invalid label");
     expect(out.output()).toContain("already saved");
-    expect(out.output()).toContain("each repository must select one");
+    expect(out.output()).toContain('keep using the default personal API key "default"');
     expect(out.output()).toContain('save/replace "acme"');
     expect(out.output()).toContain('use "acme" for this repository');
     expect(out.output()).not.toMatch(/SYNTHETIC/u);
     expect(await loadSavedLinearKey(env, undefined, repoA)).toBe("SYNTHETIC_FIRST");
     await session.save(async () => {});
     expect(await loadSavedLinearKey(env, undefined, repoA)).toBe("SYNTHETIC_ACME");
-    await expect(loadSavedLinearKey(env, undefined, repoB)).rejects.toThrow("timber setup in this repository");
+    expect(await loadSavedLinearKey(env, undefined, repoB)).toBe("SYNTHETIC_FIRST");
   });
 });
 
-test("Linear declining the new key keeps this repository on its previous default", async () => {
+test("Linear declining the new key keeps this repository on the default without pinning it", async () => {
   await fixture(async env => {
     await savedLinear(env, { default: "SYNTHETIC_FIRST" });
     const session = createLinearSetupSession(env, undefined, repoA);
     await session.edit(prompt(["add", "acme", "SYNTHETIC_ACME", false, false]), capture().io);
     await session.save(async () => {});
+    expect(await loadSavedLinearKey(env, undefined, repoA)).toBe("SYNTHETIC_FIRST");
+    expect((await readLinearCredentialStore(env)).association(repoA)).toBeNull();
+  });
+});
+
+test("Linear setup makes another key the default for unassociated repositories only", async () => {
+  await fixture(async env => {
+    await savedLinear(env, { default: "SYNTHETIC_FIRST", oss: "SYNTHETIC_OSS" }, { [repoA]: "default" });
+    const out = capture(); const menus: string[][] = [];
+    const session = createLinearSetupSession(env, undefined, repoB);
+    await session.edit(prompt(["default:oss"], menus), out.io);
+    expect(menus[0]).toContain('Make "oss" the default for repositories without a selection');
+    session.review(out.io);
+    expect(out.output()).toContain('Linear default key: "oss"');
+    await session.save(async () => {});
+    expect(await loadSavedLinearKey(env, undefined, repoB)).toBe("SYNTHETIC_OSS");
     expect(await loadSavedLinearKey(env, undefined, repoA)).toBe("SYNTHETIC_FIRST");
   });
 });
@@ -83,13 +99,14 @@ test("Linear selects, replaces, forgets and removes with confirmation for other 
     await savedLinear(env, { acme: "SYNTHETIC_ACME", home: "SYNTHETIC_HOME" }, { [repoA]: "acme" });
     const out = capture(); const menus: string[][] = [];
     const session = createLinearSetupSession(env, undefined, repoB);
-    await session.edit(prompt(["keep"], menus), out.io);
+    await session.edit(prompt(["keep", false], menus), out.io);
     expect(menus[0]).toEqual([
-      "Keep (no personal API key selected for this repository)",
-      'Use "acme" for this repository', 'Use "home" for this repository',
+      'Keep: this repository uses the default "acme"',
+      'Use "acme" (default) for this repository', 'Use "home" for this repository',
       "Add another personal API key",
-      'Replace "acme"', 'Replace "home"',
-      'Remove "acme" (selected by 1 other repository)', 'Remove "home"',
+      'Make "home" the default for repositories without a selection',
+      'Replace "acme" (default)', 'Replace "home"',
+      'Remove "acme" (default) (selected by 1 other repository)', 'Remove "home"',
     ]);
     await session.edit(prompt(["use:home", false]), out.io);
     await session.edit(prompt(["replace:home", "SYNTHETIC_HOME_2", false]), out.io);
@@ -101,13 +118,13 @@ test("Linear selects, replaces, forgets and removes with confirmation for other 
     const forget = createLinearSetupSession(env, undefined, repoB);
     await forget.edit(prompt(["forget"]), out.io);
     await forget.save(async () => {});
-    await expect(loadSavedLinearKey(env, undefined, repoB)).rejects.toThrow("none is selected");
+    expect(await loadSavedLinearKey(env, undefined, repoB)).toBe("SYNTHETIC_ACME");
     expect(await loadSavedLinearKey(env, undefined, repoA)).toBe("SYNTHETIC_ACME");
 
     const remove = createLinearSetupSession(env, undefined, repoB);
     await remove.edit(prompt(["remove:acme", true]), out.io);
     await remove.save(async () => {});
-    expect(out.output()).toContain('"home" is now used by every repository');
+    expect(out.output()).toContain('"home" is now the default personal API key');
     expect(await loadSavedLinearKey(env, undefined, repoA)).toBe("SYNTHETIC_HOME_2");
     expect(out.output()).not.toMatch(/SYNTHETIC/u);
   });
@@ -137,12 +154,12 @@ test("Jira setup distinguishes logins by label and email without showing tokens"
     await session.edit(site, prompt(["add", "work", "work@example.invalid", "SYNTHETIC_WORK", true, false], menus), out.io);
     await session.edit(site, prompt(["keep", false], menus), out.io);
     expect(menus[1]).toContain('Keep: this repository uses "work" (work@example.invalid)');
-    expect(menus[1]).toContain('Use "default" (personal@example.invalid) for this repository');
+    expect(menus[1]).toContain('Use "default" (personal@example.invalid) (default) for this repository');
     session.review(out.io);
     expect(out.output()).toContain('save/replace "work" for https://example.atlassian.net (unscoped)');
     expect(out.output()).not.toMatch(/SYNTHETIC/u);
     await session.save(async () => {});
     expect(await loadSavedCredentials(site, env, repoA)).toEqual({ email: "work@example.invalid", token: "SYNTHETIC_WORK" });
-    await expect(loadSavedCredentials(site, env, repoB)).rejects.toThrow("JIRA_EMAIL and JIRA_API_TOKEN");
+    expect(await loadSavedCredentials(site, env, repoB)).toEqual({ email: "personal@example.invalid", token: "SYNTHETIC_PERSONAL" });
   });
 });

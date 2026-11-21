@@ -96,7 +96,7 @@ test("repository setup from a linked worktree selects the key for the whole repo
       save: saveSetupConfig,
     });
     await handler(["connections", "linear", "use:acme", false, "back", "save"])({ global: false }, { cwd: linked, interactive: true, io: { stdout() {}, stderr() {} } });
-    await handler(["connections", "linear", "keep", "back", "save"])({ global: true }, { cwd: linked, interactive: true, io: { stdout() {}, stderr() {} } });
+    await handler(["connections", "linear", "keep", false, "back", "save"])({ global: true }, { cwd: linked, interactive: true, io: { stdout() {}, stderr() {} } });
     expect(received).toEqual([join(primary, ".git"), null]);
     const { repositoryCredentialKey } = await import("../src/credential-selection");
     const { discoverRepository } = await import("../src/git/repository");

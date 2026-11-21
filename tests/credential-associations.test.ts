@@ -26,10 +26,10 @@ const site = { siteUrl: "https://example.atlassian.net" };
 const scoped = { siteUrl: "https://example.atlassian.net", cloudId: "00000000-0000-4000-8000-000000000000" };
 const issue = { data: { issue: { trashed: null, identifier: "ENG-123", title: "Fix login", state: { type: "started" }, url: "https://linear.app/w/issue/ENG-123" } } };
 
-test("selection treats one entry as the default and requires an association for several", () => {
+test("selection uses the repository association, else the first entry as the default", () => {
   expect(selectCredential([], null)).toEqual({ kind: "missing" });
   expect(selectCredential(["default"], null)).toEqual({ kind: "selected", label: "default" });
-  expect(selectCredential(["acme", "home"], null)).toEqual({ kind: "unselected" });
+  expect(selectCredential(["acme", "home"], null)).toEqual({ kind: "selected", label: "acme" });
   expect(selectCredential(["acme", "home"], "home")).toEqual({ kind: "selected", label: "home" });
 });
 
@@ -61,8 +61,9 @@ test("Linear keeps the single-key format until a second entry or association exi
       entries: [{ label: "default", token: "SYNTHETIC_ONE" }, { label: "acme", token: "SYNTHETIC_TWO" }],
       associations: [{ repository: "/repo-a/.git", label: "acme" }] });
     expect(await loadSavedLinearKey(env, undefined, "/repo-a/.git")).toBe("SYNTHETIC_TWO");
-    await expect(loadSavedLinearKey(env, undefined, "/repo-b/.git")).rejects.toThrow("none is selected for this repository");
-    await expect(loadSavedLinearKey(env)).rejects.toThrow("timber setup");
+    // Adding a second key never changes what unassociated repositories or lookups outside a repository use.
+    expect(await loadSavedLinearKey(env, undefined, "/repo-b/.git")).toBe("SYNTHETIC_ONE");
+    expect(await loadSavedLinearKey(env)).toBe("SYNTHETIC_ONE");
 
     // Removing an entry drops its associations; the remaining entry becomes the default again.
     const removal = await readLinearCredentialStore(env);
@@ -85,7 +86,33 @@ test("Linear clearing an association keeps the entry used by other repositories"
     expect(edit.changes()).toEqual([{ kind: "association", repository: "/repo-a/.git", label: null }]);
     await withLinearCredentialSave(edit, async () => {});
     expect(await loadSavedLinearKey(env, undefined, "/repo-b/.git")).toBe("SYNTHETIC_A");
-    await expect(loadSavedLinearKey(env, undefined, "/repo-a/.git")).rejects.toThrow("none is selected");
+    expect(await loadSavedLinearKey(env, undefined, "/repo-a/.git")).toBe("SYNTHETIC_A");
+  });
+});
+
+test("Linear default can change without touching associations, and removing it promotes the next entry", async () => {
+  await withConfig(async env => {
+    const store = await readLinearCredentialStore(env);
+    store.set("SYNTHETIC_A", "acme"); store.set("SYNTHETIC_B", "home"); store.set("SYNTHETIC_C", "oss");
+    store.associate("/repo-a/.git", "acme");
+    await withLinearCredentialSave(store, async () => {});
+    expect(await loadSavedLinearKey(env, undefined, "/repo-b/.git")).toBe("SYNTHETIC_A");
+
+    const edit = await readLinearCredentialStore(env);
+    edit.makeDefault("oss");
+    expect(edit.labels()).toEqual(["oss", "acme", "home"]);
+    expect(edit.changes()).toEqual([{ kind: "default", label: "oss" }]);
+    await withLinearCredentialSave(edit, async () => {});
+    expect(await loadSavedLinearKey(env, undefined, "/repo-b/.git")).toBe("SYNTHETIC_C");
+    expect(await loadSavedLinearKey(env, undefined, "/repo-a/.git")).toBe("SYNTHETIC_A");
+    expect(() => edit.makeDefault("missing")).toThrow("unsaved");
+
+    const removal = await readLinearCredentialStore(env);
+    removal.set(null, "oss");
+    expect(removal.defaultLabel()).toBe("acme");
+    expect(removal.changes()).toEqual([{ kind: "entry", action: "remove", label: "oss" }, { kind: "default", label: "acme" }]);
+    await withLinearCredentialSave(removal, async () => {});
+    expect(await loadSavedLinearKey(env, undefined, "/repo-b/.git")).toBe("SYNTHETIC_A");
   });
 });
 
@@ -115,11 +142,11 @@ test("Linear environment override wins over several saved keys and rejects blank
     await withLinearCredentialSave(store, async () => {});
     expect(await readLinearKey({ ...env, LINEAR_API_KEY: "SYNTHETIC_ENV" }, undefined, undefined, "/r/.git")).toBe("SYNTHETIC_ENV");
     await expect(readLinearKey({ ...env, LINEAR_API_KEY: " " }, undefined, undefined, "/r/.git")).rejects.toThrow("No saved-key fallback");
-    await expect(readLinearKey(env, undefined, undefined, "/r/.git")).rejects.toThrow("LINEAR_API_KEY");
+    expect(await readLinearKey(env, undefined, undefined, "/r/.git")).toBe("SYNTHETIC_A");
   });
 });
 
-test("Linear lookup uses the key selected from a linked worktree and refuses unselected repositories intact", async () => {
+test("Linear lookup uses the key selected from a linked worktree and the default key elsewhere", async () => {
   await withConfig(async env => {
     await withRepository(async (primary, root) => {
       const linked = join(root, "linked");
@@ -144,15 +171,8 @@ test("Linear lookup uses the key selected from a linked worktree and refuses uns
       expect(used).toEqual(["SYNTHETIC_ACME"]);
 
       await withRepository(async other => {
-        const refs = await git(other, "show-ref");
-        const trees = await git(other, "worktree", "list", "--porcelain");
-        const error = await handler("linear:ENG-123", { base: "trunk" }, { cwd: other, io: { stdout() {}, stderr() {} } })
-          .then(() => null, caught => caught as Error);
-        expect(error?.message).toContain("none is selected for this repository");
-        expect(error?.message).not.toMatch(/SYNTHETIC/u);
-        expect(await git(other, "show-ref")).toBe(refs);
-        expect(await git(other, "worktree", "list", "--porcelain")).toBe(trees);
-        expect(used).toHaveLength(1);
+        await handler("linear:ENG-123", { base: "trunk" }, { cwd: other, io: { stdout() {}, stderr() {} } });
+        expect(used).toEqual(["SYNTHETIC_ACME", "SYNTHETIC_PERSONAL"]);
       });
     });
   });
@@ -171,14 +191,22 @@ test("Jira entries and associations stay isolated by site and token mode", async
     edit.associate(site, "/repo-a/.git", "work");
     await withCredentialSave(edit, async () => {});
     expect(await loadSavedCredentials(site, env, "/repo-a/.git")).toEqual({ email: "two@example.invalid", token: "SYNTHETIC_TWO" });
-    await expect(loadSavedCredentials(site, env, "/repo-b/.git")).rejects.toThrow("none is selected for this repository");
-    // The scoped mode still has one entry, so it remains the default even in an associated repository.
+    expect(await loadSavedCredentials(site, env, "/repo-b/.git")).toEqual({ email: "one@example.invalid", token: "SYNTHETIC_ONE" });
+    // The scoped mode keeps its own default, even in a repository associated for the unscoped mode.
     expect(await loadSavedCredentials(scoped, env, "/repo-a/.git")).toEqual({ email: "scoped@example.invalid", token: "SYNTHETIC_SCOPED" });
     expect(await loadSavedCredentials({ siteUrl: "https://other.atlassian.net" }, env, "/repo-a/.git")).toBeNull();
     const reread = await readCredentialStore(env);
     expect(reread.labels(site)).toEqual(["default", "work"]);
     expect(reread.association(scoped, "/repo-a/.git")).toBeNull();
     expect(() => reread.associate(scoped, "/repo-a/.git", "work")).toThrow("unsaved");
+    // Changing one mode's default leaves the other mode and every association alone.
+    reread.makeDefault(site, "work");
+    expect(reread.labels(site)).toEqual(["work", "default"]);
+    expect(reread.labels(scoped)).toEqual(["default"]);
+    expect(reread.changes()).toEqual([{ kind: "default", config: site, label: "work" }]);
+    await withCredentialSave(reread, async () => {});
+    expect(await loadSavedCredentials(site, env, "/repo-b/.git")).toEqual({ email: "two@example.invalid", token: "SYNTHETIC_TWO" });
+    expect(await loadSavedCredentials(scoped, env, "/repo-b/.git")).toEqual({ email: "scoped@example.invalid", token: "SYNTHETIC_SCOPED" });
   });
 });
 
@@ -201,8 +229,8 @@ test("Jira lookup uses the selected pair, keeps environment overrides strict and
     await resolveJiraTicket(site, "ENG-1", runtime({}, "/repo/.git"));
     await resolveJiraTicket(site, "ENG-1", runtime({ JIRA_EMAIL: "env@example.invalid", JIRA_API_TOKEN: "SYNTHETIC_ENV" }, null));
     await expect(resolveJiraTicket(site, "ENG-1", runtime({ JIRA_EMAIL: "env@example.invalid" }, "/repo/.git"))).rejects.toThrow("sources are never mixed");
-    await expect(resolveJiraTicket(site, "ENG-1", runtime({}, "/unselected/.git"))).rejects.toThrow("none is selected");
-    expect(auth).toEqual(["b@example.invalid:SYNTHETIC_B", "env@example.invalid:SYNTHETIC_ENV"]);
+    await resolveJiraTicket(site, "ENG-1", runtime({}, "/unselected/.git"));
+    expect(auth).toEqual(["b@example.invalid:SYNTHETIC_B", "env@example.invalid:SYNTHETIC_ENV", "a@example.invalid:SYNTHETIC_A"]);
   });
 });
 
