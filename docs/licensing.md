@@ -104,8 +104,8 @@ updates BoringSSL, llhttp, c-ares, lsquic, and SQLite (issue #201). Bun's
 `LICENSE.md` is byte-identical between the `bun-v1.4.4` and `bun-v1.4.5` tags,
 so the reproduced inventory in `THIRD_PARTY_NOTICES.txt` is unchanged. The
 notices file and release notes now link the `bun-v1.4.5` tag. The LGPL
-obligations and approach recorded below are unchanged. Release-owner review of
-this update is pending.
+obligations and approach recorded below are unchanged. The release owner
+reviewed this update on 2026-11-20.
 
 #### Runtime update to Bun 1.4.4 (2026-11-18)
 
