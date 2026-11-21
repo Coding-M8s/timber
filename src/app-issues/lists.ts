@@ -15,6 +15,35 @@ export interface IssueList {
   issues: IssueSummary[];
   /** True when the tracker had more matching issues than the record holds. */
   truncated: boolean;
+  /**
+   * Reads the open pull requests the tracker links to these issues into `links`
+   * as each answer arrives, so a read cut short keeps what it found. Absent when
+   * the tracker has no reader.
+   */
+  pullRequests?: (issues: readonly IssueSummary[], links: PullRequestLinks) => Promise<void>;
+}
+
+/** An open pull request the tracker itself links to an issue. Null fields mean the tracker cannot tell. */
+export interface LinkedPullRequest {
+  number: number;
+  url: string;
+  /** The pull request's head branch. */
+  branch: string;
+  /** True when the head is in another repository. */
+  fromFork: boolean | null;
+  draft: boolean | null;
+}
+
+/** Linked pull requests by issue URL; null for an issue whose links could not be read. */
+export type PullRequestLinks = Map<string, LinkedPullRequest[] | null>;
+
+/** Issues read per pull request lookup, so a whole sprint needs only a few requests. */
+export const pullRequestBatch = 100;
+
+export function batches<T>(items: readonly T[], size = pullRequestBatch): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
+  return result;
 }
 
 /** The list cannot be read because a setting it needs is missing. Nothing was contacted. */

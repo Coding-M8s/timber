@@ -2,8 +2,8 @@ import { z } from "zod";
 import { IssueReadFailure, jiraCategories, jiraLogin, json, send, unusable } from "../app-issue/trackers";
 import type { IssueSummary, MissingWording } from "../app-issue/trackers";
 import { isJiraTicketKey } from "../jira/branch";
-import { keyPrefix, maxSprintIssues, NotConfigured } from "./lists";
-import type { IssueList, IssueQuery, ListContext } from "./lists";
+import { batches, keyPrefix, maxSprintIssues, NotConfigured } from "./lists";
+import type { IssueList, IssueQuery, LinkedPullRequest, ListContext, PullRequestLinks } from "./lists";
 
 type JiraRequest = Awaited<ReturnType<typeof jiraLogin>>;
 
@@ -106,6 +106,114 @@ async function pickerSearch(ctx: ListContext, request: JiraRequest, project: str
   return { sprint: null, issues: found.issues.sort((a, b) => order.get(a.key)! - order.get(b.key)!), truncated: keys.length > wanted.length };
 }
 
+/** Development panel reads in flight at once, so a sprint with many pull requests stays within the time limit. */
+const devStatusConcurrency = 10;
+
+const devSummary = z.object({ summary: z.object({ pullrequest: z.object({
+  byInstanceType: z.record(z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/u), z.unknown()) }).optional() }) });
+
+const devPullRequest = z.object({
+  id: z.string(),
+  url: z.string(),
+  status: z.string(),
+  source: z.object({ branch: z.string().min(1), url: z.string().optional() }),
+  destination: z.object({ url: z.string().optional() }).optional(),
+});
+const devDetail = z.object({ detail: z.array(z.object({ pullRequests: z.array(devPullRequest).optional() })) });
+
+/** The repository part of a branch address such as `<repository>/branch/<name>` or `<repository>/tree/<name>`. */
+function branchRepository(url: string | undefined): string | null {
+  const match = url === undefined ? null : /^(https:\/\/[^?#]+?)\/(?:branch|tree)\/[^?#]/u.exec(url);
+  return match ? match[1]!.toLowerCase() : null;
+}
+
+/** One development panel pull request; null when Timber cannot read it as one. */
+function devPullRequestLink(pull: z.infer<typeof devPullRequest>): LinkedPullRequest | null {
+  let url: URL;
+  try { url = new URL(pull.url); } catch { return null; }
+  if (url.protocol !== "https:") return null;
+  const number = /\/(?:pull|pull-requests|merge_requests)\/([1-9][0-9]{0,9})\/?$/u.exec(url.pathname)?.[1]
+    ?? (/^[1-9][0-9]{0,9}$/u.test(pull.id) ? pull.id : null);
+  if (number === null) return null;
+  const source = branchRepository(pull.source.url);
+  const destination = branchRepository(pull.destination?.url);
+  // The development panel has no draft flag; a fork shows as a source branch in another repository.
+  return { number: Number(number), url: pull.url, branch: pull.source.branch,
+    fromFork: source === null || destination === null ? null : source !== destination, draft: null };
+}
+
+/** Open pull requests on one issue's development panel, from every connected source. Null when any part is unreadable. */
+async function devPanelPullRequests(ctx: ListContext, request: JiraRequest, issueId: string): Promise<LinkedPullRequest[] | null> {
+  const summaryUrl = new URL(`${request.apiRoot}/rest/dev-status/latest/issue/summary`);
+  summaryUrl.searchParams.set("issueId", issueId);
+  const summary = devSummary.safeParse((await get(ctx, request, summaryUrl)).body);
+  if (!summary.success) return null;
+  const links: LinkedPullRequest[] = [];
+  // The detail read needs the source type, such as GitHub or bitbucket, which only the summary names.
+  for (const applicationType of Object.keys(summary.data.summary.pullrequest?.byInstanceType ?? {})) {
+    const url = new URL(`${request.apiRoot}/rest/dev-status/latest/issue/detail`);
+    url.searchParams.set("issueId", issueId);
+    url.searchParams.set("applicationType", applicationType);
+    url.searchParams.set("dataType", "pullrequest");
+    const detail = devDetail.safeParse((await get(ctx, request, url)).body);
+    if (!detail.success) return null;
+    for (const pull of detail.data.detail.flatMap(entry => entry.pullRequests ?? [])) {
+      if (pull.status !== "OPEN") continue;
+      const link = devPullRequestLink(pull);
+      if (link === null) return null;
+      if (!links.some(known => known.url === link.url)) links.push(link);
+    }
+  }
+  // Jira's search said this issue has an open pull request, so an empty panel is not a trustworthy answer.
+  return links.length === 0 ? null : links;
+}
+
+/**
+ * Reads the open pull requests on each issue's development panel. One search
+ * per batch finds the issues Jira says have an open pull request; only those
+ * are read further, a few at a time. An issue whose panel fails, or has not
+ * been read yet, is null.
+ */
+async function jiraPullRequests(ctx: ListContext, request: JiraRequest, issues: readonly IssueSummary[], links: PullRequestLinks): Promise<void> {
+  const byKey = new Map(issues.map(issue => [issue.key, issue]));
+  const withPulls: { id: string; url: string }[] = [];
+  await Promise.all(batches([...byKey.keys()]).map(async keys => {
+    const found = new Set<string>();
+    let token: string | null | undefined;
+    do {
+      const url = new URL(`${request.apiRoot}/rest/api/3/search/jql`);
+      url.searchParams.set("jql", `key in (${keys.join(", ")}) AND development[pullrequests].open > 0`);
+      url.searchParams.set("fields", "summary");
+      url.searchParams.set("maxResults", "100");
+      if (token) url.searchParams.set("nextPageToken", token);
+      const page = z.object({ issues: z.array(z.object({ id: z.string().regex(/^[1-9][0-9]{0,18}$/u), key: z.string() })),
+        nextPageToken: z.string().nullable().optional() }).safeParse((await get(ctx, request, url)).body);
+      if (!page.success) throw unusable("jira");
+      for (const match of page.data.issues) {
+        const issue = byKey.get(match.key);
+        if (issue !== undefined && !found.has(match.key)) {
+          found.add(match.key);
+          withPulls.push({ id: match.id, url: issue.url });
+        }
+      }
+      token = page.data.nextPageToken;
+    } while (token);
+    // Issues the search did not match have no open pull request; the others stay unknown until their panel is read.
+    for (const key of keys) if (!found.has(key)) links.set(byKey.get(key)!.url, []);
+  }));
+  let next = 0;
+  const worker = async () => {
+    while (next < withPulls.length) {
+      const { id, url } = withPulls[next++]!;
+      try { links.set(url, await devPanelPullRequests(ctx, request, id)); } catch (error) {
+        if (ctx.signal.aborted) throw error;
+        links.set(url, null);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(devStatusConcurrency, withPulls.length) }, worker));
+}
+
 /** One read-only Jira list. Returns null when a board is configured but has no active sprint. */
 export async function listJira(query: IssueQuery, ctx: ListContext): Promise<IssueList | null> {
   const { board, sprintJql, project } = ctx.settings.jira;
@@ -117,18 +225,22 @@ export async function listJira(query: IssueQuery, ctx: ListContext): Promise<Iss
   }
   const request = await jiraLogin(ctx.jira, ctx.runtime, ctx.signal);
   const scope = project === undefined ? "" : `project = "${project}" AND `;
-  if (query === "sprint") {
-    if (board !== undefined) return boardSprint(ctx, request, board);
-    const list = await search(ctx, request, sprintJql!, maxSprintIssues, "Jira rejected [jira].sprint_jql; check the query.");
-    return { ...list, sprint: { name: null, source: "jira-jql" } };
-  }
-  if (query === "assigned") {
-    return search(ctx, request, `${scope}assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`, ctx.limit,
-      "Jira rejected the assigned issues query; check [jira].project.");
-  }
-  if (query === "open") {
-    return search(ctx, request, `${scope}statusCategory != Done ORDER BY created DESC`, ctx.limit,
-      "Jira rejected the open issues query; check [jira].project.");
-  }
-  return pickerSearch(ctx, request, project);
+  const read = async (): Promise<IssueList | null> => {
+    if (query === "sprint") {
+      if (board !== undefined) return boardSprint(ctx, request, board);
+      const list = await search(ctx, request, sprintJql!, maxSprintIssues, "Jira rejected [jira].sprint_jql; check the query.");
+      return { ...list, sprint: { name: null, source: "jira-jql" } };
+    }
+    if (query === "assigned") {
+      return search(ctx, request, `${scope}assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`, ctx.limit,
+        "Jira rejected the assigned issues query; check [jira].project.");
+    }
+    if (query === "open") {
+      return search(ctx, request, `${scope}statusCategory != Done ORDER BY created DESC`, ctx.limit,
+        "Jira rejected the open issues query; check [jira].project.");
+    }
+    return pickerSearch(ctx, request, project);
+  };
+  const list = await read();
+  return list && { ...list, pullRequests: (issues, links) => jiraPullRequests(ctx, request, issues, links) };
 }

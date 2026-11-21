@@ -9,13 +9,15 @@ import { listGithub } from "./github";
 import { listJira } from "./jira";
 import { listLinear } from "./linear";
 import { NotConfigured } from "./lists";
-import type { IssueList, IssueQuery, ListContext, SprintInfo } from "./lists";
+import type { IssueList, IssueQuery, LinkedPullRequest, ListContext, PullRequestLinks, SprintInfo } from "./lists";
 
 export type IssueListReason = IssueReadReason | "not-configured";
 
 export interface ListedIssue extends IssueSummary {
   /** The registered worktree whose saved issue link names this issue; null when none does. */
   worktree: { path: string; branch: string | null } | null;
+  /** Open pull requests the tracker links to this issue; null when the links could not be read. */
+  pullRequests: LinkedPullRequest[] | null;
 }
 
 export interface AppIssuesRecord {
@@ -162,13 +164,21 @@ export async function readAppIssues(cwd: string, query: string, text: string | u
   };
   const list = { github: listGithub, jira: listJira, linear: listLinear }[input.tracker];
   let result: IssueList | null;
+  const pullRequests: PullRequestLinks = new Map();
   try {
-    result = await Promise.race([list(input.query, context), deadline]);
-  } catch (error) {
-    if (error instanceof NotConfigured) return fail("not-configured", error, "");
-    if (error instanceof IssueReadFailure) return fail(error.reason, error, "");
-    if (controller.signal.aborted) return fail("offline", late(), "");
-    return fail("failed", new Error("Issue list failed."), "");
+    try {
+      result = await Promise.race([list(input.query, context), deadline]);
+    } catch (error) {
+      if (error instanceof NotConfigured) return fail("not-configured", error, "");
+      if (error instanceof IssueReadFailure) return fail(error.reason, error, "");
+      if (controller.signal.aborted) return fail("offline", late(), "");
+      return fail("failed", new Error("Issue list failed."), "");
+    }
+    // Links share the list's time limit. A failure keeps the links already read and leaves the rest
+    // null; reading links never fails the list.
+    if (result !== null && result.issues.length > 0 && result.pullRequests !== undefined) {
+      await Promise.race([result.pullRequests(result.issues, pullRequests), deadline]).catch(() => {});
+    }
   } finally {
     clearTimeout(timer);
     controller.abort();
@@ -179,6 +189,7 @@ export async function readAppIssues(cwd: string, query: string, text: string | u
   return Object.assign(record, { outcome: "found", sprint: result.sprint, truncated: result.truncated,
     issues: result.issues.map(issue => {
       const identity = issueIdentity(issue);
-      return { ...issue, worktree: identity === null ? null : linked.get(identity) ?? null };
+      return { ...issue, worktree: identity === null ? null : linked.get(identity) ?? null,
+        pullRequests: pullRequests.get(issue.url) ?? null };
     }) });
 }
