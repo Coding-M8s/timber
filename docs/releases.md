@@ -10,7 +10,7 @@ For Windows installation and platform requirements, see the [Windows guide](wind
 
 ## Build and check
 
-Use Bun 1.4.4 and the locked dependencies. Python 3 and Bash are needed for PTY
+Use Bun 1.4.5 and the locked dependencies. Python 3 and Bash are needed for PTY
 and Bash completion tests.
 
 ```bash

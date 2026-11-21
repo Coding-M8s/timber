@@ -88,14 +88,24 @@ unused code. License texts were copied from the installed versions in `bun.lock`
 
 ### Bun runtime distribution caveat
 
-Standalone executables embed Bun 1.4.4, not just Timber and its npm dependencies.
-Bun's [versioned licensing inventory](https://github.com/oven-sh/bun/blob/bun-v1.4.4/LICENSE.md)
+Standalone executables embed Bun 1.4.5, not just Timber and its npm dependencies.
+Bun's [versioned licensing inventory](https://github.com/oven-sh/bun/blob/bun-v1.4.5/LICENSE.md)
 is reproduced in `THIRD_PARTY_NOTICES.txt`. It identifies JavaScriptCore/WebKit
 under LGPL-2 and other independently licensed native libraries, including tinycc
 under LGPL-2.1. The [Bun license documentation](https://bun.sh/docs/project/license)
 describes runtime source and relinking requirements.
 
 Timber's Commons Clause does not replace or narrow those library rights.
+
+#### Runtime update to Bun 1.4.5 (2026-11-20)
+
+The pinned runtime moved from Bun 1.4.4 to 1.4.5, a security release that
+updates BoringSSL, llhttp, c-ares, lsquic, and SQLite (issue #201). Bun's
+`LICENSE.md` is byte-identical between the `bun-v1.4.4` and `bun-v1.4.5` tags,
+so the reproduced inventory in `THIRD_PARTY_NOTICES.txt` is unchanged. The
+notices file and release notes now link the `bun-v1.4.5` tag. The LGPL
+obligations and approach recorded below are unchanged. Release-owner review of
+this update is pending.
 
 #### Runtime update to Bun 1.4.4 (2026-11-18)
 
