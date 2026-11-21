@@ -7,7 +7,7 @@ import { resolveInstructionsSchema } from "../config";
 /** Select only registered worktrees; execution owns fresh preflight and mutation. */
 export function createRebaseHandler(
   services: Pick<CommandServices, "discoverRepository" | "loadConfig" | "resolveOpenTarget" | "rebaseWorktree">
-    & Partial<Pick<CommandServices, "createBackup" | "launchAgent">>,
+    & Partial<Pick<CommandServices, "createBackup" | "launchAgent" | "startRebaseRetention">>,
 ): NonNullable<CommandHandlers["rebase"]> {
   return async (input, options, context) => {
     if (options.resolve) {
@@ -55,7 +55,8 @@ export function createRebaseHandler(
     const selected = await selectRegisteredWorktree(services, repository, config, input, context,
       { command: "rebase", past: "rebased", rerun: "timber rebase --resolve" });
     if (selected === null) { context.io.stdout("Cancelled.\n"); return 0; }
-    return resolveRebase({ rebaseWorktree: services.rebaseWorktree, createBackup, launchAgent }, repository, selected, config, handoff,
+    const { startRebaseRetention } = services;
+    return resolveRebase({ rebaseWorktree: services.rebaseWorktree, createBackup, launchAgent, ...startRebaseRetention ? { startRebaseRetention } : {} }, repository, selected, config, handoff,
       { ...(options.base === undefined ? {} : { base: options.base }), ...(options.resolveNote === undefined ? {} : { note: options.resolveNote.trim() }) },
       context);
   }

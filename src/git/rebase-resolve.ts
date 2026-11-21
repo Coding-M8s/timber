@@ -12,7 +12,8 @@ import { createRebaseReport, rebaseGitEnvironment, recovery, runOwnedGit, type O
 import { buildResolveTask, resolveAgentCommand } from "./rebase-resolve-task";
 import { assertWorktreeIdentity, listWorktreeInventory } from "./worktrees";
 
-export type ResolveServices = Pick<CommandServices, "rebaseWorktree" | "createBackup" | "launchAgent">;
+export type ResolveServices = Pick<CommandServices, "rebaseWorktree" | "createBackup" | "launchAgent">
+  & Partial<Pick<CommandServices, "startRebaseRetention">>;
 
 export interface ResolveOptions {
   base?: string;
@@ -290,12 +291,17 @@ async function assist(
     await rm(taskPath, { force: true }).catch(() => {});
   }
   const agentResult = agentOutcome(result);
-  return afterSession(path, gitDirectory, branch, onto, originalTip, backup, before, agentResult, context);
+  // Timber saw this rebase complete itself, so its rebase-origin backups can start retention.
+  const observeCompletion = async () => {
+    try { await services.startRebaseRetention?.(repository, io, { gitDirectory, branch }); }
+    catch { /* Best effort: retention then waits for a later observation. */ }
+  };
+  return afterSession(path, gitDirectory, branch, onto, originalTip, backup, before, agentResult, context, observeCompletion);
 }
 
 async function afterSession(
   path: string, gitDirectory: string, branch: string, onto: string, originalTip: string, backup: string,
-  before: ResolveState, agent: { code: number; text: string }, context: CommandContext,
+  before: ResolveState, agent: { code: number; text: string }, context: CommandContext, observeCompletion: () => Promise<void>,
 ): Promise<number> {
   const io = context.io;
   (agent.code === 0 ? io.stdout : io.stderr)(`${agent.text}\n`);
@@ -307,7 +313,7 @@ async function afterSession(
   }
   reportChanges(io, before, after, backup);
   const failed = () => agent.code || 1;
-  if (await completed(path, after, branch, onto)) return finished(io, path, onto, originalTip, agent.code);
+  if (await completed(path, after, branch, onto)) { await observeCompletion(); return finished(io, path, onto, originalTip, agent.code); }
   if (after.operation !== null && after.operation !== "rebase") {
     io.stderr(`error: The rebase is no longer paused, and a ${after.operation} operation is now in progress. Finish or abort it with Git's native commands.\nRecovery backup: ${backup}. Original branch tip: ${originalTip}.\n`);
     return failed();
@@ -340,7 +346,7 @@ async function afterSession(
     io.stderr(`error: Cannot inspect Git state after continuing. Inspect it with: git -C ${shellQuoteForDisplay(path)} status\n`);
     return failed();
   }
-  if (continued.exitCode === 0 && await completed(path, final, branch, onto)) return finished(io, path, onto, originalTip, agent.code);
+  if (continued.exitCode === 0 && await completed(path, final, branch, onto)) { await observeCompletion(); return finished(io, path, onto, originalTip, agent.code); }
   if (final.operation === "rebase" && final.unmerged.length) {
     io.stderr("error: A later commit conflicts. The rebase is paused again with unmerged paths:\n");
     for (const conflict of final.unmerged) io.stderr(`  ${jsonDisplay(conflict)}\n`);

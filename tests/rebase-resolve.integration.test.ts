@@ -1,7 +1,8 @@
 import { expect, mock, test } from "bun:test";
-import { chmod, readFile, writeFile } from "node:fs/promises";
+import { chmod, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { launchAgent } from "../src/agent";
+import { startRebaseRetention } from "../src/backup/lifecycle";
 import { createBackup } from "../src/backup/service";
 import { runCli } from "../src/cli";
 import { createRebaseHandler } from "../src/commands/rebase";
@@ -41,6 +42,7 @@ function invoke(cwd: string, args: string[], options: { answers?: string[]; inte
   const handler = createRebaseHandler({
     discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree,
     createBackup, launchAgent, ...options.services,
+    startRebaseRetention: (repository, io, observed) => startRebaseRetention(repository, io, new Date(), observed),
   });
   const run = runCli(["rebase", ...args], { context, handlers: { rebase: handler,
     setup: async () => {}, new: async () => {}, open: async () => {}, list: async () => {}, done: async () => {} } });
@@ -49,6 +51,13 @@ function invoke(cwd: string, args: string[], options: { answers?: string[]; inte
 
 const backups = (cwd: string) => git(cwd, "for-each-ref", "--format=%(refname)", "refs/timber/backups/");
 const unmerged = (cwd: string) => git(cwd, "diff", "--name-only", "--diff-filter=U");
+/** The single recovery backup's record; retention starts only once Timber observes the rebase end. */
+async function onlyRecord(primary: string): Promise<Record<string, unknown>> {
+  const root = join(primary, ".git/timber/backups");
+  const [id, ...rest] = await readdir(root);
+  expect(rest).toEqual([]);
+  return JSON.parse(await readFile(join(root, id!, "record.json"), "utf8")) as Record<string, unknown>;
+}
 const taskFile = async (target: string) => Bun.file(join(await git(target, "rev-parse", "--absolute-git-dir"), "timber-rebase-resolve-task.txt")).exists();
 
 test("assistant resolves, stages and continues; task carries config then CLI note; backup made first", async () => {
@@ -76,6 +85,10 @@ test("assistant resolves, stages and continues; task carries config then CLI not
     expect(task.indexOf("CLI-NOTE")).toBeGreaterThan(task.indexOf("CONFIG-NOTE"));
     expect(await readFile(join(directory, "backups-seen.txt"), "utf8")).toContain("refs/timber/backups/");
     expect(await taskFile(s.target)).toBe(false);
+    const record = await onlyRecord(primary);
+    expect(record).toMatchObject({ origin: "rebase", branch: "TIM-28-feature" });
+    expect(Date.parse(record.retentionStartedAt as string)).toBeGreaterThanOrEqual(Date.parse(record.createdAt as string));
+    expect(result.stdout).toContain(`Retention started for backup ${record.id as string}`);
   });
 });
 
@@ -116,6 +129,7 @@ test("assistant failure and termination keep the paused rebase, files and index 
       expect(await git(s.target, "ls-files", "-s")).toBe(index);
       expect(await git(s.target, "rev-parse", "FETCH_HEAD")).toBe(fetchHead);
       expect(await taskFile(s.target)).toBe(false);
+      expect(await onlyRecord(primary)).toMatchObject({ origin: "rebase", retentionStartedAt: null });
     });
   }
 });

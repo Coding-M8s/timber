@@ -230,7 +230,9 @@ export async function createBackup(
       version: 2, id, createdAt: now().toISOString(), commonGitDir,
       worktreePath: resolve(source.tree.path), worktreeGitDir: await realpath(source.gitDirectory),
       branch: paused ?? source.tree.branch, commit, ref, entries: manifest.length, bytes, manifestSha256: digest(manifestText),
-      origin: "manual", retentionDays: options.settings.retentionDays, keep: options.keep,
+      retentionDays: options.settings.retentionDays, keep: options.keep,
+      // A backup of a paused rebase waits for that rebase's observed end before its retention starts.
+      ...paused === undefined ? { origin: "manual" as const } : { origin: "rebase" as const, retentionStartedAt: null },
     };
     try {
       await writePrivateFile(join(working, "manifest.json"), manifestText);
