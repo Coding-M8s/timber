@@ -8,6 +8,7 @@ import { isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
 import { effortLevels } from "./effort";
+import { nativeArenaTools } from "./tools";
 import { assertWorktreeIdentity, listWorktrees } from "../git/worktrees";
 import type { RepositoryContext, Worktree } from "../types";
 import type {
@@ -38,7 +39,8 @@ const attemptSchema = z.strictObject({
   id: z.uuid(),
   label: z.string().regex(/^[a-z][a-z0-9_-]*-[1-9][0-9]*$/u),
   preset: z.string().regex(arenaNamePattern),
-  tool: z.enum(["codex", "claude", "cursor", "wrapper", "manual"]),
+  // Supersets only: records from older versions must keep loading.
+  tool: z.enum([...nativeArenaTools, "wrapper", "manual"]),
   configFingerprint: z
     .string()
     .regex(/^[0-9a-f]{64}$/u)
@@ -116,7 +118,7 @@ const manifestV2Schema = manifestV1Schema
     attempts: z
       .array(
         attemptSchema.extend({
-          harness: z.enum(["codex", "claude", "cursor", "wrapper", "manual"]),
+          harness: z.enum([...nativeArenaTools, "wrapper", "manual"]),
           model: modelSchema,
           effort: z.enum(effortLevels).nullable().optional(),
           effortEnvironment: z.enum([...effortLevels, "auto", "unrecognized"]).optional(),

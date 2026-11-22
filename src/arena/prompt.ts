@@ -18,6 +18,7 @@ import {
   configuredArenaModel,
   validateArenaModel,
 } from "./participants";
+import { isNativeArenaTool, nativeArenaTools, nativeArenaToolSpecs, type NativeArenaTool } from "./tools";
 
 export async function collectParticipants(
   config: RepositoryConfig,
@@ -34,9 +35,7 @@ export async function collectParticipants(
   while (true) {
     const tools = [
       { value: "manual", label: "Manual worktrees (no automatic agent)" },
-      { value: "codex", label: "Codex CLI: select model" },
-      { value: "claude", label: "Claude Code: select model" },
-      { value: "cursor", label: "Cursor CLI: select model" },
+      ...nativeArenaTools.map(value => ({ value, label: `${nativeArenaToolSpecs[value].label}: select model` })),
       ...(Object.keys(agents).length
         ? [
             {
@@ -69,9 +68,7 @@ export async function collectParticipants(
         const handoff = await prompt.select(
           "Choose task handoff for ordinary agent (tool is never guessed)",
           [
-            { value: "codex", label: "Codex interactive positional prompt" },
-            { value: "claude", label: "Claude interactive positional prompt" },
-            { value: "cursor", label: "Cursor interactive positional prompt" },
+            ...nativeArenaTools.map(value => ({ value, label: `${nativeArenaToolSpecs[value].label} interactive initial prompt` })),
             {
               value: "wrapper",
               label: "Custom wrapper reading TIMBER_TASK_FILE",
@@ -81,7 +78,7 @@ export async function collectParticipants(
           { search: true },
         );
         if (handoff === null) return null;
-        if (!config.agent || !["codex", "claude", "cursor", "wrapper"].includes(handoff))
+        if (!config.agent || (handoff !== "wrapper" && !isNativeArenaTool(handoff)))
           throw new Error("Invalid ordinary agent selection.");
         agents.configured = {
           tool: handoff as ArenaTool,
@@ -133,7 +130,7 @@ export async function collectParticipants(
         } else if (selected !== "default")
           model = selected.slice("model:".length);
         const metadata = models.find(choice => choice.value === model);
-        if (metadata?.efforts?.length || inherited !== null) {
+        if (nativeArenaToolSpecs[tool as NativeArenaTool].effort && (metadata?.efforts?.length || inherited !== null)) {
           const levels = [
             ...(inherited === null ? [] : [{ value: "inherit", label: `Use arena effort default (${inherited})` }]),
             { value: "default", label: "Use tool/model effort default" },
@@ -153,7 +150,7 @@ export async function collectParticipants(
       }
       group = {
         kind: "harness",
-        harness: tool as "codex" | "claude" | "cursor" | "manual",
+        harness: tool,
         model,
         effort,
         count: 1,

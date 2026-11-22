@@ -1,6 +1,7 @@
 import type { ExecutableCommand, ValidatedBase, RemoteBranch } from "../types";
+import type { NativeArenaTool } from "./tools";
 
-export type ArenaTool = "codex" | "claude" | "cursor" | "wrapper";
+export type ArenaTool = NativeArenaTool | "wrapper";
 export interface ArenaParticipantConfig extends ExecutableCommand {
   tool: ArenaTool;
   model?: string | undefined;

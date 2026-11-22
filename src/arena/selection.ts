@@ -8,10 +8,11 @@ import { configuredArenaModel, configuredArenaEffort, validateArenaModel } from 
 import { applyArenaEffort, discoverArenaModels } from "./models";
 import type { ArenaModelCatalog, ModelDiscovery } from "./models";
 import type { ArenaAttemptGroup, ArenaTool } from "./types";
+import { nativeArenaTools, nativeArenaToolSpecs, type NativeArenaTool } from "./tools";
 
 export const arenaTools: readonly ChoiceOption[] = [
-  { value: "codex", label: "Codex CLI" }, { value: "claude", label: "Claude Code" },
-  { value: "cursor", label: "Cursor CLI" }, { value: "manual", label: "Manual worktrees (no automatic agent)" },
+  ...nativeArenaTools.map(value => ({ value, label: nativeArenaToolSpecs[value].label })),
+  { value: "manual", label: "Manual worktrees (no automatic agent)" },
 ];
 
 export async function resolveArenaChoice(query: string, choices: readonly ChoiceOption[], label: string, prompt?: () => SetupPrompt): Promise<string | null> {
@@ -51,7 +52,9 @@ export async function normalizeArenaGroups(groups: readonly ArenaAttemptGroup[],
       const preset = await resolveArenaChoice(group.preset, choices, "agent preset", prompt);
       if (preset === null) return null;
       const selected = config.arena!.agents[preset]!;
-      const effort = configuredArenaEffort(selected) ?? group.effort ?? (selected.tool === "wrapper" || defaultEffort === "default" ? null : defaultEffort ?? null);
+      // Wrappers and tools without Timber effort support never inherit the arena default.
+      const inherits = selected.tool !== "wrapper" && nativeArenaToolSpecs[selected.tool].effort;
+      const effort = configuredArenaEffort(selected) ?? group.effort ?? (!inherits || defaultEffort === "default" ? null : defaultEffort ?? null);
       if (effort !== null) applyArenaEffort(selected.tool, configuredArenaModel(selected), effort, (await catalog(selected.tool)).models);
       normalized.push({ ...group, preset, ...(effort === null ? {} : { effort }) });
       continue;
@@ -62,7 +65,11 @@ export async function normalizeArenaGroups(groups: readonly ArenaAttemptGroup[],
       if (group.model !== null || group.effort != null) throw new Error("Manual runs have no model or effort.");
       normalized.push({ ...group, harness: tool }); continue;
     }
-    const requested = group.effort ?? defaultEffort;
+    const spec = nativeArenaToolSpecs[tool as NativeArenaTool];
+    if (!spec.effort && group.effort != null && group.effort !== "default")
+      throw new Error(`${spec.label} effort is not supported in arena; use its native default.`);
+    // Tools without Timber effort support keep their native setting under an arena default.
+    const requested = spec.effort ? group.effort ?? defaultEffort : null;
     const effort = requested === "default" ? null : requested ?? null;
     let model = group.model;
     const models = model !== null || effort !== null ? (await catalog(tool as ArenaTool)).models : [];

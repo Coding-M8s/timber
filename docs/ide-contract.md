@@ -36,6 +36,7 @@ timber publish --result-file /private/temp/publish.json -- '/absolute/worktree p
 timber pr --title 'Add login' --result-file /private/temp/pr.json -- '/absolute/worktree path'
 timber backup restore --result-file /private/temp/restore.json -- '<id>' '/absolute/new directory'
 timber __app-backup delete --id '<id>' --record-sha256 '<digest>' --result-file /private/temp/delete.json
+timber __app-arena tools
 timber __app-arena list
 timber __app-arena launch '<arena>' --attempt '<label>'
 timber arena new '<name>' --prompt-file /private/temp/task.txt --tool codex --runs 2 --no-editor --no-agent --result-file /private/temp/arena.json
@@ -1361,8 +1362,34 @@ ignore unknown fields. Arena commands are beta, as in the CLI.
 Task text never appears in these records, their diagnostics, or stdout and
 stderr. Pass the task to `arena new` through `--prompt-file` with a private
 temporary file, never `--prompt` on a command line. An agent reads the task from
-the arena's private snapshot, named by `TIMBER_TASK_FILE` and in its last
-argument.
+the arena's private snapshot, named by `TIMBER_TASK_FILE` and in the prompt
+Timber passes it. Where that prompt sits in `argv` differs by tool (a final
+argument after `--`, or a `--flag=<prompt>` argument); never parse `argv`.
+
+### Listing native tools
+
+`timber __app-arena tools` is hidden and read-only, and needs no repository. It
+prints the native tools this Timber accepts for `arena new --tool`, as one
+record plus newline on stdout, and exits 0. Offer only these; a tool missing
+from the list belongs to a newer Timber. An older Timber without this action
+prints an error and exits nonzero: treat that as `codex`, `claude` and `cursor`
+only.
+
+```ts
+type ArenaToolsRecord = {
+  schemaVersion: 1;
+  tools: {
+    tool: string;       // value for --tool, e.g. "codex", "gemini"
+    label: string;      // display name, e.g. "Gemini CLI"
+    executable: string; // program Timber starts, found on PATH
+    effort: boolean;    // --effort levels can be requested for this tool
+  }[];                  // in Timber's display order
+};
+```
+
+`manual` is always valid for `--tool` and is not listed. `wrapper` is only a
+preset tool, so it is not listed either. `effort: false` means an `--effort`
+level for that tool fails, and `--default-effort` does not apply to it.
 
 ### Listing arenas
 
@@ -1396,7 +1423,7 @@ type ArenaEntry = {
 
 type ArenaAttempt = {
   label: string;              // exact label for launch, resume and pick
-  tool: "codex" | "claude" | "cursor" | "wrapper" | "manual";
+  tool: "codex" | "claude" | "cursor" | "gemini" | "grok" | "opencode" | "copilot" | "wrapper" | "manual";
   preset: string;
   model: string | null;       // recorded model; null when the tool default was used or unknown
   effort: string | null;      // recorded requested effort, not proof of the effective one

@@ -6,6 +6,7 @@ import { recoverArenaParticipant } from "../arena/recovery";
 import { listArenaNames, observeArena, readArena, readArenaPick, validateArenaAttempt } from "../arena/storage";
 import { inspectArenaRemoval } from "../arena/summary";
 import { validateArenaName } from "../arena/participants";
+import { nativeArenaTools, nativeArenaToolSpecs, type NativeArenaTool } from "../arena/tools";
 import { attemptState, recordedAgent, type ArenaAttemptState } from "../arena/report";
 import type { ArenaAttemptRecord, ArenaManifest, ArenaStage } from "../arena/types";
 import type { RepositoryConfig, RepositoryContext } from "../types";
@@ -60,6 +61,26 @@ export interface AppArenaLaunchRecord {
   outcome: "ready" | "no-agent" | "failed";
   launch: { argv: string[]; cwd: string; environment: Record<string, string>; unset: string[] } | null;
   diagnostic: string | null;
+}
+
+export interface AppArenaTool {
+  tool: NativeArenaTool;
+  label: string;
+  executable: string;
+  effort: boolean;
+}
+
+export interface AppArenaToolsRecord {
+  schemaVersion: 1;
+  tools: AppArenaTool[];
+}
+
+/** The native tools this Timber accepts for `arena new --tool`; needs no repository. */
+export function readAppArenaTools(): AppArenaToolsRecord {
+  return { schemaVersion: 1, tools: nativeArenaTools.map(tool => {
+    const { label, executable, effort } = nativeArenaToolSpecs[tool];
+    return { tool, label, executable, effort };
+  }) };
 }
 
 export interface AppArenaServices {

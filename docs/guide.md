@@ -820,7 +820,9 @@ which editor/agent to use and whether agent launching should be enabled, while
 preserving existing values you keep. `timber setup --global` configures defaults
 for all repositories.
 
-For Codex, use `command = "codex"` instead. Executable names on `PATH` and
+For Codex, use `command = "codex"` instead. Setup also offers Gemini CLI
+(`gemini`), Grok Build (`grok`), OpenCode (`opencode`) and GitHub Copilot CLI
+(`copilot`) presets, each with no extra arguments. Executable names on `PATH` and
 absolute executable paths are supported. Each argument is passed literally;
 Timber sets the selected worktree as cwd and does not append its path to args.
 Keep credentials outside repository configuration.
@@ -1324,8 +1326,9 @@ guessed or copied from another active agent session.
 `--default-effort <level>` supplies an arena-wide fallback. Each tool group's
 `--effort <level>` overrides it; `--effort default` keeps that group's native
 setting. Saved preset effort wins over the fallback; a native preset without
-effort inherits it. Manual runs and opaque wrappers do not inherit native effort.
-Every resulting native tool/model combination is validated before creation:
+effort inherits it. Manual runs, opaque wrappers, and Gemini, Grok, OpenCode and
+Copilot (no effort support in Timber) do not inherit native effort.
+Every other resulting native tool/model combination is validated before creation:
 unsupported or unknown support is an error, never silently skipped. Use an explicit
 model with capability data, or opt that tool group out with `--effort default`.
 
@@ -1340,7 +1343,8 @@ timber arena new compare --prompt "Check whether 0.1 + 0.2 equals 0.3; explain b
 
 Effort appears after model selection when capability data supplies supported levels,
 plus “Use tool/model effort default.” With an arena default, the wizard also offers
-inheritance and native opt-out, including when model support is unknown. With no
+inheritance and native opt-out, including when model support is unknown, except
+for tools without effort support, which skip the effort question. With no
 arena or per-group effort, Timber passes no native effort override. Explicit effort
 requires a known explicit model and supported level; unsupported/unknown settings
 fail before creation. Codex uses its reasoning-effort configuration override;
@@ -1362,10 +1366,38 @@ variable can override the flag. Parent environment and other tools are unchanged
 Native settings, account policy, and in-session changes can still affect execution;
 Timber's requested value is not proof of actual runtime effort.
 
-Built-ins launch `codex`, `claude`, or `cursor-agent` on PATH. Cursor deliberately
-uses `cursor-agent`: `cursor` opens the editor, and `agent` can belong to another
-tool. Use installed, authenticated tools. Agents run sequentially in the invoking
-terminal; exit one tool to proceed to the next.
+Built-ins launch `codex`, `claude`, `cursor-agent`, `gemini`, `grok`, `opencode`,
+or `copilot` on PATH. Cursor deliberately uses `cursor-agent`: `cursor` opens the
+editor, and `agent` can belong to another tool. Use installed, authenticated tools.
+Agents run sequentially in the invoking terminal; exit one tool to proceed to the
+next.
+
+Each tool starts an interactive session with the task handoff as its first prompt,
+and gets `--model <id>` when you choose a model:
+
+| `--tool` | Program | Task prompt | Preset arguments allowed | Checked against |
+| --- | --- | --- | --- | --- |
+| `codex` | `codex` | `-- <prompt>` | `--model`/`-m`, `--profile`/`-p`, `--config`/`-c`, `--sandbox`/`-s`, `--ask-for-approval`/`-a`, `--no-alt-screen`, `--no-daemon`, `--search` | unchanged |
+| `claude` | `claude` | `-- <prompt>` | `--model`, `--effort`, `--permission-mode`, `--agent`, `--no-chrome` | unchanged |
+| `cursor` | `cursor-agent` | `-- <prompt>` | `--model` | unchanged |
+| `gemini` | `gemini` | `--prompt-interactive=<prompt>` | `--model`/`-m`, `--approval-mode`, `--sandbox`/`-s` | source of v0.70.0, 2026-11-22 |
+| `grok` | `grok` | `-- <prompt>` | `--model`/`-m`, `--permission-mode`, `--agent`, `--no-alt-screen`, `--no-memory`, `--disable-web-search`, `--no-subagents` | installed 1.0.92 `--help`, 2026-11-22 |
+| `opencode` | `opencode` | `--prompt=<prompt>` | `--model`/`-m` (`provider/model`), `--agent` | source of v1.19.6, 2026-11-22 |
+| `copilot` | `copilot` | `--interactive=<prompt>` | `--model`, `--agent`, `--mode`, `--no-banner`, `--sandbox`, `--no-sandbox`, `--screen-reader` | GitHub docs for v1.0.114, 2026-11-22 |
+
+Permission modes are accepted as values; blanket auto-approve switches (such as
+Grok `--always-approve` or Copilot `--allow-all-tools`) are not. Other prompts,
+headless modes, resume, extra folders, worktrees and subcommands are refused.
+OpenCode 2.x has no `--model` on its interactive command, so an OpenCode run with
+a model fails there with OpenCode's own error; leave the model to OpenCode's
+settings. Copilot's docs show `--model=<id>`; Timber passes `--model <id>`, which
+was not checked against an installed Copilot. Gemini, Grok, OpenCode and Copilot
+have no model list or effort override in Timber: choose the native default, a
+saved preset, or an exact model ID, and leave effort to the tool. An arena-wide
+`--default-effort` skips them, as it skips wrappers; an explicit `--effort` on
+their group is an error. Give a native option's value with `=` when it starts
+with `-`. Gemini and Copilot
+may ask whether to trust each new attempt folder; answer in the tool.
 
 Attempt count controls batch size; agents still run one at a time. Each attempt
 needs its own worktree and setup, and planning/records hold the full batch in memory.
@@ -1404,7 +1436,9 @@ applies to the preceding tool or preset; following model/effort overrides on a
 preset are rejected. Optional native `effort` belongs beside `model` in TOML.
 Do not duplicate fields in native arguments: Codex `-m`/`--model` and Claude
 `--model`/`--effort` remain supported when unambiguous. Cursor presets accept only
-native `--model` arguments; effort must match the explicit model variant. Wrapper
+native `--model` arguments; effort must match the explicit model variant. Gemini,
+Grok, OpenCode and Copilot presets take the arguments in the table above and no
+`effort` field. Wrapper
 models/effort stay in literal wrapper arguments. No native print, resume, workspace
 override, or Cursor-created nested worktree behavior is added.
 

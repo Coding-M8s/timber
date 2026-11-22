@@ -287,3 +287,27 @@ test("unknown action and a launch without --attempt fail before reading anything
     expect(record.diagnostic).toMatch(/--attempt/);
   });
 });
+
+test("tools lists every native tool arena new accepts, without a repository", async () => {
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const outside = await mkdtemp(join(tmpdir(), "timber-app-arena-tools-"));
+  try {
+    const discover = async () => { throw new Error("no repository needed"); };
+    const { code, record, stderr } = await app(outside, { discoverRepository: discover }).run("tools");
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+    expect(record).toEqual({ schemaVersion: 1, tools: [
+      { tool: "codex", label: "Codex CLI", executable: "codex", effort: true },
+      { tool: "claude", label: "Claude Code", executable: "claude", effort: true },
+      { tool: "cursor", label: "Cursor CLI", executable: "cursor-agent", effort: true },
+      { tool: "gemini", label: "Gemini CLI", executable: "gemini", effort: false },
+      { tool: "grok", label: "Grok Build", executable: "grok", effort: false },
+      { tool: "opencode", label: "OpenCode", executable: "opencode", effort: false },
+      { tool: "copilot", label: "GitHub Copilot CLI", executable: "copilot", effort: false },
+    ] });
+    await expect(app(outside).run("tools", "extra")).rejects.toThrow(/no arguments/);
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
