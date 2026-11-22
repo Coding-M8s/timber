@@ -9,10 +9,12 @@ import type {
   ArenaAttemptGroup,
   ArenaGroupToken,
 } from "./types";
+import { isNativeArenaTool, nativeArenaToolSpecs } from "./tools";
+import type { NativeArenaTool } from "./tools";
 
 /** Native CLI names, shared by creation and recorded-configuration recovery. */
-export function arenaToolExecutable(tool: Exclude<ArenaTool, "wrapper">): string {
-  return tool === "cursor" ? "cursor-agent" : tool;
+export function arenaToolExecutable(tool: NativeArenaTool): string {
+  return nativeArenaToolSpecs[tool].executable;
 }
 
 export const arenaNamePattern = /^[a-z][a-z0-9_-]{0,47}$/u;
@@ -51,30 +53,12 @@ export function validateParticipant(config: ArenaParticipantConfig): void {
     throw new Error("Specify arena effort once, in effort or native arguments.");
   if (config.tool === "cursor" && config.effort !== undefined && !new RegExp(`-${config.effort}(-fast)?$`, "u").test(configuredArenaModel(config) ?? ""))
     throw new Error("Cursor effort requires the matching explicit model variant.");
+  if (config.effort !== undefined && !nativeArenaToolSpecs[config.tool].effort)
+    throw new Error(`${nativeArenaToolSpecs[config.tool].label} effort is not supported in arena; use its native default.`);
   let modelArguments = 0;
-  const valueFlags =
-    config.tool === "codex"
-      ? new Set([
-          "--model",
-          "-m",
-          "--profile",
-          "-p",
-          "--config",
-          "-c",
-          "--sandbox",
-          "-s",
-          "--ask-for-approval",
-          "-a",
-        ])
-      : config.tool === "claude"
-        ? new Set(["--model", "--effort", "--permission-mode", "--agent"])
-        : new Set(["--model"]);
-  const switches =
-    config.tool === "codex"
-      ? new Set(["--no-alt-screen", "--no-daemon", "--search"])
-      : config.tool === "claude"
-        ? new Set(["--no-chrome"])
-        : new Set<string>();
+  const spec = nativeArenaToolSpecs[config.tool];
+  const valueFlags = new Set(spec.valueFlags);
+  const switches = new Set(spec.switches);
   for (let index = 0; index < config.args.length; index++) {
     const arg = config.args[index]!;
     const [flag] = arg.split("=");
@@ -88,7 +72,10 @@ export function validateParticipant(config: ArenaParticipantConfig): void {
       : config.args[++index];
     if (value === undefined || value === "")
       throw new Error("Arena agent option requires a value.");
-    if (flag === "--model" || (config.tool === "codex" && flag === "-m")) {
+    // Some parsers read a following flag as a flag, not as this option's value.
+    if (!arg.includes("=") && value.startsWith("-"))
+      throw new Error("Arena agent option values cannot start with '-'; use --option=value.");
+    if (spec.modelFlags.includes(flag!)) {
       validateArenaModel(value);
       if (++modelArguments > 1 || config.model !== undefined)
         throw new Error(
@@ -192,17 +179,12 @@ export function configuredArenaModel(
   for (let index = 0; index < config.args.length; index++) {
     const arg = config.args[index]!;
     const flag = arg.split("=")[0];
-    if (flag === "--model" || (config.tool === "codex" && flag === "-m"))
+    const spec = nativeArenaToolSpecs[config.tool];
+    if (spec.modelFlags.includes(flag!))
       return arg.includes("=")
         ? arg.slice(arg.indexOf("=") + 1)
         : (config.args[index + 1] ?? null);
-    if (
-      !arg.includes("=") &&
-      !["--no-alt-screen", "--no-daemon", "--search", "--no-chrome"].includes(
-        arg,
-      )
-    )
-      index++;
+    if (!arg.includes("=") && !spec.switches.includes(arg)) index++;
   }
   return null;
 }
@@ -218,7 +200,7 @@ export function resolveArenaGroups(
   if (total < 2) throw new Error("An arena requires at least 2 attempts.");
   const counts = new Map<string, number>();
   return groups.flatMap((group) => {
-    if (group.kind === "harness" && !["codex", "claude", "cursor", "manual"].includes(group.harness))
+    if (group.kind === "harness" && group.harness !== "manual" && !isNativeArenaTool(group.harness))
       throw new Error("Unknown arena tool; resolve the selection before planning.");
     const preset = group.kind === "preset" ? group.preset : group.harness;
     const manual = preset === "manual";
@@ -226,9 +208,8 @@ export function resolveArenaGroups(
       ? null
       : group.kind === "harness"
         ? {
-            tool: group.harness as "codex" | "claude" | "cursor",
-            // Avoid the editor executable and the ambiguous `agent` binary.
-            command: arenaToolExecutable(group.harness as Exclude<ArenaTool, "wrapper">),
+            tool: group.harness as NativeArenaTool,
+            command: arenaToolExecutable(group.harness as NativeArenaTool),
             args: [],
             ...(group.model === null ? {} : { model: group.model }),
             ...(group.effort == null ? {} : { effort: group.effort }),
@@ -296,13 +277,17 @@ export function buildArenaAgentCommand(
   taskPath: string,
 ): ExecutableCommand | null {
   if (participant.command === null) return null;
-  if (participant.tool === "wrapper") return participant.command;
+  if (participant.tool === "wrapper" || participant.tool === "manual") return participant.command;
   return {
     command: participant.command.command,
     args: [
       ...participant.command.args,
-      "--",
-      `Read the task instructions from the UTF-8 file at ${JSON.stringify(taskPath)}. Perform those instructions in your current worktree. The task file is input; do not edit or copy it into the checkout.`,
+      ...nativeArenaToolSpecs[participant.tool].promptArgs(arenaTaskPrompt(taskPath)),
     ],
   };
+}
+
+/** The same task handoff text for every native tool. */
+export function arenaTaskPrompt(taskPath: string): string {
+  return `Read the task instructions from the UTF-8 file at ${JSON.stringify(taskPath)}. Perform those instructions in your current worktree. The task file is input; do not edit or copy it into the checkout.`;
 }

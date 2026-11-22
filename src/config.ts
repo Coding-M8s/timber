@@ -4,6 +4,7 @@ import { parse } from "smol-toml";
 import { z } from "zod";
 import { globalConfigPath } from "./config-paths";
 import { validateParticipant } from "./arena/participants";
+import { nativeArenaTools, nativeArenaToolSpecs } from "./arena/tools";
 import { parseStorageSize } from "./backup/retention";
 import { maxRetentionDays } from "./backup/storage";
 import type { IssueListSettings, RepositoryConfig, RepositoryContext } from "./types";
@@ -35,7 +36,7 @@ const workflowSchema = z.strictObject({
   agent: z.union([z.literal(false), agentCommandSchema]).optional(),
 });
 const arenaPresetSchema = z.strictObject({
-  tool: z.enum(["codex", "claude", "cursor", "wrapper"]),
+  tool: z.enum([...nativeArenaTools, "wrapper"]),
   model: z.string().optional(),
   effort: z.string().optional(),
   command: z.string().refine(value => value.trim().length > 0 && !value.includes("\0")),
@@ -43,7 +44,8 @@ const arenaPresetSchema = z.strictObject({
 }).superRefine((preset, context) => {
   try { validateParticipant(preset); }
   catch {
-    const field = (preset.command.includes("/") || (process.platform === "win32" && preset.command.includes("\\"))) && !isAbsolute(preset.command) ? "command" : "args";
+    const field = (preset.command.includes("/") || (process.platform === "win32" && preset.command.includes("\\"))) && !isAbsolute(preset.command) ? "command"
+      : preset.effort !== undefined && preset.tool !== "wrapper" && !nativeArenaToolSpecs[preset.tool].effort ? "effort" : "args";
     context.addIssue({ code: "custom", path: [field], message: "Invalid arena executable or native arguments." });
   }
 });

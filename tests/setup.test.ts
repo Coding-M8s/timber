@@ -557,3 +557,19 @@ test("rebase --resolve section needs an assistant in the edited scope and resele
   await editSetupSection("agent", file, target(file), scripted(["codex", false]), io().io, async () => true);
   expect(file.agent).toEqual({ command: "codex", args: [], enabled: false });
 });
+
+test("agent setup offers Gemini CLI, Grok Build, OpenCode and Copilot CLI presets", async () => {
+  for (const command of ["gemini", "grok", "opencode", "copilot"]) {
+    const file: ConfigFile = {};
+    const prompt = scripted([command, false]);
+    const select = prompt.select;
+    let offered: string[] = [];
+    prompt.select = async (message, choices, defaultValue, options) => {
+      if (message.startsWith("Use an AI coding assistant")) offered = choices.map(choice => choice.value);
+      return select(message, choices, defaultValue, options);
+    };
+    await editSetupSection("agent", file, target(file), prompt, io().io, async () => true);
+    expect(offered).toEqual(["none", "claude", "codex", "gemini", "grok", "opencode", "copilot", "custom"]);
+    expect(file.agent).toEqual({ command, args: [], enabled: false });
+  }
+});

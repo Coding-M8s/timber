@@ -165,6 +165,7 @@ test("completion offers built-in harnesses and omits hidden participant alias wi
   expect(await candidates("timber arena new demo --tool c")).toEqual([
     "claude",
     "codex",
+    "copilot",
     "cursor",
   ]);
   expect(await candidates("timber arena new demo --tool=ma")).toEqual([

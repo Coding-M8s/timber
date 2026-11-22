@@ -1,4 +1,5 @@
 import { safeDiagnostic } from "../display";
+import { isNativeArenaTool } from "./tools";
 import type { ArenaPlan, ArenaReview, PlannedAttempt, ArenaResumeOptions } from "./types";
 
 import { terminalStyle as arenaStyle } from "../terminal-style";
@@ -6,7 +7,7 @@ import { terminalStyle as arenaStyle } from "../terminal-style";
 type ArenaStyle = ReturnType<typeof arenaStyle>;
 
 export function arenaRunBlock(attempt: PlannedAttempt, number: number, total: number, style: ArenaStyle): string {
-  const native = ["codex", "claude", "cursor"].includes(attempt.tool);
+  const native = isNativeArenaTool(attempt.tool);
   const model = attempt.model ?? (native ? "tool default" : "not specified");
   const effort = attempt.effort == null
     ? native ? `tool/model default${attempt.effortEnvironment ? `; CLAUDE_CODE_EFFORT_LEVEL=${attempt.effortEnvironment} (inherited)` : ""}; effective unknown` : "not specified"

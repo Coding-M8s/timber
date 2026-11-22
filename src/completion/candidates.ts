@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { nativeArenaTools } from "../arena/tools";
 import { listBranches } from "../git/branches";
 import { discoverRepository } from "../git/repository";
 import { listWorktreeInventory } from "../git/worktrees";
@@ -93,11 +94,11 @@ export async function completionCandidates(program: Command, request: Completion
   }
   if (expectingValue) {
     const previous = words.at(-1);
-    if (previous === "--tool" && command.parent?.name() === "arena") return filtered(["codex", "claude", "cursor", "manual"], prefix);
+    if (previous === "--tool" && command.parent?.name() === "arena") return filtered([...nativeArenaTools, "manual"], prefix);
     return previous === "--base" ? filtered(await repositoryCandidates(cwd, command.name() === "rebase" ? "rebase-base" : "base"), prefix) : [];
   }
   if (!endOptions && prefix.startsWith("--tool=") && command.parent?.name() === "arena") {
-    return filtered(["codex", "claude", "cursor", "manual"].map(value => "--tool=" + value), prefix);
+    return filtered([...nativeArenaTools, "manual"].map(value => "--tool=" + value), prefix);
   }
   if (!endOptions && prefix.startsWith("--base=") && options.some(option => option.long === "--base")) {
     return filtered((await repositoryCandidates(cwd, command.name() === "rebase" ? "rebase-base" : "base")).map(value => "--base=" + value), prefix);
