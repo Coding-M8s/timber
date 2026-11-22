@@ -67,6 +67,49 @@ export async function worktreeGitDirectory(
     throw identityFailure(`Worktree path is not a directory: ${tree.path}`, "Worktree path is not a directory");
   }
 
+  const gitDirectory = await readWorktreeIdentity(repository, tree);
+
+  let matchesWorktree: boolean;
+  try {
+    matchesWorktree = tree.isPrimary
+      ? samePath(gitDirectory, repository.commonGitDir)
+      : samePath((await readFile(join(gitDirectory, "gitdir"), "utf8")).replace(/\r?\n$/, ""),
+        resolve(tree.path, ".git"));
+  } catch {
+    throw identityFailure(
+      `Cannot verify Git metadata for worktree at ${tree.path}.`,
+      "Cannot inspect worktree; check Git metadata and access",
+    );
+  }
+  if (!matchesWorktree) {
+    throw identityFailure(
+      `Git metadata for worktree at ${tree.path} belongs to a different path.`,
+      "Git metadata belongs to a different worktree path",
+    );
+  }
+  return gitDirectory;
+}
+
+/**
+ * Read a worktree's common Git directory, prefix and own Git directory and return
+ * the Git directory once the worktree still identifies this repository. One
+ * `rev-parse` answers all three in the common case; any failure or unexpected
+ * output repeats the reads one at a time so each failure keeps its own message.
+ */
+async function readWorktreeIdentity(repository: RepositoryContext, tree: WorktreeInventory): Promise<string> {
+  try {
+    const combined = await runGit(tree.path, [
+      "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-prefix", "--absolute-git-dir",
+    ]);
+    const lines = combined.stdout.split("\n");
+    if (combined.exitCode === 0 && lines.length === 3 && lines[1] === "" &&
+        samePath(lines[0]!, repository.commonGitDir)) {
+      return lines[2]!;
+    }
+  } catch {
+    // Fall through to the separate reads, which report the failure precisely.
+  }
+
   let identity;
   let prefix;
   try {
@@ -102,24 +145,6 @@ export async function worktreeGitDirectory(
     );
   }
 
-  let matchesWorktree: boolean;
-  try {
-    matchesWorktree = tree.isPrimary
-      ? samePath(gitDirectory.stdout, repository.commonGitDir)
-      : samePath((await readFile(join(gitDirectory.stdout, "gitdir"), "utf8")).replace(/\r?\n$/, ""),
-        resolve(tree.path, ".git"));
-  } catch {
-    throw identityFailure(
-      `Cannot verify Git metadata for worktree at ${tree.path}.`,
-      "Cannot inspect worktree; check Git metadata and access",
-    );
-  }
-  if (!matchesWorktree) {
-    throw identityFailure(
-      `Git metadata for worktree at ${tree.path} belongs to a different path.`,
-      "Git metadata belongs to a different worktree path",
-    );
-  }
   return gitDirectory.stdout;
 }
 

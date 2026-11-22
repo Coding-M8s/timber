@@ -50,18 +50,7 @@ export async function discoverRepository(cwd: string, options?: GitReadOptions):
   }
   if (!cwdStat.isDirectory()) throw new Error(`Not a directory: ${cwd}`);
 
-  const inWorktree = await runGit(cwd, ["rev-parse", "--is-inside-work-tree"], options);
-  if (inWorktree.exitCode !== 0) throw new Error(`Not a Git repository: ${cwd}`);
-  if (inWorktree.stdout !== "true") {
-    const isBare = await runGit(cwd, ["rev-parse", "--is-bare-repository"], options);
-    if (isBare.exitCode === 0 && isBare.stdout === "true") {
-      throw new Error(`Bare Git repositories are unsupported: ${cwd}`);
-    }
-    throw new Error(`Not inside a Git worktree: ${cwd}`);
-  }
-
-  const currentWorktreeRoot = resolve(await gitOutput(cwd, ["rev-parse", "--show-toplevel"], "worktree root", options));
-  const commonGitDir = resolve(await gitOutput(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"], "common Git directory", options));
+  const { currentWorktreeRoot, commonGitDir } = await readLocation(cwd, options);
   const worktreeList = await gitOutput(cwd, ["worktree", "list", "--porcelain", "-z"], "primary worktree", options);
   const firstTerminator = worktreeList.indexOf("\0");
   if (firstTerminator < 0) throw new Error("Could not find primary worktree in Git metadata.");
@@ -78,11 +67,37 @@ export async function discoverRepository(cwd: string, options?: GitReadOptions):
     primaryWorktreeRoot = currentWorktreeRoot;
   }
 
+  // Read both at once, but report a branch failure first, as the sequential reads did.
+  const [branch, remoteList] = await Promise.allSettled([currentBranch(cwd, options), remotes(cwd, options)]);
+  if (branch.status === "rejected") throw branch.reason;
+  if (remoteList.status === "rejected") throw remoteList.reason;
+  return { currentWorktreeRoot, primaryWorktreeRoot, commonGitDir, currentBranch: branch.value, remotes: remoteList.value };
+}
+
+/**
+ * Read the worktree root and common Git directory. One `rev-parse` answers both
+ * inside a worktree; anywhere else it fails and the separate reads below explain why.
+ */
+async function readLocation(cwd: string, options?: GitReadOptions): Promise<{ currentWorktreeRoot: string; commonGitDir: string }> {
+  const combined = await runGit(cwd, [
+    "rev-parse", "--is-inside-work-tree", "--show-toplevel", "--path-format=absolute", "--git-common-dir",
+  ], options);
+  const lines = combined.stdout.split("\n");
+  if (combined.exitCode === 0 && lines.length === 3 && lines[0] === "true") {
+    return { currentWorktreeRoot: resolve(lines[1]!), commonGitDir: resolve(lines[2]!) };
+  }
+
+  const inWorktree = await runGit(cwd, ["rev-parse", "--is-inside-work-tree"], options);
+  if (inWorktree.exitCode !== 0) throw new Error(`Not a Git repository: ${cwd}`);
+  if (inWorktree.stdout !== "true") {
+    const isBare = await runGit(cwd, ["rev-parse", "--is-bare-repository"], options);
+    if (isBare.exitCode === 0 && isBare.stdout === "true") {
+      throw new Error(`Bare Git repositories are unsupported: ${cwd}`);
+    }
+    throw new Error(`Not inside a Git worktree: ${cwd}`);
+  }
   return {
-    currentWorktreeRoot,
-    primaryWorktreeRoot,
-    commonGitDir,
-    currentBranch: await currentBranch(cwd, options),
-    remotes: await remotes(cwd, options),
+    currentWorktreeRoot: resolve(await gitOutput(cwd, ["rev-parse", "--show-toplevel"], "worktree root", options)),
+    commonGitDir: resolve(await gitOutput(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"], "common Git directory", options)),
   };
 }
