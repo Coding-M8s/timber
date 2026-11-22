@@ -1,10 +1,4 @@
-import { runAppArena } from "./commands/app-arena";
-import { runAppBackup } from "./commands/app-backup";
-import { runAppConfig } from "./commands/app-config";
-import { runAppIssue } from "./commands/app-issue";
-import { runAppIssues } from "./commands/app-issues";
-import { runAppPullRequests } from "./commands/app-pr";
-import { runNativeCleanup } from "./machine-done";
+// App and machine-only commands load inside their actions so ordinary commands skip them.
 import { runMachineCommand } from "./machine";
 import { parseArenaGroups } from "./arena/participants";
 import type { ArenaGroupToken } from "./arena/types";
@@ -397,7 +391,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--approval-file <path>")
     .option("--result-file <path>")
     .action(async (action: string, target: string, options) => {
-      onExitCode(await runNativeCleanup(action, target, options, context));
+      onExitCode(await (await import("./machine-done")).runNativeCleanup(action, target, options, context));
     });
 
   program.command("__app-config <action> [integration]", { hidden: true })
@@ -406,35 +400,35 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .option("--result-file <path>")
     .option("--edit-tracked")
     .action(async (action: string, integration: string | undefined, options) => {
-      onExitCode(await runAppConfig(action, integration, options, context));
+      onExitCode(await (await import("./commands/app-config")).runAppConfig(action, integration, options, context));
     });
 
   program.command("__app-pr", { hidden: true })
-    .action(async () => { onExitCode(await runAppPullRequests(context)); });
+    .action(async () => { onExitCode(await (await import("./commands/app-pr")).runAppPullRequests(context)); });
 
   program.command("__app-backup <action>", { hidden: true })
     .option("--id <id>")
     .option("--record-sha256 <digest>")
     .option("--result-file <path>")
     .action(async (action: string, options) => {
-      onExitCode(await runAppBackup(action, options, context));
+      onExitCode(await (await import("./commands/app-backup")).runAppBackup(action, options, context));
     });
 
   program.command("__app-arena <action> [name]", { hidden: true })
     .option("--attempt <label>")
     .action(async (action: string, name: string | undefined, options: { attempt?: string }) => {
-      onExitCode(await runAppArena(action, name, options, context));
+      onExitCode(await (await import("./commands/app-arena")).runAppArena(action, name, options, context));
     });
 
   program.command("__app-issue <worktree>", { hidden: true })
-    .action(async (worktree: string) => { onExitCode(await runAppIssue(worktree, context)); });
+    .action(async (worktree: string) => { onExitCode(await (await import("./commands/app-issue")).runAppIssue(worktree, context)); });
 
   program.command("__app-issues <query> [text]", { hidden: true })
     .option("--tracker <tracker>")
     .option("--limit <count>")
     .option("--assigned")
     .action(async (query: string, text: string | undefined, options: { tracker?: string; limit?: string; assigned?: boolean }) => {
-      onExitCode(await runAppIssues(query, text, options, context));
+      onExitCode(await (await import("./commands/app-issues")).runAppIssues(query, text, options, context));
     });
 
   program.command("done <branch-or-worktree>")

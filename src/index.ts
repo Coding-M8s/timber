@@ -1,70 +1,26 @@
 #!/usr/bin/env bun
-import { APP_HANDOFF_VARIABLE, resolveAppHandoff } from "./app-handoff";
-import { resolveArenaSource, finalizeArenaSource } from "./arena/source";
-import { createArenaResumeHandler } from "./commands/arena-resume";
-import { createArenaPickHandler } from "./commands/arena-pick";
-import { summarizeArenaAttempt, inspectArenaRemoval } from "./arena/summary";
-import { archiveArenaAttempt } from "./arena/archive";
-import { createArenaNewHandler } from "./commands/arena-new";
-import { collectArenaInput } from "./arena/input";
-import { confirmArenaPlan, chooseArenaSource } from "./arena/prompt";
-import { planArenaDraft } from "./arena/plan";
-import { reserveArena, readArena, openArenaForResume, validateArenaAttempt, readArenaPick, openArenaForPick } from "./arena/storage";
-import { showInstallationHint } from "./guidance";
-import { runEditorTask } from "./editor-terminals/runner";
-import { createEditorTerminalLauncher } from "./editor-terminals/launch";
-import { createUninstallHandler } from "./commands/uninstall";
-import { createSetupHandler } from "./commands/setup";
-import { createSetupPrompt } from "./setup/terminal";
-import { checkExecutable } from "./setup/executable";
-import { inspectSetupTarget, saveSetupConfig } from "./setup/storage";
-import { createJiraSetupSession } from "./setup/jira";
-import { launchAgent } from "./agent";
-import { runCli } from "./cli";
-import { notifyAfterCommand, updateHandlers } from "./update/runtime";
-import { createRebaseHandler } from "./commands/rebase";
-import {
-  createBackupCleanupHandler, createBackupCreateHandler, createBackupDoneHandler, createBackupKeepHandler, createBackupListHandler,
-  createBackupRestoreHandler,
-} from "./commands/backup";
-import { cleanupBackups, listBackups, readBackupList, retainedBackups, reviewBackupDeletion, setBackupKeep, startRebaseRetention } from "./backup/lifecycle";
-import { createBackup, restoreBackup } from "./backup/service";
-import { rebaseWorktree, resolveRebaseTarget, selectBaseRef } from "./git/rebase";
-import { createPublishHandler } from "./commands/publish";
-import { createBaseHandler } from "./commands/base";
-import { publishWorktree } from "./git/publish";
-import { createPullRequestHandler } from "./commands/pr";
-import { openPullRequest } from "./github/pull-request";
-import { createDoneHandler } from "./commands/done";
-import { createListHandler } from "./commands/list";
-import { createNewHandler } from "./commands/new";
-import { createOpenHandler } from "./commands/open";
-import { loadRepositoryConfig } from "./config";
-import { launchEditor } from "./editor";
-import { runSetup } from "./hooks";
-import { resolveBase } from "./git/branches";
-import { cleanupWorktree } from "./git/cleanup";
-import { createWorktree } from "./git/create-worktree";
-import { inspectNewBranchCollision } from "./git/new-collision";
-import { resolveOpenTarget } from "./git/open-target";
-import { discoverRepository } from "./git/repository";
-import { listWorktrees } from "./git/worktrees";
-import { clearBaseAssociation, readBaseAssociation, writeBaseAssociation } from "./git/base-metadata";
-import { readIssueLink, writeIssueLink } from "./git/issue-link";
-import { jiraRuntime, resolveJiraTicket } from "./jira/client";
-import { resolveGithubRepository } from "./github/repository";
-import { linearRuntime, resolveLinearTicket } from "./linear/client";
-import { resolveGithubTicket } from "./github/client";
-import { assignIssue, readTrackerUser } from "./issue-assignment";
-import { createLinearSetupSession } from "./setup/linear";
-import { createBitbucketSetupSession } from "./setup/bitbucket";
-import { createGithubSetupSession } from "./setup/github";
-import { createTerminalChooser, createTerminalTextPrompt, shouldEnableInteractiveSelection } from "./selection";
+// Every Timber process starts here, including the many short-lived ones that
+// editors, completion and the app run. Modules load on first use, so a command
+// only pays for the code it actually runs.
+import type { CommandHandlers, CommandIO } from "./services";
 
 if (process.argv[2] === "__editor-task") {
+  const { runEditorTask } = await import("./editor-terminals/runner");
   process.exit(await runEditorTask(process.argv.length === 4 ? process.argv[3]! : ""));
 }
 
+/** Build a handler on its first call and reuse it afterwards. */
+function lazy<A extends unknown[], R>(build: () => Promise<(...args: A) => Promise<R>>): (...args: A) => Promise<R> {
+  let handler: Promise<(...args: A) => Promise<R>> | undefined;
+  return async (...args: A) => (await (handler ??= build()))(...args);
+}
+
+const io: CommandIO = {
+  stdout: text => { process.stdout.write(text); },
+  stderr: text => { process.stderr.write(text); },
+};
+
+const { createTerminalChooser, createTerminalTextPrompt, shouldEnableInteractiveSelection } = await import("./selection");
 const completing = process.argv[2] === "completion"
   || process.argv[2] === "__complete"
   || process.argv[2] === "__complete-words";
@@ -83,11 +39,17 @@ const interactive = process.stdin.isTTY === true && process.stdout.isTTY === tru
 const appHandoff = (process.argv[2] === "new" || process.argv[2] === "open")
   && !process.argv.slice(3).some(argument => argument === "--result-file" || argument.startsWith("--result-file=")
     || argument === "-h" || argument === "--help")
-  ? await resolveAppHandoff({ value: process.env[APP_HANDOFF_VARIABLE], interactive, uid: process.getuid?.() },
-    { stderr: text => { process.stderr.write(text); } })
+  ? await (async () => {
+    const { APP_HANDOFF_VARIABLE, resolveAppHandoff } = await import("./app-handoff");
+    return resolveAppHandoff({ value: process.env[APP_HANDOFF_VARIABLE], interactive, uid: process.getuid?.() },
+      { stderr: text => { process.stderr.write(text); } });
+  })()
   : null;
-const launchEditorTerminals = createEditorTerminalLauncher({ self: { executable: process.execPath,
-  ...(Bun.main.startsWith("/$bunfs/") ? {} : { entry: Bun.main }) } });
+const launchEditorTerminals = lazy(async () => {
+  const { createEditorTerminalLauncher } = await import("./editor-terminals/launch");
+  return createEditorTerminalLauncher({ self: { executable: process.execPath,
+    ...(Bun.main.startsWith("/$bunfs/") ? {} : { entry: Bun.main }) } });
+});
 
 const machineListing = (process.argv[2] === "ls" && process.argv.slice(3).includes("--json"))
   || (process.argv[2] === "backup" && process.argv[3] === "list" && process.argv.slice(4).includes("--json"))
@@ -97,102 +59,226 @@ const machineListing = (process.argv[2] === "ls" && process.argv.slice(3).includ
   || (process.argv[2] === "arena" && process.argv[3] === "pick" && process.argv.slice(4).includes("--json"))
   || process.argv[2] === "uninstall";
 if (!completing && !machineListing) {
-  await showInstallationHint({ stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
+  const { showInstallationHint } = await import("./guidance");
+  await showInstallationHint(io);
 }
 
-const openHandler = createOpenHandler({
-  discoverRepository,
-  loadConfig: loadRepositoryConfig,
-  resolveOpenTarget,
-  resolveGithubRepository, resolveGithubTicket,
-  resolveLinearTicket: (key, allowClosed, repository) => resolveLinearTicket(key, linearRuntime(repository?.commonGitDir), allowClosed),
-  resolveJiraTicket: (config, key, allowClosed, repository) => resolveJiraTicket(config, key, jiraRuntime(repository?.commonGitDir), allowClosed),
-  readIssueLink, writeIssueLink,
-  createWorktree,
-  runSetup,
-  launchEditor,
-  launchAgent,
-  launchEditorTerminals,
+// Dependencies most commands share. Bun caches each module after its first import.
+async function common() {
+  const [{ discoverRepository }, { loadRepositoryConfig }] = await Promise.all([
+    import("./git/repository"), import("./config"),
+  ]);
+  return { discoverRepository, loadConfig: loadRepositoryConfig };
+}
+
+async function launchers() {
+  const [{ runSetup }, { launchEditor }, { launchAgent }] = await Promise.all([
+    import("./hooks"), import("./editor"), import("./agent"),
+  ]);
+  return { runSetup, launchEditor, launchAgent };
+}
+
+async function trackers() {
+  const [jira, linear, github, githubRepository] = await Promise.all([
+    import("./jira/client"), import("./linear/client"), import("./github/client"), import("./github/repository"),
+  ]);
+  return {
+    resolveGithubRepository: githubRepository.resolveGithubRepository,
+    resolveGithubTicket: github.resolveGithubTicket,
+    resolveLinearTicket: (key: string, allowClosed: boolean, repository?: { commonGitDir: string }) =>
+      linear.resolveLinearTicket(key, linear.linearRuntime(repository?.commonGitDir), allowClosed),
+    resolveJiraTicket: (config: Parameters<typeof jira.resolveJiraTicket>[0], key: string, allowClosed: boolean,
+      repository?: { commonGitDir: string }) =>
+      jira.resolveJiraTicket(config, key, jira.jiraRuntime(repository?.commonGitDir), allowClosed),
+  };
+}
+
+const prompt = async () => {
+  const { createSetupPrompt } = await import("./setup/terminal");
+  return () => createSetupPrompt(process.stdin, process.stdout);
+};
+
+const openHandler = lazy(async () => {
+  const [{ createOpenHandler }, shared, launch, tracked, { resolveOpenTarget }, issueLink, { createWorktree }] = await Promise.all([
+    import("./commands/open"), common(), launchers(), trackers(), import("./git/open-target"),
+    import("./git/issue-link"), import("./git/create-worktree"),
+  ]);
+  return createOpenHandler({
+    ...shared, ...launch, ...tracked, resolveOpenTarget,
+    readIssueLink: issueLink.readIssueLink, writeIssueLink: issueLink.writeIssueLink,
+    createWorktree, launchEditorTerminals,
+  });
 });
 
-process.exitCode = await runCli(process.argv.slice(2), {
-  handlers: {
-    ...updateHandlers,
-    arenaNew: createArenaNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveSource: resolveArenaSource, finalizeSource: finalizeArenaSource, createWorktree,
-      planDraft: planArenaDraft, reserveArena, validateArenaAttempt, checkExecutable, runSetup, launchEditor, launchAgent,
-      collectInput: (options, config, context) => collectArenaInput(options, config, context,
-        () => createSetupPrompt(process.stdin, process.stdout)),
-      confirmPlan: (plan, review) => review ? review(plan) : confirmArenaPlan(plan, () => createSetupPrompt(process.stdin, process.stdout)),
+const backup = async () => {
+  const [commands, shared, lifecycle, service] = await Promise.all([
+    import("./commands/backup"), common(), import("./backup/lifecycle"), import("./backup/service"),
+  ]);
+  return { commands, discoverRepository: shared.discoverRepository, loadConfig: shared.loadConfig, lifecycle, service };
+};
+
+const handlers: CommandHandlers = {
+  update: lazy(async () => (await import("./update/runtime")).updateHandlers.update!),
+  updateCheck: lazy(async () => (await import("./update/runtime")).updateHandlers.updateCheck!),
+  arenaNew: lazy(async () => {
+    const [{ createArenaNewHandler }, shared, launch, source, { createWorktree }, { planArenaDraft }, storage,
+      { checkExecutable }, { collectArenaInput }, arenaPrompt, setupPrompt] = await Promise.all([
+      import("./commands/arena-new"), common(), launchers(), import("./arena/source"), import("./git/create-worktree"),
+      import("./arena/plan"), import("./arena/storage"), import("./setup/executable"), import("./arena/input"),
+      import("./arena/prompt"), prompt(),
+    ]);
+    return createArenaNewHandler({
+      ...shared, ...launch, resolveSource: source.resolveArenaSource, finalizeSource: source.finalizeArenaSource, createWorktree,
+      planDraft: planArenaDraft, reserveArena: storage.reserveArena, validateArenaAttempt: storage.validateArenaAttempt, checkExecutable,
+      collectInput: (options, config, context) => collectArenaInput(options, config, context, setupPrompt),
+      confirmPlan: (plan, review) => review ? review(plan) : arenaPrompt.confirmArenaPlan(plan, setupPrompt),
       chooseSource: async candidates => {
-        const prompt = createSetupPrompt(process.stdin, process.stdout);
-        try {return await chooseArenaSource(candidates, prompt);} finally {prompt.close();}
+        const terminal = setupPrompt();
+        try {return await arenaPrompt.chooseArenaSource(candidates, terminal);} finally {terminal.close();}
       },
-    }),
-    arenaResume: createArenaResumeHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, readArena, openArenaForResume,
-      validateArenaAttempt, checkExecutable, runSetup, launchEditor, launchAgent,
-    }),
-    arenaPick: createArenaPickHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, readArena, readArenaPick, openArenaForPick,
-      validateArenaAttempt, summarizeArenaAttempt, inspectArenaRemoval, archiveArenaAttempt, cleanupWorktree,
-    }),
-    uninstall: createUninstallHandler({ executablePath: process.execPath, standalone: Bun.main.startsWith("/$bunfs/"),
-      uid: process.getuid?.() }),
-    setup: createSetupHandler({ inspectTarget: inspectSetupTarget, save: saveSetupConfig, checkExecutable,
-      jira: commonGitDir => createJiraSetupSession(process.env, undefined, commonGitDir),
-      github: createGithubSetupSession,
-      linear: commonGitDir => createLinearSetupSession(process.env, undefined, commonGitDir),
-      bitbucket: createBitbucketSetupSession,
-      prompt: () => createSetupPrompt(process.stdin, process.stdout) }),
-    new: createNewHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveBase,
-      resolveJiraTicket: (config, key, allowClosed, repository) => resolveJiraTicket(config, key, jiraRuntime(repository?.commonGitDir), allowClosed),
-      resolveGithubRepository, resolveGithubTicket,
-      resolveLinearTicket: (key, allowClosed, repository) => resolveLinearTicket(key, linearRuntime(repository?.commonGitDir), allowClosed),
-      createWorktree, inspectNewBranchCollision, writeBaseAssociation, writeIssueLink, runSetup, launchEditor, launchAgent, launchEditorTerminals,
-      readTrackerUser, assignIssue,
+    });
+  }),
+  arenaResume: lazy(async () => {
+    const [{ createArenaResumeHandler }, shared, launch, storage, { checkExecutable }] = await Promise.all([
+      import("./commands/arena-resume"), common(), launchers(), import("./arena/storage"), import("./setup/executable"),
+    ]);
+    return createArenaResumeHandler({
+      ...shared, ...launch, readArena: storage.readArena, openArenaForResume: storage.openArenaForResume,
+      validateArenaAttempt: storage.validateArenaAttempt, checkExecutable,
+    });
+  }),
+  arenaPick: lazy(async () => {
+    const [{ createArenaPickHandler }, shared, storage, summary, { archiveArenaAttempt }, { cleanupWorktree }] = await Promise.all([
+      import("./commands/arena-pick"), common(), import("./arena/storage"), import("./arena/summary"),
+      import("./arena/archive"), import("./git/cleanup"),
+    ]);
+    return createArenaPickHandler({
+      ...shared, readArena: storage.readArena, readArenaPick: storage.readArenaPick, openArenaForPick: storage.openArenaForPick,
+      validateArenaAttempt: storage.validateArenaAttempt, summarizeArenaAttempt: summary.summarizeArenaAttempt,
+      inspectArenaRemoval: summary.inspectArenaRemoval, archiveArenaAttempt, cleanupWorktree,
+    });
+  }),
+  uninstall: lazy(async () => {
+    const { createUninstallHandler } = await import("./commands/uninstall");
+    return createUninstallHandler({ executablePath: process.execPath, standalone: Bun.main.startsWith("/$bunfs/"),
+      uid: process.getuid?.() });
+  }),
+  setup: lazy(async () => {
+    const [{ createSetupHandler }, storage, { checkExecutable }, jira, github, linear, bitbucket, setupPrompt] = await Promise.all([
+      import("./commands/setup"), import("./setup/storage"), import("./setup/executable"), import("./setup/jira"),
+      import("./setup/github"), import("./setup/linear"), import("./setup/bitbucket"), prompt(),
+    ]);
+    return createSetupHandler({ inspectTarget: storage.inspectSetupTarget, save: storage.saveSetupConfig, checkExecutable,
+      jira: commonGitDir => jira.createJiraSetupSession(process.env, undefined, commonGitDir),
+      github: github.createGithubSetupSession,
+      linear: commonGitDir => linear.createLinearSetupSession(process.env, undefined, commonGitDir),
+      bitbucket: bitbucket.createBitbucketSetupSession,
+      prompt: setupPrompt });
+  }),
+  new: lazy(async () => {
+    const [{ createNewHandler }, shared, launch, tracked, { resolveBase }, { createWorktree }, { inspectNewBranchCollision },
+      { writeBaseAssociation }, { writeIssueLink }, assignment] = await Promise.all([
+      import("./commands/new"), common(), launchers(), trackers(), import("./git/branches"), import("./git/create-worktree"),
+      import("./git/new-collision"), import("./git/base-metadata"), import("./git/issue-link"), import("./issue-assignment"),
+    ]);
+    return createNewHandler({
+      ...shared, ...launch, ...tracked, resolveBase,
+      createWorktree, inspectNewBranchCollision, writeBaseAssociation, writeIssueLink, launchEditorTerminals,
+      readTrackerUser: assignment.readTrackerUser, assignIssue: assignment.assignIssue,
       openExisting: openHandler,
-    }),
-    open: openHandler,
-    list: createListHandler({ discoverRepository, listWorktrees, loadConfig: loadRepositoryConfig, readBaseAssociation, readIssueLink }),
-    backupCreate: createBackupCreateHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, createBackup,
+    });
+  }),
+  open: openHandler,
+  list: lazy(async () => {
+    const [{ createListHandler }, shared, { listWorktrees }, { readBaseAssociation }, { readIssueLink }] = await Promise.all([
+      import("./commands/list"), common(), import("./git/worktrees"), import("./git/base-metadata"), import("./git/issue-link"),
+    ]);
+    return createListHandler({ ...shared, listWorktrees, readBaseAssociation, readIssueLink });
+  }),
+  backupCreate: lazy(async () => {
+    const [{ commands, discoverRepository, loadConfig, service }, { resolveRebaseTarget }] = await Promise.all([
+      backup(), import("./git/rebase"),
+    ]);
+    return commands.createBackupCreateHandler({
+      discoverRepository, loadConfig, createBackup: service.createBackup,
       // Backup selection must not run status: it can execute repository clean filters.
       resolveOpenTarget: (repository, input, config) => resolveRebaseTarget(repository, input, config, { inspectStatus: false }),
-    }),
-    backupRestore: createBackupRestoreHandler({ discoverRepository, restoreBackup }),
-    backupList: createBackupListHandler({ discoverRepository, listBackups, readBackupList }),
-    backupDone: createBackupDoneHandler({ discoverRepository, reviewBackupDeletion }),
-    backupCleanup: createBackupCleanupHandler({ discoverRepository, cleanupBackups: (repository, io) => cleanupBackups(repository, io) }),
-    backupKeep: createBackupKeepHandler({ discoverRepository, setBackupKeep: (repository, id, keep, io) => setBackupKeep(repository, id, keep, io) }),
-    rebase: createRebaseHandler({ discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget, rebaseWorktree, createBackup, launchAgent,
-      startRebaseRetention: (repository, io, observed) => startRebaseRetention(repository, io, new Date(), observed) }),
-    // Shares rebase selection so a paused rebase's branch reports its detached worktree.
-    base: createBaseHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget: resolveRebaseTarget,
-      readBaseAssociation, writeBaseAssociation, clearBaseAssociation, selectBaseRef,
-    }),
-    publish: createPublishHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, publishWorktree, resolveOpenTarget: resolveRebaseTarget,
-    }),
-    pr: createPullRequestHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, openPullRequest, resolveOpenTarget: resolveRebaseTarget,
-    }),
-    done: createDoneHandler({
-      discoverRepository, loadConfig: loadRepositoryConfig, resolveOpenTarget, cleanupWorktree, retainedBackups,
-    }),
-  },
+    });
+  }),
+  backupRestore: lazy(async () => {
+    const { commands, discoverRepository, service } = await backup();
+    return commands.createBackupRestoreHandler({ discoverRepository, restoreBackup: service.restoreBackup });
+  }),
+  backupList: lazy(async () => {
+    const { commands, discoverRepository, lifecycle } = await backup();
+    return commands.createBackupListHandler({ discoverRepository, listBackups: lifecycle.listBackups, readBackupList: lifecycle.readBackupList });
+  }),
+  backupDone: lazy(async () => {
+    const { commands, discoverRepository, lifecycle } = await backup();
+    return commands.createBackupDoneHandler({ discoverRepository, reviewBackupDeletion: lifecycle.reviewBackupDeletion });
+  }),
+  backupCleanup: lazy(async () => {
+    const { commands, discoverRepository, lifecycle } = await backup();
+    return commands.createBackupCleanupHandler({ discoverRepository,
+      cleanupBackups: (repository, backupIo) => lifecycle.cleanupBackups(repository, backupIo) });
+  }),
+  backupKeep: lazy(async () => {
+    const { commands, discoverRepository, lifecycle } = await backup();
+    return commands.createBackupKeepHandler({ discoverRepository,
+      setBackupKeep: (repository, id, keep, backupIo) => lifecycle.setBackupKeep(repository, id, keep, backupIo) });
+  }),
+  rebase: lazy(async () => {
+    const [{ createRebaseHandler }, shared, rebase, { createBackup }, { launchAgent }, { startRebaseRetention }] = await Promise.all([
+      import("./commands/rebase"), common(), import("./git/rebase"), import("./backup/service"), import("./agent"),
+      import("./backup/lifecycle"),
+    ]);
+    return createRebaseHandler({
+      ...shared, resolveOpenTarget: rebase.resolveRebaseTarget, rebaseWorktree: rebase.rebaseWorktree, createBackup, launchAgent,
+      startRebaseRetention: (repository, rebaseIo, observed) => startRebaseRetention(repository, rebaseIo, new Date(), observed),
+    });
+  }),
+  // Shares rebase selection so a paused rebase's branch reports its detached worktree.
+  base: lazy(async () => {
+    const [{ createBaseHandler }, shared, rebase, metadata] = await Promise.all([
+      import("./commands/base"), common(), import("./git/rebase"), import("./git/base-metadata"),
+    ]);
+    return createBaseHandler({
+      ...shared, resolveOpenTarget: rebase.resolveRebaseTarget, selectBaseRef: rebase.selectBaseRef,
+      readBaseAssociation: metadata.readBaseAssociation, writeBaseAssociation: metadata.writeBaseAssociation,
+      clearBaseAssociation: metadata.clearBaseAssociation,
+    });
+  }),
+  publish: lazy(async () => {
+    const [{ createPublishHandler }, shared, { publishWorktree }, { resolveRebaseTarget }] = await Promise.all([
+      import("./commands/publish"), common(), import("./git/publish"), import("./git/rebase"),
+    ]);
+    return createPublishHandler({ ...shared, publishWorktree, resolveOpenTarget: resolveRebaseTarget });
+  }),
+  pr: lazy(async () => {
+    const [{ createPullRequestHandler }, shared, { openPullRequest }, { resolveRebaseTarget }] = await Promise.all([
+      import("./commands/pr"), common(), import("./github/pull-request"), import("./git/rebase"),
+    ]);
+    return createPullRequestHandler({ ...shared, openPullRequest, resolveOpenTarget: resolveRebaseTarget });
+  }),
+  done: lazy(async () => {
+    const [{ createDoneHandler }, shared, { resolveOpenTarget }, { cleanupWorktree }, { retainedBackups }] = await Promise.all([
+      import("./commands/done"), common(), import("./git/open-target"), import("./git/cleanup"), import("./backup/lifecycle"),
+    ]);
+    return createDoneHandler({ ...shared, resolveOpenTarget, cleanupWorktree, retainedBackups });
+  }),
+};
+
+const { runCli } = await import("./cli");
+process.exitCode = await runCli(process.argv.slice(2), {
+  handlers,
   context: {
     cwd: process.cwd(),
     interactive,
-    io: {
-      stdout: text => { process.stdout.write(text); },
-      stderr: text => { process.stderr.write(text); },
-    },
+    io,
     ...(choose ? { choose } : {}),
     ...(ask ? { ask } : {}),
     ...(appHandoff ? { appHandoff } : {}),
   },
 });
-await notifyAfterCommand(process.argv.slice(2), { stdout: text => { process.stdout.write(text); }, stderr: text => { process.stderr.write(text); } });
+const { notifyAfterCommand } = await import("./update/runtime");
+await notifyAfterCommand(process.argv.slice(2), io);
