@@ -35,7 +35,7 @@ export async function collectParticipants(
   while (true) {
     const tools = [
       { value: "manual", label: "Manual worktrees (no automatic agent)" },
-      ...nativeArenaTools.map(value => ({ value, label: `${nativeArenaToolSpecs[value].label}: select model` })),
+      ...nativeArenaTools.map(value => ({ value, label: `${nativeArenaToolSpecs[value].label}${nativeArenaToolSpecs[value].interactive ? "" : " (one turn, no replies)"}: select model` })),
       ...(Object.keys(agents).length
         ? [
             {
@@ -68,7 +68,7 @@ export async function collectParticipants(
         const handoff = await prompt.select(
           "Choose task handoff for ordinary agent (tool is never guessed)",
           [
-            ...nativeArenaTools.map(value => ({ value, label: `${nativeArenaToolSpecs[value].label} interactive initial prompt` })),
+            ...nativeArenaTools.map(value => ({ value, label: `${nativeArenaToolSpecs[value].label} ${nativeArenaToolSpecs[value].interactive ? "interactive initial prompt" : "one-turn execute prompt"}` })),
             {
               value: "wrapper",
               label: "Custom wrapper reading TIMBER_TASK_FILE",

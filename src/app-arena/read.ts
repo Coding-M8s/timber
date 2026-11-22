@@ -68,6 +68,7 @@ export interface AppArenaTool {
   label: string;
   executable: string;
   effort: boolean;
+  interactive: boolean;
 }
 
 export interface AppArenaToolsRecord {
@@ -78,8 +79,8 @@ export interface AppArenaToolsRecord {
 /** The native tools this Timber accepts for `arena new --tool`; needs no repository. */
 export function readAppArenaTools(): AppArenaToolsRecord {
   return { schemaVersion: 1, tools: nativeArenaTools.map(tool => {
-    const { label, executable, effort } = nativeArenaToolSpecs[tool];
-    return { tool, label, executable, effort };
+    const { label, executable, effort, interactive } = nativeArenaToolSpecs[tool];
+    return { tool, label, executable, effort, interactive };
   }) };
 }
 

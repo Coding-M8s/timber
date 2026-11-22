@@ -1969,7 +1969,7 @@ process killing. Resume and pick are specified below.
 ### Tool, model, effort, and runs
 
 `--tool <query>` starts an ordered native (`codex`, `claude`, `cursor`, `gemini`,
-`grok`, `opencode`, `copilot`) or manual group; `--preset <query>` starts a saved
+`grok`, `opencode`, `copilot`, `qwen`, `amp`, `pi`) or manual group; `--preset <query>` starts a saved
 agent configuration group. `--model <id>` and `--effort <level>` attach only to a
 tool group; when both appear, model comes
 first. `--runs <count>` attaches to either tool or preset and defaults to one.
@@ -2012,7 +2012,8 @@ configuration/credentials into diagnostics.
 A native tool group's `--effort <level>` overrides it; `--effort default` opts that
 group into native defaults. A preset's saved effort wins over the fallback; native
 presets without saved effort inherit it. Manual and wrapper groups, and native
-tools without Timber effort support (Gemini, Grok, OpenCode, Copilot), do not
+tools without Timber effort support (Gemini, Grok, OpenCode, Copilot, Qwen Code,
+Amp, Pi), do not
 inherit native effort. Validate every other resulting native tool/model
 separately before Git mutation; unknown/unsupported levels fail with no silent
 skip. Global `default`
@@ -2044,31 +2045,42 @@ Native account/model policy remains authoritative. Presets
 may store optional native `effort`; reject duplicate field/native-argument effort.
 
 Built-ins invoke `codex`, `claude`, `cursor-agent`, `gemini`, `grok`, `opencode`,
-or `copilot` on PATH. Never substitute Cursor editor `cursor` or ambiguous `agent`.
+`copilot`, `qwen`, `amp`, or `pi` on PATH. Never substitute Cursor editor `cursor`
+or ambiguous `agent`.
 One table in `src/arena/tools.ts` holds each native tool's program, model flags,
-argument allow-list, effort support and task handoff, an interactive session
-seeded with the handoff prompt: `-- <prompt>` for Codex, Claude, Cursor and Grok
-(Grok has subcommands, so `--` is required), `--prompt-interactive=<prompt>` for
-Gemini, `--prompt=<prompt>` for OpenCode (its positional is a project directory),
-and `--interactive=<prompt>` for Copilot. A chosen model is passed as
-`--model <id>`. Gemini, Grok, OpenCode and Copilot have no Timber effort support:
+argument allow-list, effort support and task handoff. Every native tool except
+Amp starts an interactive session seeded with the handoff prompt: `-- <prompt>`
+for Codex, Claude, Cursor, Grok and Pi (Grok has subcommands, so `--` is
+required), `--prompt-interactive=<prompt>` for Gemini and Qwen Code,
+`--prompt=<prompt>` for OpenCode (its positional is a project directory), and
+`--interactive=<prompt>` for Copilot. Amp is the one exception: it accepts a
+first message on its command line only in execute mode, so Timber passes
+`--execute <prompt>`; Amp runs one turn in the invoking terminal, prints its
+final message, and exits, with no chance to reply. `__app-arena tools` marks it
+`interactive: false`. A chosen model is passed as
+`--model <id>`. Gemini, Grok, OpenCode, Copilot, Qwen Code, Amp and Pi have no
+Timber effort support:
 an `effort` field is rejected, native effort flags are not allowed, and an
 explicit `--effort <level>` for them fails as unsupported. Like wrappers, their
 groups and presets do not inherit `--default-effort`; they keep the native
 setting. A separate native option value may not start with `-` (use
-`--option=value`), because some parsers read it as another flag. Adding tool
+`--option=value`, except for Pi, whose parser matches flags exactly and so
+refuses the `=` form), because some parsers read it as another flag. Amp models
+must be `provider/name`, and Pi `--provider` needs a model; both are checked
+before Git mutation. Adding tool
 names changes short `--tool` queries: `co` now matches `codex` and `copilot`,
-and `g` matches `gemini` and `grok`. Gemini, Grok, OpenCode and Copilot have
-no model discovery. Flags, versions and provenance are listed in the
+and `g` matches `gemini` and `grok`. Gemini, Grok, OpenCode, Copilot, Qwen Code, Amp and Pi have no model
+discovery. Flags, versions and provenance are listed in the
 [guide](guide.md). Named presets own custom executable
 paths/literal args. Strict `[arena.agents.<name>]` tables accept tool (`codex`,
-`claude`, `cursor`, `gemini`, `grok`, `opencode`, `copilot`, `wrapper`), command,
-args (default []), and optional native model/effort. Older Timber releases reject
-the four newer tool names in config and in arena records; records from older
+`claude`, `cursor`, `gemini`, `grok`, `opencode`, `copilot`, `qwen`, `amp`, `pi`,
+`wrapper`), command, args (default []), and optional native model/effort. Older
+Timber releases reject the seven newer tool names in config and in arena records; records from older
 releases still load. Wrapper model/effort belong in literal args, not native fields.
 Accept unambiguous native --model/--model=..., Codex -m, and native effort arguments;
 restricted argument boundaries prohibit implicit prompt/subcommand/workspace/
-background/resume behavior. Cursor native args initially accept only --model.
+background/resume behavior. Amp's one-turn execute mode is the handoff itself,
+not a preset option; presets cannot add another `--execute`. Cursor native args initially accept only --model.
 Validate every config scope even for unused/overridden presets. Merge whole named
 presets; per-name false and arena=false remove inheritance. Setup preserves arena
 tables. Ordinary [agent]/workflow contracts remain compatible; ordinary-agent

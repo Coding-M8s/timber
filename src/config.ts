@@ -45,10 +45,16 @@ const arenaPresetSchema = z.strictObject({
   try { validateParticipant(preset); }
   catch {
     const field = (preset.command.includes("/") || (process.platform === "win32" && preset.command.includes("\\"))) && !isAbsolute(preset.command) ? "command"
-      : preset.effort !== undefined && preset.tool !== "wrapper" && !nativeArenaToolSpecs[preset.tool].effort ? "effort" : "args";
+      : preset.effort !== undefined && preset.tool !== "wrapper" && !nativeArenaToolSpecs[preset.tool].effort ? "effort"
+        : preset.model !== undefined && validatesWithoutModel(preset) ? "model" : "args";
     context.addIssue({ code: "custom", path: [field], message: "Invalid arena executable or native arguments." });
   }
 });
+/** The saved model field alone is the problem, such as an Amp model that is not provider/name. */
+function validatesWithoutModel(preset: Parameters<typeof validateParticipant>[0]): boolean {
+  const { model: _model, ...rest } = preset;
+  try { validateParticipant(rest); return true; } catch { return false; }
+}
 const arenaPresetNameSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/u).refine(name => name !== "manual" && name !== "configured");
 const workflowNameSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/u);
 
