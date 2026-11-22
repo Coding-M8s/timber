@@ -9,7 +9,7 @@
   "engines": { "bun": ">=1.4.5" },
   "scripts": {
     "dev": "bun src/index.ts",
-    "test": "bun test --parallel --timeout=30000",
+    "test": "bun test --parallel --timeout=30000 --timings tests/timings.json",
     "test:serial": "bun test --timeout=30000",
     "typecheck": "tsc --noEmit && tsc --noEmit -p vscode-extension",
     "check:attribution": "bun --no-env-file scripts/check-commit-attribution.ts",
