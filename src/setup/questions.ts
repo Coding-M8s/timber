@@ -78,14 +78,15 @@ async function launcher(
       vscodeTerminals: { command: "code", args: ["--new-window"], integration: "vscode" } }
     : { claude: { command: "claude", args: [] }, codex: { command: "codex", args: [] },
       gemini: { command: "gemini", args: [] }, grok: { command: "grok", args: [] },
-      opencode: { command: "opencode", args: [] }, copilot: { command: "copilot", args: [] } };
+      opencode: { command: "opencode", args: [] }, copilot: { command: "copilot", args: [] },
+      qwen: { command: "qwen", args: [] }, amp: { command: "amp", args: [] }, pi: { command: "pi", args: [] } };
   const labels: Record<string, string> = {
     code: "VS Code (opens the window; setup and assistant stay in this terminal)",
     zed: "Zed (opens the window; setup and assistant stay in this terminal)",
     orca: "Orca terminals (setup and assistant in the Orca window)",
     vscodeTerminals: "VS Code terminals (setup and assistant in VS Code; needs the Timber extension)",
     claude: "Claude", codex: "Codex", gemini: "Gemini", grok: "Grok",
-    opencode: "OpenCode", copilot: "Copilot",
+    opencode: "OpenCode", copilot: "Copilot", qwen: "Qwen Code", amp: "Amp", pi: "Pi",
   };
   const orca = key === "agent" && effectiveEditor(file, target)?.integration !== undefined;
   const choices = integrationChoices(key, file, target, [

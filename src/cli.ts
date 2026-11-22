@@ -285,7 +285,7 @@ export function createCli(dependencies: CliDependencies, onExitCode: (code: numb
     .description("Create at least 2 attempts; task entry and tool/model/effort/run selection are interactive by default")
     .option("--prompt-file <path>", "Read task instructions from a UTF-8 file; alternative to --prompt")
     .option("--name <name>", "Override arena name, including for another portion of a ticket")
-    .option("--tool <name>", "Start an ordered native tool (codex, claude, cursor, gemini, grok, opencode, copilot) or manual attempt group")
+    .option("--tool <name>", "Start an ordered native tool (codex, claude, cursor, gemini, grok, opencode, copilot, qwen, amp, pi) or manual attempt group")
     .option("--model <id>", "Select model for preceding native tool; omission uses its configured default")
     .option("--default-effort <level>", "Arena effort default; validated for each native tool/model that supports effort")
     .option("--effort <level>", "Override preceding tool/model effort; default keeps its native setting")

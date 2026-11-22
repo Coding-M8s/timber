@@ -171,5 +171,8 @@ test("completion offers built-in harnesses and omits hidden participant alias wi
   expect(await candidates("timber arena new demo --tool=ma")).toEqual([
     "--tool=manual",
   ]);
+  expect(await candidates("timber arena new demo --tool p")).toEqual(["pi"]);
+  expect(await candidates("timber arena new demo --tool=a")).toEqual(["--tool=amp"]);
+  expect(await candidates("timber arena new demo --tool q")).toEqual(["qwen"]);
   expect(await candidates("timber arena new --part")).toEqual([]);
 });

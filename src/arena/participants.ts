@@ -10,7 +10,7 @@ import type {
   ArenaGroupToken,
 } from "./types";
 import { isNativeArenaTool, nativeArenaToolSpecs } from "./tools";
-import type { NativeArenaTool } from "./tools";
+import type { NativeArenaTool, NativeArenaToolSpec } from "./tools";
 
 /** Native CLI names, shared by creation and recorded-configuration recovery. */
 export function arenaToolExecutable(tool: NativeArenaTool): string {
@@ -44,6 +44,7 @@ export function validateParticipant(config: ArenaParticipantConfig): void {
     return;
   }
   if (config.model !== undefined) validateArenaModel(config.model);
+  if (config.model !== undefined) validateToolModel(nativeArenaToolSpecs[config.tool], config.model);
   if (config.effort !== undefined && !isArenaEffort(config.effort))
     throw new Error("Invalid arena effort level.");
   const efforts = configuredEfforts(config);
@@ -67,6 +68,8 @@ export function validateParticipant(config: ArenaParticipantConfig): void {
       throw new Error(
         "Unsupported native arena argument. Use documented interactive options or a task-file wrapper.",
       );
+    if (arg.includes("=") && spec.separateValuesOnly)
+      throw new Error(`${spec.label} does not read --option=value; give the value as the next argument.`);
     const value = arg.includes("=")
       ? arg.slice(arg.indexOf("=") + 1)
       : config.args[++index];
@@ -74,15 +77,25 @@ export function validateParticipant(config: ArenaParticipantConfig): void {
       throw new Error("Arena agent option requires a value.");
     // Some parsers read a following flag as a flag, not as this option's value.
     if (!arg.includes("=") && value.startsWith("-"))
-      throw new Error("Arena agent option values cannot start with '-'; use --option=value.");
+      throw new Error(spec.separateValuesOnly
+        ? `${spec.label} option values cannot start with '-'.`
+        : "Arena agent option values cannot start with '-'; use --option=value.");
     if (spec.modelFlags.includes(flag!)) {
       validateArenaModel(value);
+      validateToolModel(spec, value);
       if (++modelArguments > 1 || config.model !== undefined)
         throw new Error(
           "Specify an arena model once, in model or native arguments.",
         );
     }
   }
+  const needsModel = config.args.find(arg => spec.needModel?.includes(arg.split("=")[0]!));
+  if (needsModel !== undefined && modelArguments === 0 && config.model === undefined)
+    throw new Error(`${spec.label} ${needsModel.split("=")[0]} needs a model; add --model or a model field.`);
+}
+
+function validateToolModel(spec: NativeArenaToolSpec, model: string): void {
+  if (spec.modelShape && !spec.modelShape.pattern.test(model)) throw new Error(spec.modelShape.message);
 }
 
 function configuredEfforts(config: ArenaParticipantConfig): string[] {

@@ -16,7 +16,8 @@ import { discoverRepository } from "../src/git/repository";
 import { resolveBase } from "../src/git/branches";
 import type { ArenaManifestV2, ArenaAttemptGroup, ArenaParticipantConfig, ArenaPlan } from "../src/arena/types";
 
-type NewTool = "gemini" | "grok" | "opencode" | "copilot";
+const newTools = ["gemini", "grok", "opencode", "copilot", "qwen", "amp", "pi"] as const;
+type NewTool = (typeof newTools)[number];
 
 const task = "/private/task ' $x.txt";
 const prompt = arenaTaskPrompt(task);
@@ -32,13 +33,22 @@ const builtins: [NewTool, string, string[]][] = [
   ["grok", "grok", ["--", prompt]],
   ["opencode", "opencode", [`--prompt=${prompt}`]],
   ["copilot", "copilot", [`--interactive=${prompt}`]],
+  ["qwen", "qwen", [`--prompt-interactive=${prompt}`]],
+  ["amp", "amp", ["--execute", prompt]],
+  ["pi", "pi", ["--", prompt]],
 ];
 
+test("the task prompt never starts with '-', so a separate prompt value is never read as a flag", () => {
+  expect(prompt.startsWith("-")).toBe(false);
+});
+
 for (const [tool, executable, handoff] of builtins) {
-  test(`${tool} built-in starts ${executable} with the task as its interactive initial prompt`, () => {
+  test(`${tool} built-in starts ${executable} with the task as its initial prompt`, () => {
     expect(argv({ kind: "harness", harness: tool, model: null, count: 1 })).toEqual([executable, ...handoff]);
-    expect(argv({ kind: "harness", harness: tool, model: "exact model;$(x)", count: 1 }))
-      .toEqual([executable, "--model", "exact model;$(x)", ...handoff]);
+    // Amp needs provider/name with no spaces.
+    const model = tool === "amp" ? "p/exact;$(x)" : "exact model;$(x)";
+    expect(argv({ kind: "harness", harness: tool, model, count: 1 }))
+      .toEqual([executable, "--model", model, ...handoff]);
   });
 }
 
@@ -55,6 +65,12 @@ const allowed: [NewTool, string[], string | null][] = [
   ["opencode", ["-m=openai/gpt"], "openai/gpt"],
   ["copilot", ["--model=gpt-5.3-codex", "--agent", "docs", "--mode", "plan", "--no-banner", "--sandbox", "--screen-reader"], "gpt-5.3-codex"],
   ["copilot", ["--no-sandbox"], null],
+  ["qwen", ["-m", "qwen3-coder-plus", "--approval-mode", "auto-edit", "--auth-type", "openai", "--screen-reader"], "qwen3-coder-plus"],
+  ["qwen", ["--model=qwen3-coder", "--approval-mode=plan"], "qwen3-coder"],
+  ["amp", ["--model", "openai/gpt-6-astra", "--no-ide", "--no-notifications", "--no-archive-after-execute"], "openai/gpt-6-astra"],
+  ["amp", ["--model=anthropic/claude-opus"], "anthropic/claude-opus"],
+  ["pi", ["--provider", "deepseek", "--model", "deepseek-v4-pro", "--tui-mode", "regular", "--offline", "--verbose"], "deepseek-v4-pro"],
+  ["pi", ["--model", "openrouter/qwen/qwen3-coder:high"], "openrouter/qwen/qwen3-coder:high"],
 ];
 for (const [tool, args, model] of allowed) test(`${tool} preset accepts documented interactive arguments ${JSON.stringify(args)}`, () => {
   const preset: ArenaParticipantConfig = { tool, command: tool, args };
@@ -79,6 +95,24 @@ const refused: [NewTool, string[]][] = [
   ["opencode", ["--agent", "--continue"]], ["gemini", ["--approval-mode", "--resume"]], ["copilot", ["--mode", "--allow-all"]],
   ["grok", ["--agent", "-c"]],
   ["copilot", ["--allow-tool", "shell"]], ["copilot", ["--effort", "high"]], ["copilot", ["-m", "model"]], ["copilot", ["--worktree"]],
+  ["qwen", ["-p", "other"]], ["qwen", ["-i", "other"]], ["qwen", ["--prompt-interactive=other"]], ["qwen", ["--yolo"]], ["qwen", ["-y"]],
+  ["qwen", ["--sandbox"]], ["qwen", ["-s", "docker"]], ["qwen", ["--continue"]], ["qwen", ["-r", "id"]], ["qwen", ["--session-id", "id"]],
+  ["qwen", ["--worktree", "x"]], ["qwen", ["--openai-api-key", "k"]], ["qwen", ["--system-prompt", "x"]], ["qwen", ["--allowed-tools", "shell"]],
+  ["qwen", ["--output-format", "json"]], ["qwen", ["--acp"]], ["qwen", ["extra prompt"]], ["qwen", ["--approval-mode", "--yolo"]],
+  ["amp", ["-x", "other"]], ["amp", ["--execute", "other"]], ["amp", ["--execute=other"]], ["amp", ["--dangerously-allow-all"]],
+  ["amp", ["--mode", "high"]], ["amp", ["-m", "high"]], ["amp", ["--effort", "high"]], ["amp", ["--stream-json"]], ["amp", ["-ox"]],
+  ["amp", ["--settings-file", "/elsewhere/settings.json"]], ["amp", ["--visibility", "public"]], ["amp", ["--no-tui"]],
+  ["amp", ["threads", "continue"]], ["amp", ["--model", "--dangerously-allow-all"]],
+  ["pi", ["-p"]], ["pi", ["--print"]], ["pi", ["--mode", "json"]], ["pi", ["--thinking", "high"]], ["pi", ["--api-key", "k"]],
+  ["pi", ["-a"]], ["pi", ["--approve"]], ["pi", ["-c"]], ["pi", ["--resume"]], ["pi", ["--session", "id"]], ["pi", ["--fork", "id"]],
+  ["pi", ["--tools", "read"]], ["pi", ["-e", "./ext.ts"]], ["pi", ["--system-prompt", "x"]], ["pi", ["--models", "a,b"]],
+  ["pi", ["-m", "model"]], ["pi", ["@file.md"]], ["pi", ["extra prompt"]], ["pi", ["install", "x"]], ["pi", ["--provider", "--offline"]],
+  // Pi matches flags exactly, so the = form would fail at launch.
+  ["pi", ["--model=deepseek/deepseek-v4-pro"]], ["pi", ["--provider=deepseek", "--model", "m"]], ["pi", ["--tui-mode=regular"]],
+  // Pi refuses --provider without --model.
+  ["pi", ["--provider", "deepseek"]],
+  // Amp refuses a model that is not provider/name.
+  ["amp", ["--model", "gpt-6-astra"]], ["amp", ["--model=astra"]],
 ];
 for (const [tool, args] of refused) test(`${tool} preset refuses ${JSON.stringify(args)}`, () => {
   expect(() => validateParticipant({ tool, command: tool, args })).toThrow();
@@ -87,8 +121,8 @@ for (const [tool, args] of refused) test(`${tool} preset refuses ${JSON.stringif
 });
 
 test("each new tool takes its model once and has no Timber effort override", () => {
-  for (const tool of ["gemini", "grok", "opencode", "copilot"] as const) {
-    expect(() => validateParticipant({ tool, command: tool, args: ["--model", "a"], model: "b" })).toThrow(/once/);
+  for (const tool of newTools) {
+    expect(() => validateParticipant({ tool, command: tool, args: ["--model", "p/a"], model: "p/b" })).toThrow(/once/);
     expect(() => validateParticipant({ tool, command: tool, args: [], effort: "high" })).toThrow(/effort/i);
   }
 });
@@ -111,8 +145,21 @@ args = ["--model", "anthropic/claude-sonnet"]
 tool = "copilot"
 command = "copilot"
 args = ["--model", "gpt-5.3-codex"]
+[arena.agents.q]
+tool = "qwen"
+command = "qwen"
+model = "qwen3-coder-plus"
+args = ["--approval-mode", "auto-edit"]
+[arena.agents.a]
+tool = "amp"
+command = "/opt/amp/bin/amp"
+args = ["--no-archive-after-execute"]
+[arena.agents.p]
+tool = "pi"
+command = "pi"
+args = ["--provider", "deepseek", "--model", "deepseek-v4-pro"]
 `, "/config");
-  expect(values.arena && Object.keys(values.arena.agents).sort()).toEqual(["c", "g", "o", "x"]);
+  expect(values.arena && Object.keys(values.arena.agents).sort()).toEqual(["a", "c", "g", "o", "p", "q", "x"]);
 });
 
 function record(group: ArenaAttemptGroup): ArenaManifestV2 {
@@ -130,10 +177,10 @@ function record(group: ArenaAttemptGroup): ArenaManifestV2 {
 }
 
 for (const [tool, executable, handoff] of builtins) test(`recovery replays a recorded ${tool} attempt`, () => {
-  const manifest = record({ kind: "harness", harness: tool, model: "exact", count: 2 });
+  const manifest = record({ kind: "harness", harness: tool, model: "p/exact", count: 2 });
   const participant = recoverArenaParticipant(manifest, manifest.attempts[0]!.id, arenaConfig);
-  expect(participant.command).toEqual({ command: executable, args: ["--model", "exact"] });
-  expect(buildArenaAgentCommand(participant, task)?.args).toEqual(["--model", "exact", ...handoff]);
+  expect(participant.command).toEqual({ command: executable, args: ["--model", "p/exact"] });
+  expect(buildArenaAgentCommand(participant, task)?.args).toEqual(["--model", "p/exact", ...handoff]);
 });
 
 test("arena records with every tool round-trip, and records written by older versions still load", async () => {
@@ -168,17 +215,18 @@ test("arena default effort skips tools without effort support, for tool groups a
   const config = { ...arenaConfig, arena: { agents: { mine: { tool: "gemini" as const, command: "gemini", args: [] } } } };
   const groups = await normalizeArenaGroups([
     { kind: "harness", harness: "codex", model: "model-a", count: 1 },
-    ...(["gemini", "grok", "opencode", "copilot"] as const).map(harness => ({ kind: "harness" as const, harness, model: null, count: 1 })),
+    ...newTools.map(harness => ({ kind: "harness" as const, harness, model: null, count: 1 })),
     { kind: "preset", preset: "mine", count: 1 },
   ], config, catalog, undefined, "high");
-  expect(groups?.map(g => g.effort ?? null)).toEqual(["high", null, null, null, null, null]);
+  const none = [...newTools, "mine"].map(() => null);
+  expect(groups?.map(g => g.effort ?? null)).toEqual(["high", ...none]);
   const runs = resolveArenaGroups(config, groups!);
-  expect(runs.map(r => r.effort)).toEqual(["high", null, null, null, null, null]);
+  expect(runs.map(r => r.effort)).toEqual(["high", ...none]);
   expect(runs[1]!.command?.args).toEqual([]);
 });
 
 test("explicit effort for a tool without effort support fails clearly; native default is accepted", async () => {
-  for (const harness of ["gemini", "grok", "opencode", "copilot"] as const) {
+  for (const harness of newTools) {
     await expect(normalizeArenaGroups([{ kind: "harness", harness, model: "model-a", effort: "high", count: 2 }], arenaConfig, catalog))
       .rejects.toThrow(/effort is not supported in arena/);
     expect((await normalizeArenaGroups([{ kind: "harness", harness, model: null, effort: "default", count: 2 }], arenaConfig, catalog))?.[0]?.effort).toBeNull();
@@ -191,6 +239,10 @@ test("short tool queries resolve the new names and stay explicit when ambiguous"
   expect((await resolve("grok"))?.[0]).toMatchObject({ harness: "grok" });
   expect((await resolve("open"))?.[0]).toMatchObject({ harness: "opencode" });
   expect((await resolve("cop"))?.[0]).toMatchObject({ harness: "copilot" });
+  expect((await resolve("q"))?.[0]).toMatchObject({ harness: "qwen" });
+  expect((await resolve("am"))?.[0]).toMatchObject({ harness: "amp" });
+  // "pi" is also inside "copilot"; the exact name wins.
+  expect((await resolve("pi"))?.[0]).toMatchObject({ harness: "pi" });
   await expect(resolve("co")).rejects.toThrow(/Ambiguous.*codex.*copilot/);
 });
 
@@ -216,4 +268,51 @@ test("arena wizard offers the new tools and skips the effort picker for them", a
 
 test("a saved effort on a tool without effort support names the effort field", () => {
   expect(() => parseConfigSource('[arena.agents.g]\ntool="gemini"\ncommand="gemini"\neffort="high"', "/config")).toThrow(/effort/);
+});
+
+test("the ordinary-agent handoff names Amp's one-turn execute mode and the others' interactive prompt", async () => {
+  const config = { ...arenaConfig, agent: { command: "amp", args: [], enabled: true } };
+  const selections = ["configured", "amp", "custom"], texts = ["2"];
+  let handoffs: { value: string; label: string }[] = [];
+  const prompt: SetupPrompt = {
+    select: async (message, choices) => {
+      if (/handoff/.test(message)) handoffs = [...choices];
+      return selections.shift()!;
+    },
+    text: async () => texts.shift() ?? null,
+    confirm: async () => false,
+    close() {},
+  };
+  await collectParticipants(config, prompt, catalog);
+  expect(handoffs.find(h => h.value === "amp")?.label).toBe("Amp one-turn execute prompt");
+  expect(handoffs.find(h => h.value === "pi")?.label).toBe("Pi interactive initial prompt");
+  expect(handoffs.find(h => h.value === "qwen")?.label).toBe("Qwen Code interactive initial prompt");
+});
+
+test("tool-specific model rules apply to tool groups and saved model fields before any worktree", () => {
+  expect(() => resolveArenaGroups(arenaConfig, [{ kind: "harness", harness: "amp", model: "gpt-6-astra", count: 2 }]))
+    .toThrow(/provider\/name/);
+  expect(argv({ kind: "harness", harness: "amp", model: "openai/gpt-6-astra", count: 1 }))
+    .toEqual(["amp", "--model", "openai/gpt-6-astra", "--execute", prompt]);
+  expect(() => validateParticipant({ tool: "amp", command: "amp", args: [], model: "astra" })).toThrow(/provider\/name/);
+  expect(() => validateParticipant({ tool: "pi", command: "pi", args: ["--provider", "deepseek"] })).toThrow(/--provider needs a model/);
+  expect(() => validateParticipant({ tool: "pi", command: "pi", args: ["--provider", "deepseek"], model: "deepseek-v4-pro" })).not.toThrow();
+  expect(() => validateParticipant({ tool: "pi", command: "pi", args: ["--model=m"] })).toThrow(/does not read --option=value/);
+  expect(() => validateParticipant({ tool: "pi", command: "pi", args: ["--tui-mode", "-x"] })).toThrow(/Pi option values cannot start/);
+});
+
+test("the tool picker warns that Amp runs one turn", async () => {
+  let labels: { value: string; label: string }[] = [];
+  const prompt: SetupPrompt = {
+    select: async (_message, choices) => { labels = [...choices]; return null; },
+    text: async () => null, confirm: async () => false, close() {},
+  };
+  await collectParticipants(arenaConfig, prompt, catalog);
+  expect(labels.find(c => c.value === "amp")?.label).toBe("Amp (one turn, no replies): select model");
+  expect(labels.find(c => c.value === "pi")?.label).toBe("Pi: select model");
+});
+
+test("a saved Amp model that is not provider/name names the model field", () => {
+  expect(() => parseConfigSource('[arena.agents.a]\ntool="amp"\ncommand="amp"\nmodel="astra"', "/config")).toThrow(/model/);
+  expect(() => parseConfigSource('[arena.agents.a]\ntool="amp"\ncommand="amp"\nmodel="openai/astra"', "/config")).not.toThrow();
 });

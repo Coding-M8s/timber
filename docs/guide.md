@@ -821,8 +821,9 @@ preserving existing values you keep. `timber setup --global` configures defaults
 for all repositories.
 
 For Codex, use `command = "codex"` instead. Setup also offers Gemini CLI
-(`gemini`), Grok Build (`grok`), OpenCode (`opencode`) and GitHub Copilot CLI
-(`copilot`) presets, each with no extra arguments. Executable names on `PATH` and
+(`gemini`), Grok Build (`grok`), OpenCode (`opencode`), GitHub Copilot CLI
+(`copilot`), Qwen Code (`qwen`), Amp (`amp`) and Pi (`pi`) presets, each with no
+extra arguments. Executable names on `PATH` and
 absolute executable paths are supported. Each argument is passed literally;
 Timber sets the selected worktree as cwd and does not append its path to args.
 Keep credentials outside repository configuration.
@@ -1326,8 +1327,9 @@ guessed or copied from another active agent session.
 `--default-effort <level>` supplies an arena-wide fallback. Each tool group's
 `--effort <level>` overrides it; `--effort default` keeps that group's native
 setting. Saved preset effort wins over the fallback; a native preset without
-effort inherits it. Manual runs, opaque wrappers, and Gemini, Grok, OpenCode and
-Copilot (no effort support in Timber) do not inherit native effort.
+effort inherits it. Manual runs, opaque wrappers, and Gemini, Grok, OpenCode,
+Copilot, Qwen Code, Amp and Pi (no effort support in Timber) do not inherit native
+effort.
 Every other resulting native tool/model combination is validated before creation:
 unsupported or unknown support is an error, never silently skipped. Use an explicit
 model with capability data, or opt that tool group out with `--effort default`.
@@ -1367,13 +1369,15 @@ Native settings, account policy, and in-session changes can still affect executi
 Timber's requested value is not proof of actual runtime effort.
 
 Built-ins launch `codex`, `claude`, `cursor-agent`, `gemini`, `grok`, `opencode`,
-or `copilot` on PATH. Cursor deliberately uses `cursor-agent`: `cursor` opens the
-editor, and `agent` can belong to another tool. Use installed, authenticated tools.
+`copilot`, `qwen`, `amp` or `pi` on PATH. Cursor deliberately uses `cursor-agent`:
+`cursor` opens the editor, and `agent` can belong to another tool. `pi` is a short
+name that another program may also use; check `command -v pi`, or save a preset
+with Pi's absolute path. Use installed, authenticated tools.
 Agents run sequentially in the invoking terminal; exit one tool to proceed to the
 next.
 
-Each tool starts an interactive session with the task handoff as its first prompt,
-and gets `--model <id>` when you choose a model:
+Each tool except Amp starts an interactive session with the task handoff as its
+first prompt, and every tool gets `--model <id>` when you choose a model:
 
 | `--tool` | Program | Task prompt | Preset arguments allowed | Checked against |
 | --- | --- | --- | --- | --- |
@@ -1384,20 +1388,49 @@ and gets `--model <id>` when you choose a model:
 | `grok` | `grok` | `-- <prompt>` | `--model`/`-m`, `--permission-mode`, `--agent`, `--no-alt-screen`, `--no-memory`, `--disable-web-search`, `--no-subagents` | installed 1.0.92 `--help`, 2026-11-22 |
 | `opencode` | `opencode` | `--prompt=<prompt>` | `--model`/`-m` (`provider/model`), `--agent` | source of v1.19.6, 2026-11-22 |
 | `copilot` | `copilot` | `--interactive=<prompt>` | `--model`, `--agent`, `--mode`, `--no-banner`, `--sandbox`, `--no-sandbox`, `--screen-reader` | GitHub docs for v1.0.114, 2026-11-22 |
+| `qwen` | `qwen` | `--prompt-interactive=<prompt>` | `--model`/`-m`, `--approval-mode`, `--auth-type`, `--screen-reader` | source of `@qwen-code/qwen-code` 0.28.4, read not run, 2026-11-22 |
+| `amp` | `amp` | `--execute <prompt>` (one turn) | `--model` (`provider/name`), `--no-ide`, `--no-notifications`, `--no-archive-after-execute` | ampcode.com CLI docs and help text in `@ampcode/cli` 0.0.1795377632-g0e89ea, read not run, 2026-11-22 |
+| `pi` | `pi` | `-- <prompt>` | `--model` (`provider/id`, optional `:<thinking>`), `--provider`, `--tui-mode`, `--offline`, `--verbose` | `docs/cli.md` of `@earendil-works/pi-coding-agent` 1.6.0, read not run, 2026-11-22 |
 
 Permission modes are accepted as values; blanket auto-approve switches (such as
 Grok `--always-approve` or Copilot `--allow-all-tools`) are not. Other prompts,
-headless modes, resume, extra folders, worktrees and subcommands are refused.
+headless modes (apart from Amp's handoff, below), resume, extra folders, worktrees
+and subcommands are refused.
 OpenCode 2.x has no `--model` on its interactive command, so an OpenCode run with
 a model fails there with OpenCode's own error; leave the model to OpenCode's
 settings. Copilot's docs show `--model=<id>`; Timber passes `--model <id>`, which
-was not checked against an installed Copilot. Gemini, Grok, OpenCode and Copilot
-have no model list or effort override in Timber: choose the native default, a
+was not checked against an installed Copilot. Gemini, Grok, OpenCode, Copilot,
+Qwen Code, Amp and Pi have no model list or effort override in Timber: choose the native default, a
 saved preset, or an exact model ID, and leave effort to the tool. An arena-wide
 `--default-effort` skips them, as it skips wrappers; an explicit `--effort` on
 their group is an error. Give a native option's value with `=` when it starts
-with `-`. Gemini and Copilot
+with `-` (not for Pi, which reads only the separate form). Gemini, Copilot and Pi
 may ask whether to trust each new attempt folder; answer in the tool.
+
+Amp takes a first message on its command line only in execute mode, so an Amp
+run is not interactive: it works through the task for one turn, prints its final
+message, and exits, and you cannot reply. In execute mode Amp refuses tool use it would otherwise
+ask you to approve; allow it ahead of time as Amp's permissions docs describe
+(https://ampcode.com/docs/tools#permissions), since Timber refuses
+`--dangerously-allow-all`. Amp archives the thread afterwards
+unless the preset adds `--no-archive-after-execute`. Amp's `--mode` is refused,
+because Amp rejects it beside `--model` and it also accepts a model ID. Amp's docs
+say `--model` works in execute mode, but Amp can report that the flag is not
+enabled for an account; then leave the model to Amp. Amp models are
+`provider/name`; Timber refuses another shape before creating worktrees.
+
+Pi starts its terminal UI with the task as the first message, rather than the
+one-shot `--print` mode, so the run stays interactive like the other tools. Use
+`--provider` and `--model` (or `--model provider/id`) to run DeepSeek, Qwen or
+other models through Pi; `--provider` needs a model, from `--model` or the
+preset's `model` field. Pi reads option values only as the next argument, so
+Timber refuses `--option=value` for Pi; a thinking level can follow the model as `:<level>`,
+while `--thinking` is refused like other native effort flags. Qwen Code's
+`--sandbox` is refused because Qwen reads it as an option with a value. Qwen
+Code 0.28.4 refuses `--prompt-interactive` while its `tools.executionSandbox`
+setting is on, so turn that setting off for Qwen arena runs. The
+Qwen Code, Amp and Pi flags were read from their published packages and docs,
+not checked against a running installed copy.
 
 Attempt count controls batch size; agents still run one at a time. Each attempt
 needs its own worktree and setup, and planning/records hold the full batch in memory.
@@ -1437,10 +1470,11 @@ preset are rejected. Optional native `effort` belongs beside `model` in TOML.
 Do not duplicate fields in native arguments: Codex `-m`/`--model` and Claude
 `--model`/`--effort` remain supported when unambiguous. Cursor presets accept only
 native `--model` arguments; effort must match the explicit model variant. Gemini,
-Grok, OpenCode and Copilot presets take the arguments in the table above and no
-`effort` field. Wrapper
+Grok, OpenCode, Copilot, Qwen Code, Amp and Pi presets take the arguments in the
+table above and no `effort` field. Wrapper
 models/effort stay in literal wrapper arguments. No native print, resume, workspace
-override, or Cursor-created nested worktree behavior is added.
+override, or Cursor-created nested worktree behavior is added, apart from Amp's
+execute mode, which is its only command-line task handoff.
 
 Presets merge by name; repository definitions replace whole same-name machine
 presets. Per-name `false` and root `arena = false` disable inheritance. Setup

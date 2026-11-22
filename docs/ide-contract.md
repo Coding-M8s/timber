@@ -1364,7 +1364,8 @@ stderr. Pass the task to `arena new` through `--prompt-file` with a private
 temporary file, never `--prompt` on a command line. An agent reads the task from
 the arena's private snapshot, named by `TIMBER_TASK_FILE` and in the prompt
 Timber passes it. Where that prompt sits in `argv` differs by tool (a final
-argument after `--`, or a `--flag=<prompt>` argument); never parse `argv`.
+argument after `--` or `--execute`, or a `--flag=<prompt>` argument); never
+parse `argv`.
 
 ### Listing native tools
 
@@ -1383,6 +1384,7 @@ type ArenaToolsRecord = {
     label: string;      // display name, e.g. "Gemini CLI"
     executable: string; // program Timber starts, found on PATH
     effort: boolean;    // --effort levels can be requested for this tool
+    interactive: boolean; // false: one turn, then the tool exits (Amp); additive v1 field
   }[];                  // in Timber's display order
 };
 ```
@@ -1390,6 +1392,9 @@ type ArenaToolsRecord = {
 `manual` is always valid for `--tool` and is not listed. `wrapper` is only a
 preset tool, so it is not listed either. `effort: false` means an `--effort`
 level for that tool fails, and `--default-effort` does not apply to it.
+`interactive: false` means the tool runs the task for one turn without accepting
+replies and then exits; today only Amp. `interactive` is an additive v1 field: a
+Timber that omits it offers only interactive tools.
 
 ### Listing arenas
 
@@ -1423,7 +1428,7 @@ type ArenaEntry = {
 
 type ArenaAttempt = {
   label: string;              // exact label for launch, resume and pick
-  tool: "codex" | "claude" | "cursor" | "gemini" | "grok" | "opencode" | "copilot" | "wrapper" | "manual";
+  tool: "codex" | "claude" | "cursor" | "gemini" | "grok" | "opencode" | "copilot" | "qwen" | "amp" | "pi" | "wrapper" | "manual";
   preset: string;
   model: string | null;       // recorded model; null when the tool default was used or unknown
   effort: string | null;      // recorded requested effort, not proof of the effective one
