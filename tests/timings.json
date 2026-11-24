@@ -135,6 +135,7 @@
     "tests/agent-commands.test.ts": 226,
     "tests/jira-auth.test.ts": 225,
     "tests/linear-client.test.ts": 204,
+    "tests/update-windows.test.ts": 180,
     "tests/done.test.ts": 178,
     "tests/new-assign.test.ts": 175,
     "tests/config-scopes.test.ts": 174,

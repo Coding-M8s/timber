@@ -303,14 +303,14 @@ describe("cli surface", () => {
 });
 
 // Command behavior, with the network and process seams replaced.
-interface Harness { deps: UpdateDeps; out: string; err: string; downloads: string[]; installs: Array<{ file: string; env: NodeJS.ProcessEnv }>; refreshes: number; installDir: string; executable: string }
+interface Harness { deps: UpdateDeps; out: string; err: string; downloads: string[]; installs: Array<{ file: string; env: NodeJS.ProcessEnv }>; windowsInstalls: Array<{ base: string; tag: string }>; refreshes: number; installDir: string; executable: string }
 
 async function harness(overrides: Partial<UpdateDeps> & { latest?: string | null; installer?: string } = {}): Promise<Harness> {
   const installDir = join(root, "bin");
   await mkdir(installDir, { recursive: true });
   const executable = join(installDir, "timber");
   await writeFile(executable, "#!/bin/sh\necho 0.1.2\n", { mode: 0o755 });
-  const state = { out: "", err: "", downloads: [] as string[], installs: [] as Array<{ file: string; env: NodeJS.ProcessEnv }>, refreshes: 0 };
+  const state = { out: "", err: "", downloads: [] as string[], installs: [] as Array<{ file: string; env: NodeJS.ProcessEnv }>, windowsInstalls: [] as Array<{ base: string; tag: string }>, refreshes: 0 };
   const { latest = "v0.1.4", installer = "#!/bin/sh\nexit 0\n", ...rest } = overrides;
   const deps: UpdateDeps = {
     env: { PATH: process.env.PATH ?? "" }, version: "0.1.2", platform: "linux", standalone: true, executablePath: executable,
@@ -324,9 +324,11 @@ async function harness(overrides: Partial<UpdateDeps> & { latest?: string | null
       state.out += result.stdout; state.err += result.stderr;
       return result.exitCode ?? 1;
     },
-    reportVersion: async () => "0.1.4", ...rest,
+    reportVersion: async () => "0.1.4",
+    installWindows: async (base, tag) => { state.windowsInstalls.push({ base, tag }); },
+    ...rest,
   };
-  const result = { deps, downloads: state.downloads, installs: state.installs, installDir, executable } as Harness;
+  const result = { deps, downloads: state.downloads, installs: state.installs, windowsInstalls: state.windowsInstalls, installDir, executable } as Harness;
   Object.defineProperties(result, { out: { get: () => state.out }, err: { get: () => state.err }, refreshes: { get: () => state.refreshes } });
   (result as unknown as { io: unknown }).io = { stdout: (t: string) => { state.out += t; }, stderr: (t: string) => { state.err += t; } };
   return result;
@@ -340,6 +342,7 @@ async function expectRefusal(h: Harness, pattern: RegExp, options: { check?: boo
   await expect(update(h, options)).rejects.toThrow(pattern);
   expect(h.downloads).toEqual([]);
   expect(h.installs).toEqual([]);
+  expect(h.windowsInstalls).toEqual([]);
   expect(h.refreshes).toBe(0);
   expect(Buffer.compare(before, await readFile(h.executable))).toBe(0);
 }
@@ -449,9 +452,8 @@ describe.skipIf(!posix)("timber update", () => {
     expect(h.downloads).toEqual([]);
   });
 
-  test("refuses from source, on Windows, with an unwritable directory, or without curl or sh", async () => {
+  test("refuses from source, with an unwritable directory, or without curl or sh", async () => {
     await expectRefusal(await harness({ standalone: false }), /standalone executable/u);
-    await expectRefusal(await harness({ platform: "win32" }), /docs\/windows\.md/u);
     await expectRefusal(await harness({ isWritable: async () => false }), /not writable/u);
     await expectRefusal(await harness({ hasCommand: async name => name !== "curl" }), /curl is required/u);
     await expectRefusal(await harness({ hasCommand: async name => name !== "sh" }), /sh is required/u);
@@ -470,5 +472,61 @@ describe.skipIf(!posix)("timber update", () => {
     await chmod(h.installDir, 0o555);
     try { expect(await realUpdateDeps().isWritable(h.installDir)).toBe(false); }
     finally { await chmod(h.installDir, 0o755); }
+  });
+});
+
+// The Windows branch runs on every host: platform is injected and the swap is a seam.
+describe("timber update on Windows", () => {
+  async function windowsHarness(overrides: Partial<UpdateDeps> & { latest?: string | null } = {}): Promise<Harness> {
+    const h = await harness({ platform: "win32", ...overrides });
+    h.executable = join(h.installDir, "timber.exe");
+    await writeFile(h.executable, "old build");
+    if (overrides.executablePath === undefined) h.deps.executablePath = h.executable;
+    return h;
+  }
+
+  test("installs the selected release through the Windows swap, without install.sh or sh", async () => {
+    const h = await windowsHarness({ hasCommand: async name => name === "curl" });
+    expect(await update(h)).toBe(0);
+    expect(h.windowsInstalls).toEqual([{ base: "https://fixture.test/releases", tag: "v0.1.4" }]);
+    expect(h.downloads).toEqual([]);
+    expect(h.installs).toEqual([]);
+    expect(h.out).toBe("Updating Timber 0.1.2 -> 0.1.4\nTimber is now version 0.1.4.\n");
+  });
+
+  test("--version selects the tag, and the up-to-date paths install nothing", async () => {
+    const pinned = await windowsHarness();
+    expect(await update(pinned, { version: "v0.1.3" })).toBe(0);
+    expect(pinned.windowsInstalls).toEqual([{ base: "https://fixture.test/releases", tag: "v0.1.3" }]);
+    expect(pinned.refreshes).toBe(0);
+    const latest = await windowsHarness({ latest: "v0.1.2" });
+    expect(await update(latest)).toBe(0);
+    expect(latest.out).toBe("Timber 0.1.2 is already the latest version.\n");
+    expect(latest.windowsInstalls).toEqual([]);
+  });
+
+  test("a failed swap reports its diagnostic and prints no success line", async () => {
+    const h = await windowsHarness({ installWindows: async () => { throw new Error("Checksum verification failed. Nothing was changed."); } });
+    await expect(update(h)).rejects.toThrow(/Checksum verification failed/u);
+    expect(h.out).not.toContain("now version");
+  });
+
+  test("matches timber.exe case-insensitively and splits Windows paths on any host", async () => {
+    const h = await windowsHarness({ executablePath: String.raw`C:\Users\me\AppData\Local\Programs\Timber\TIMBER.EXE` });
+    expect(await update(h)).toBe(0);
+    expect(h.windowsInstalls).toHaveLength(1);
+  });
+
+  test("refuses another name, a source run, missing curl or a bad releases URL before anything runs", async () => {
+    await expectRefusal(await windowsHarness({ executablePath: String.raw`C:\Tools\timber-dev.exe` }), /not named timber\.exe/u);
+    await expectRefusal(await windowsHarness({ standalone: false }), /standalone executable/u);
+    await expectRefusal(await windowsHarness({ hasCommand: async () => false }), /curl is required/u);
+    await expectRefusal(await windowsHarness({ releasesBase: () => null }), /https/u);
+  });
+
+  test("does not depend on the unreliable writability pre-check", async () => {
+    const h = await windowsHarness({ isWritable: async () => false });
+    expect(await update(h)).toBe(0);
+    expect(h.windowsInstalls).toHaveLength(1);
   });
 });

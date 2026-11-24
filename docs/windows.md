@@ -72,17 +72,21 @@ to name its tag, for example
 
 ## Update
 
-`timber update` is not available on Windows, and Windows does not show the
-"Update available" notice. To see whether a newer release exists, run:
-
 ```powershell
-timber update --check
+timber update --check   # is a newer release out?
+timber update           # install it
 ```
 
-To update, close any running `timber` commands (including agent sessions it
-started) and paste the install block above again. It replaces `timber.exe` in
-place; you do not need to repeat the PATH step. A failed update leaves your
-current version in place.
+`timber update` downloads the new `timber.exe`, checks it against the published
+SHA-256 checksum, runs it once, and only then swaps it in. You don't need to close
+other `timber` windows first. Windows can't overwrite a running program, so the old
+copy is renamed to `timber.exe.old` and removed by a later update. If anything
+fails, your current version stays in place. Windows does not show the "Update
+available" notice, so run `timber update --check` now and then.
+
+Older releases cannot update themselves on Windows. If `timber update` says
+"timber update is not supported on Windows", paste the install block above once
+more to get a version that can. You don't need to repeat the PATH step.
 
 ## Uninstall
 

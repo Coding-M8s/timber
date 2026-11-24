@@ -518,7 +518,7 @@ running `.exe` cannot delete itself. Defaults shown; `XDG_CONFIG_HOME` and
 
 | Item | Linux and macOS | Windows |
 | --- | --- | --- |
-| Executable | `~/.local/bin/timber` | `%LOCALAPPDATA%\Programs\Timber\timber.exe`, and its PATH entry |
+| Executable | `~/.local/bin/timber` | `%LOCALAPPDATA%\Programs\Timber\timber.exe` (plus any `timber.exe.old` files left by updates), and its PATH entry |
 | Machine settings | `~/.config/timber/config.toml` | `%USERPROFILE%\.config\timber\config.toml` |
 | Jira credentials | `~/.config/timber/credentials/jira.json` | `%USERPROFILE%\.config\timber\credentials\jira.json` |
 | Linear credentials | `~/.config/timber/credentials/linear.json` | `%USERPROFILE%\.config\timber\credentials\linear.json` |
@@ -926,7 +926,8 @@ installer's checksum verification and leave-unchanged-on-failure behavior apply.
 When you are already on the latest version it says so and downloads nothing. It
 refuses, changing nothing, when run from source, when the install directory is not
 writable, when the executable is not named `timber`, when `curl` or `sh` is
-missing, or on Windows (see [updating on Windows](windows.md#update)). `timber update --check` always
+missing. On Windows it downloads and verifies the new `timber.exe` itself and swaps
+it in while Timber is running (see [updating on Windows](windows.md#update)). `timber update --check` always
 does a fresh check and refreshes the cache; it cannot be combined with `--version`.
 
 ## Troubleshooting
