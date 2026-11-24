@@ -26,7 +26,7 @@ Linux x86_64 is the verified standalone platform, tested on Ubuntu 24.04 with
 glibc 2.39 and Git 2.43.0. Apple Silicon and Intel macOS downloads are available
 in [beta](releases.md#macos-beta); a minimum macOS version is not established.
 Other Linux distributions, architectures and musl/Alpine are not verified.
-See the [Windows guide](windows.md) for provisional Windows x64 downloads.
+On Windows x64 (provisional), follow the [Windows install steps](windows.md#install).
 
 ### One-line install
 
@@ -926,7 +926,7 @@ installer's checksum verification and leave-unchanged-on-failure behavior apply.
 When you are already on the latest version it says so and downloads nothing. It
 refuses, changing nothing, when run from source, when the install directory is not
 writable, when the executable is not named `timber`, when `curl` or `sh` is
-missing, or on Windows (see [Windows](windows.md)). `timber update --check` always
+missing, or on Windows (see [updating on Windows](windows.md#update)). `timber update --check` always
 does a fresh check and refreshes the cache; it cannot be combined with `--version`.
 
 ## Troubleshooting
