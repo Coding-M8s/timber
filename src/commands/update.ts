@@ -1,4 +1,4 @@
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, win32 } from "node:path";
 import type { CommandHandlers } from "../services";
 import { compareVersions, isReleaseTag } from "../update/tag";
 
@@ -24,6 +24,8 @@ export interface UpdateDeps {
   runInstaller(file: string, env: NodeJS.ProcessEnv): Promise<number>;
   /** What the executable prints for --version, or null. */
   reportVersion(executable: string): Promise<string | null>;
+  /** Windows: download, verify and swap in the release for `tag`; rejects with a diagnostic and changes nothing on failure. */
+  installWindows(base: string, tag: string): Promise<void>;
 }
 
 export interface UpdateOptions { check?: boolean; version?: string }
@@ -56,20 +58,21 @@ export function createUpdateHandler(deps: UpdateDeps): NonNullable<CommandHandle
     }
 
     // Refusals come before any network use and change nothing.
-    if (deps.platform === "win32") {
-      throw new Error("timber update is not supported on Windows. Follow docs/windows.md to install a new build.");
-    }
     if (!deps.standalone) {
       throw new Error("timber update only works on the standalone executable, not a source run. Update your checkout instead.");
     }
-    const installDir = dirname(deps.executablePath);
-    if (basename(deps.executablePath) !== "timber") {
-      throw new Error(`The running executable is not named timber (${basename(deps.executablePath)}); the installer would not replace it. Nothing was changed.`);
+    const windows = deps.platform === "win32";
+    const paths = windows ? win32 : { basename, dirname };
+    const installDir = paths.dirname(deps.executablePath);
+    const name = paths.basename(deps.executablePath);
+    if (windows ? name.toLowerCase() !== "timber.exe" : name !== "timber") {
+      throw new Error(`The running executable is not named ${windows ? "timber.exe" : "timber"} (${name}); the update would not replace it. Nothing was changed.`);
     }
-    if (!await deps.isWritable(installDir)) {
+    // Windows permission checks are unreliable here; the swap itself fails safely instead.
+    if (!windows && !await deps.isWritable(installDir)) {
       throw new Error(`The install directory ${installDir} is not writable. Nothing was changed.`);
     }
-    for (const command of ["curl", "sh"]) {
+    for (const command of windows ? ["curl"] : ["curl", "sh"]) {
       if (!await deps.hasCommand(command)) throw new Error(`${command} is required to update Timber. Nothing was changed.`);
     }
     const base = deps.releasesBase();
@@ -88,6 +91,14 @@ export function createUpdateHandler(deps: UpdateDeps): NonNullable<CommandHandle
     }
     if (options.version === undefined && comparison !== null && comparison <= 0) {
       io.stdout(`Timber ${current} is already the latest version.\n`);
+      return 0;
+    }
+
+    if (windows) {
+      io.stdout(`Updating Timber ${current} -> ${tag.slice(1)}\n`);
+      await deps.installWindows(base, tag);
+      const reported = await deps.reportVersion(deps.executablePath);
+      io.stdout(`Timber is now version ${reported ?? "unknown"}.\n`);
       return 0;
     }
 

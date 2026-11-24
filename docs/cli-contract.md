@@ -970,7 +970,7 @@ Interactive `backup done` is unchanged.
 `timber update [--check] [--version <tag>]` updates the standalone executable.
 `--version` takes the installer's tag grammar (`vMAJOR.MINOR.PATCH` with an
 optional `-rc.N`). `--check` and `--version` together are rejected. Without `--check` it refuses, with a diagnostic and no changes,
-on Windows, from a source run, when the install directory is not writable, when the
+from a source run, when the install directory is not writable, when the
 running executable is not named `timber`, or when `curl` or `sh` is missing. Otherwise
 it resolves the latest tag from the `releases/latest` redirect (or uses `--version`),
 exits 0 without downloading when that is the running version (or, for latest, an older one;
@@ -980,7 +980,25 @@ downloads `<releases>/download/<tag>/install.sh`, and runs `sh <file>` with
 set to the tag. `curl` and `sh` receive argument arrays only, and installer output streams to the terminal. A nonzero installer exit is an
 error and leaves the existing executable as the installer left it (unchanged on
 download or checksum failure). On success it prints the version the new executable
-reports. `--check` does a fresh check, refreshes the cache, prints either
+reports.
+
+On Windows the same refusals apply, except that the executable must be named
+`timber.exe` (case-insensitive), only `curl` is required, and there is no
+writability pre-check. Instead of `install.sh` it best-effort removes
+`timber.exe.old` and `timber.exe.old-<digits>` left beside the executable by earlier
+updates, then downloads `<releases>/download/<tag>/SHA256SUMS-windows-x64` and
+`timber-<tag>-windows-x64.exe` into a temporary directory, requires the manifest
+entry for that exact name to match the executable's SHA-256, and requires the
+download's `--version` to print the tag without its `v`. It then copies the download
+to `timber.exe.new` beside the executable, renames the running `timber.exe` to
+`timber.exe.old` (or `timber.exe.old-<digits>` when an earlier `.old` cannot be
+removed), and renames `timber.exe.new` to `timber.exe`. A failure before the first
+rename removes the staged copy and leaves `timber.exe` unchanged; a failure of the
+final rename restores the original, or names the moved-aside file when it cannot.
+After success it tries to delete the moved-aside file, which fails while any process
+still runs it. The update notice remains disabled on Windows.
+
+`--check` does a fresh check, refreshes the cache, prints either
 `Update available: timber X -> Y` plus `Run: timber update` or `Timber X is up to date.`,
 and installs nothing.
 

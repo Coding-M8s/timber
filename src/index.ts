@@ -3,6 +3,7 @@
 // editors, completion and the app run. Modules load on first use, so a command
 // only pays for the code it actually runs.
 import type { CommandHandlers, CommandIO } from "./services";
+import { isStandaloneMain } from "./platform/standalone";
 
 if (process.argv[2] === "__editor-task") {
   const { runEditorTask } = await import("./editor-terminals/runner");
@@ -48,7 +49,7 @@ const appHandoff = (process.argv[2] === "new" || process.argv[2] === "open")
 const launchEditorTerminals = lazy(async () => {
   const { createEditorTerminalLauncher } = await import("./editor-terminals/launch");
   return createEditorTerminalLauncher({ self: { executable: process.execPath,
-    ...(Bun.main.startsWith("/$bunfs/") ? {} : { entry: Bun.main }) } });
+    ...(isStandaloneMain() ? {} : { entry: Bun.main }) } });
 });
 
 const machineListing = (process.argv[2] === "ls" && process.argv.slice(3).includes("--json"))
@@ -160,7 +161,7 @@ const handlers: CommandHandlers = {
   }),
   uninstall: lazy(async () => {
     const { createUninstallHandler } = await import("./commands/uninstall");
-    return createUninstallHandler({ executablePath: process.execPath, standalone: Bun.main.startsWith("/$bunfs/"),
+    return createUninstallHandler({ executablePath: process.execPath, standalone: isStandaloneMain(),
       uid: process.getuid?.() });
   }),
   setup: lazy(async () => {
