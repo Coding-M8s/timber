@@ -26,6 +26,8 @@ rebases and cleanup, and applies the same safety checks every time.
 You need Git. Linux x86_64 is the tested platform.
 macOS is available in [beta for Apple Silicon and Intel](docs/releases.md#macos-beta).
 
+On Linux and macOS:
+
 ```bash
 curl -fsSL https://github.com/Coding-M8s/timber/releases/latest/download/install.sh | sh
 timber --help
@@ -36,9 +38,12 @@ The installer verifies the download and puts `timber` in `~/.local/bin`. If
 again to update.
 
 To read the script first, pin a version, or install by hand, see the
-[install steps](docs/guide.md#install-the-standalone-cli). Windows x64 downloads
-are provisional; see the [Windows guide](docs/windows.md). To work on Timber
+[install steps](docs/guide.md#install-the-standalone-cli). To work on Timber
 itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+**On Windows x64** (provisional), install Git for Windows, then paste the
+PowerShell block from the [Windows install steps](docs/windows.md#install). To
+update, paste the same block again; see [updating on Windows](docs/windows.md#update).
 
 Choose defaults in an interactive terminal:
 
@@ -81,7 +86,7 @@ Run these inside the Git repository you want to work on:
 | `timber done my-feature --base parent-feature` | Override the cleanup merge target |
 | `timber arena pick search-fix --inspect` | Compare arena attempts without changes |
 | `timber arena pick search-fix` | Keep a winner; archive and remove the rest |
-| `timber update` | Install the latest release; [update notice and opt-outs](docs/guide.md#update-notice-and-timber-update) |
+| `timber update` | Install the latest release on Linux and macOS ([Windows](docs/windows.md#update)); [update notice and opt-outs](docs/guide.md#update-notice-and-timber-update) |
 
 New folders normally live at `../<repository-name>-worktrees/<branch-slug>`.
 Timber prints the absolute path; `cd` there yourself. Existing worktrees skip
