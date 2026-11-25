@@ -11,6 +11,7 @@ import { createPullRequest, findOpenPullRequest, PullRequestFailure, type PullRe
 import { pullRequestRepositoryOfRemote, resolveGithubRepository, type GithubRepository, type PullRequestRepository } from "./repository";
 import { defaultBitbucketRuntime, type BitbucketRuntime } from "../bitbucket/client";
 import { createBitbucketPullRequest, findOpenBitbucketPullRequest } from "../bitbucket/pulls";
+import { bitbucketReviewerRequests } from "../bitbucket/reviewers";
 import { parseReviewers, requestReviewer, type ReviewerOutcome, type ReviewerRequest } from "./review-requests";
 
 export type PullRequestResult = "created" | "exists" | "refused" | "failed";
@@ -39,7 +40,7 @@ export interface PullRequestOptions {
   body?: string;
   base?: string;
   draft?: boolean;
-  /** User logins or org/team slugs to request review from on GitHub. */
+  /** Who to request review from: user logins or org/team slugs on GitHub, account IDs on Bitbucket. */
   reviewers?: string[];
 }
 
@@ -90,7 +91,7 @@ async function validBranchName(name: string): Promise<boolean> {
 }
 
 /** A remote-tracking or remote/branch name split at the longest configured remote name. */
-function splitRemote(repository: RepositoryContext, value: string): { remote: string; branch: string } | null {
+export function splitRemote(repository: RepositoryContext, value: string): { remote: string; branch: string } | null {
   const remote = [...repository.remotes].sort((a, b) => b.name.length - a.name.length)
     .find(candidate => value.startsWith(`${candidate.name}/`));
   return remote ? { remote: remote.name, branch: value.slice(remote.name.length + 1) } : null;
@@ -202,9 +203,7 @@ function pullRequestHost(base: PullRequestRepository, head: PullRequestRepositor
       login: async (signal: AbortSignal) => { await runtime.login(signal); },
       find: (branch: string, baseBranch: string) => findOpenBitbucketPullRequest(base, head, branch, baseBranch, runtime),
       create: (input: CreateInput) => createBitbucketPullRequest(base, head, input, runtime),
-      // Preflight refuses --reviewer on Bitbucket, so this is never reached with reviewers.
-      requestReviewer: async (_number: number, reviewer: ReviewerRequest): Promise<ReviewerOutcome> =>
-        ({ ...reviewer, result: "failed", diagnostic: "Reviewers can be requested only on github.com." }),
+      requestReviewer: bitbucketReviewerRequests(base, runtime),
     };
   }
   let token: Promise<string> | null = null;
@@ -226,7 +225,6 @@ export async function openPullRequest(
   io: CommandIO, report: PullRequestReport = createPullRequestReport(), dependencies: PullRequestDependencies = defaults,
 ): Promise<number> {
   const title = validTitle(options.title);
-  const reviewers = parseReviewers(options.reviewers);
   const description = options.body ?? "";
   if (description.length > maxBody) throw new Error(`The pull request body is longer than ${maxBody} characters.`);
   const saved = options.base === undefined ? await dependencies.readBase(repository, selected) : null;
@@ -242,9 +240,7 @@ export async function openPullRequest(
   if (sameHostedRepository(baseRepository, headRepository) && base.branch === plan.branch) {
     throw new Error(`The base is the branch itself; ${baseHint} for the branch it should merge into.`);
   }
-  if (reviewers.length > 0 && baseRepository.host !== "github") {
-    throw new Error("Reviewers can be requested only on github.com; open the pull request without --reviewer.");
-  }
+  const reviewers = parseReviewers(options.reviewers, baseRepository.host);
   const foreignTeam = reviewers.find(reviewer => reviewer.kind === "team"
     && reviewer.name.split("/")[0]!.toLowerCase() !== baseRepository.owner.toLowerCase());
   if (foreignTeam) {

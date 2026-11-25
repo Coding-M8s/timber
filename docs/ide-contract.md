@@ -3,13 +3,15 @@
 This additive interface is experimental. It supports repository inventory,
 ordinary New/Open outcomes, Rebase, Publish and PR outcomes, reading, saving and
 checking settings for app consumers, reading each worktree's pull request,
-reading a worktree's linked issue, listing recovery backups, restoring or
+listing who can review a worktree's pull request, reading a worktree's linked
+issue, listing recovery backups, restoring or
 deleting one recovery backup, and listing, launching, creating and picking arenas.
 It does not change the existing
 human CLI, release version, setup/provider/workflow behavior, or platform promises.
 No IDE consumer is included. Rebase, Publish and PR records, native cleanup approval,
 [settings for app consumers](#settings-for-app-consumers-experimental-v1),
 [pull requests for app consumers](#pull-requests-for-app-consumers-experimental-v1),
+[reviewers for app consumers](#reviewers-for-app-consumers-experimental-v1),
 [linked issues for app consumers](#linked-issues-for-app-consumers-experimental-v1),
 [backups for app consumers](#backups-for-app-consumers-experimental-v1),
 [arenas for app consumers](#arenas-for-app-consumers-experimental-v1), and the
@@ -551,7 +553,7 @@ pre-push hook keeps its ordinary behavior, with closed stdin.
 ## Pull request outcome
 
 `timber pr <branch-or-worktree> --title <text> [--body <text>] [--base <ref>]
-[--draft] [--reviewer <login|org/team>]... --result-file <path>` publishes a worktree's branch and opens a GitHub
+[--draft] [--reviewer <login|org/team|account-id>]... --result-file <path>` publishes a worktree's branch and opens a GitHub
 or Bitbucket Cloud pull request for it, so an app never calls GitHub or
 Bitbucket or pushes on its own. Each result means the same on both hosts. Target
 selection, publishing, human stdout/stderr and exit codes are the same as without
@@ -594,10 +596,12 @@ The record has `command: "pr"`, `materialized: false`, no `worktrees`, no
   pull request is created or found, including on `exists`
   ([Reviewers](cli-contract.md#reviewers-174)). A `failed` entry never turns
   `created` or `exists` into a failed outcome; request that reviewer again or
-  on the host. An unusable value, more than 15 reviewers, a team outside the
-  base repository's owner, or `--reviewer` on a Bitbucket base is `refused`
-  before the login or the push. The list is empty when no pull request was
-  created or found.
+  on the host. An unusable value, more than 15 reviewers, or a team outside the
+  base repository's owner is `refused` before the login or the push. On a
+  Bitbucket base each value is an Atlassian account ID, `kind` is `user` and `name`
+  is that ID; take it from
+  [`__app-reviewers`](#reviewers-for-app-consumers-experimental-v1). The list is
+  empty when no pull request was created or found.
 - `number` and `url` are null unless `result` is `created` or `exists`. `url`
   is built from the validated repository and number. `base` holds the base
   branch this run resolved; it is null when the run ended before a base was
@@ -1018,6 +1022,97 @@ On Bitbucket Cloud the fields are filled as follows:
 
 Other hosts, Bitbucket Data Center, review comments and pull request actions
 are not part of this interface.
+
+## Reviewers for app consumers (experimental v1)
+
+An app can suggest who to ask for a review of a worktree's pull request with one
+hidden, read-only command run in any worktree of the repository:
+
+```sh
+timber __app-reviewers -- '/absolute/worktree path'
+timber __app-reviewers feature/login
+```
+
+The argument is an absolute registered worktree path or an exact branch name
+checked out in a worktree; there is no fuzzy matching and no chooser. Timber prints
+one JSON object plus newline to stdout and exits 0 when the outcome is `found`, even
+when lists are incomplete, or 1 when it is `failed`; the record is printed in both
+cases. It never prompts (run it with stdin closed), never writes files, never fetches
+or changes a ref, and never requests a reviewer. The network part, reading the login
+and every request to the host together, stops after 10 seconds; lists read by then are
+kept. Reading code owners from local Git is limited to 10 seconds of its own and is
+not cut short by the network.
+
+```ts
+type ReviewersRecord = {
+  schemaVersion: 1;
+  repository: RepositoryIdentity | null; // null when discovery failed
+  worktree: { path: string; branch: string | null; isPrimary: boolean } | null; // null when nothing matched
+  pullRequestRepository: { host: "github" | "bitbucket"; owner: string; name: string } | null;
+  outcome: "found" | "failed";
+  reviewers: ReviewerCandidate[]; // marked ones first, then by name; empty when failed
+  incomplete: IncompleteList[]; // empty when every list was read whole
+  reason: "not-supported" | "failed" | null; // non-null only when failed
+  diagnostic: string | null;  // terminal-safe failure text, not a stable code; non-null only when failed
+};
+
+type ReviewerCandidate = {
+  kind: "user" | "team";      // always user on Bitbucket
+  id: string;                 // exactly what timber pr --reviewer takes: GitHub login or "org/team-slug", Bitbucket account ID
+  name: string;               // the id on GitHub; the display name, which is not unique, on Bitbucket
+  codeOwner: boolean;         // GitHub: owns a file the branch changes; always false on Bitbucket
+  defaultReviewer: boolean;   // Bitbucket: an effective default reviewer; always false on GitHub
+};
+
+type IncompleteList = {
+  list: "collaborators" | "teams" | "code-owners" // GitHub
+    | "members" | "default-reviewers"             // Bitbucket
+    | "account";                                  // both: the signed-in user is unknown and may be listed
+  reason: "offline" | "sign-in-needed" | "not-found" | "forbidden" | "no-base" | "failed";
+  diagnostic: string;         // terminal-safe text, not a stable code
+};
+```
+
+- When the worktree's saved base is a remote branch, the pull request repository is
+  that remote's, which is the one `timber pr` opens against. With forks it can differ
+  from the one `__app-pr` reads. Otherwise `timber pr` needs `--base`, and the
+  repository is that of the configured `remote`, `origin`, or the only remote; pass a
+  `--base <remote>/<branch>` on it. When no remote is selected, the saved base's remote
+  is gone, or the remote is on neither github.com nor bitbucket.org, the outcome is
+  `failed` with `not-supported`, and Timber reads no login and contacts nothing.
+- GitHub lists every collaborator with write access, the repository's teams as
+  `org/team-slug`, and code owners. Collaborators need a login with write access.
+  Entries `--reviewer` cannot take, such as bots, are left out.
+- Code owners come from local Git, so they are listed offline and without a login.
+  Timber reads the first of `.github/CODEOWNERS`, `CODEOWNERS` and `docs/CODEOWNERS`
+  in the saved base as last fetched, which is the file GitHub uses, and matches it
+  against the files committed in the worktree since it left that base; a renamed file
+  counts under both paths, and uncommitted changes do not count. The last matching line
+  decides, lines GitHub considers invalid are skipped, and owners named by email or
+  teams of another organization are left out, since neither can be requested. A code
+  owner is listed whether or not they appear among the collaborators. Without a saved
+  base the list is incomplete with `no-base`; with more than 3,000 changed files, a
+  missing base branch, or a CODEOWNERS file over 3 MB or too large to match in time, it
+  is incomplete with `failed`.
+- Bitbucket lists the workspace members and the repository's effective default
+  reviewers, including those from its project. Members need the token scope
+  `read:workspace:bitbucket`; default reviewers need `read:pullrequest:bitbucket`.
+  App accounts and inactive accounts are left out, and an account without an ID makes its list incomplete.
+  CODEOWNERS is not read.
+- The signed-in user is left out, also as a code owner or default reviewer. When the
+  account cannot be read (on Bitbucket it needs `read:user:bitbucket`), `incomplete`
+  has an `account` entry and the user may be listed. Teams the user belongs to stay.
+- Each list is read on its own, at most 1,000 entries. One that cannot be read, or not
+  whole, is named in `incomplete` with what was read of it kept, and the others stay
+  listed. Reasons are as for linked issues; `forbidden` covers a login or token without
+  the needed access. Timber never retries on its own.
+- The login is the one `timber pr` uses. Tokens never appear in stdout, stderr or
+  diagnostics, and neither does the text of a host's response.
+- Names are text from the host. Display them as untrusted text; do not render them as
+  trusted markup or pass them to a shell.
+
+Requesting the reviewers is `timber pr --reviewer`. Suggestions from file history or
+blame are not part of this interface.
 
 ## Linked issues for app consumers (experimental v1)
 

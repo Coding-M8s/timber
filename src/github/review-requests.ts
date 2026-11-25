@@ -1,10 +1,10 @@
 import { request, type GithubRuntime } from "./client";
 import type { GithubRepository } from "./repository";
 
-/** A reviewer named with --reviewer: a user login or an org/team slug. */
+/** A reviewer named with --reviewer: a user login or an org/team slug, or a Bitbucket account ID. */
 export interface ReviewerRequest { kind: "user" | "team"; name: string }
 
-/** What happened to one requested reviewer; the diagnostic is fixed wording, never GitHub's text. */
+/** What happened to one requested reviewer; the diagnostic is fixed wording, never the host's text. */
 export interface ReviewerOutcome extends ReviewerRequest {
   result: "requested" | "failed";
   diagnostic: string | null;
@@ -19,18 +19,33 @@ const login = /^[A-Za-z0-9](?:[A-Za-z0-9_]|-(?=[A-Za-z0-9_])){0,99}$/u;
 // Team slugs are what GitHub derives from a team name: letters, digits, hyphens and underscores.
 const teamSlug = /^[A-Za-z0-9_](?:[A-Za-z0-9_-]){0,99}$/u;
 
-/** Validate and deduplicate --reviewer values in the order given; any unusable value refuses the run. */
-export function parseReviewers(values: readonly string[] | undefined): ReviewerRequest[] {
+// Atlassian account IDs are opaque, such as 5b10a2844c20165700ede21g or 557058:<uuid>; at most 128 characters.
+const accountId = /^[A-Za-z0-9:_-]{1,128}$/u;
+
+/** A user login or org/team as GitHub can be asked for it; null for anything else. */
+export function parseGithubReviewer(value: string): ReviewerRequest | null {
+  const parts = value.split("/");
+  if (parts.length === 1 && login.test(value)) return { kind: "user", name: value };
+  if (parts.length === 2 && login.test(parts[0]!) && teamSlug.test(parts[1]!)) return { kind: "team", name: value };
+  return null;
+}
+
+export function isBitbucketAccountId(value: string): boolean { return accountId.test(value); }
+
+/** Validate and deduplicate --reviewer values for one host in the order given; any unusable value refuses the run. */
+export function parseReviewers(values: readonly string[] | undefined, host: "github" | "bitbucket"): ReviewerRequest[] {
   const parsed: ReviewerRequest[] = [];
   const seen = new Set<string>();
   for (const raw of values ?? []) {
     const value = raw.trim();
-    const parts = value.split("/");
-    let reviewer: ReviewerRequest | null = null;
-    if (parts.length === 1 && login.test(value)) reviewer = { kind: "user", name: value };
-    else if (parts.length === 2 && login.test(parts[0]!) && teamSlug.test(parts[1]!)) reviewer = { kind: "team", name: value };
-    if (reviewer === null) throw new Error("Each --reviewer must be a GitHub user login or org/team.");
-    const identity = `${reviewer.kind}\0${reviewer.name.toLowerCase()}`;
+    const reviewer: ReviewerRequest | null = host === "github" ? parseGithubReviewer(value)
+      : isBitbucketAccountId(value) ? { kind: "user", name: value } : null;
+    if (reviewer === null) {
+      throw new Error(host === "github" ? "Each --reviewer must be a GitHub user login or org/team."
+        : "Each --reviewer on bitbucket.org must be an Atlassian account ID, not a display name.");
+    }
+    // Logins and slugs ignore case; account IDs are opaque.
+    const identity = `${reviewer.kind}\0${host === "github" ? reviewer.name.toLowerCase() : reviewer.name}`;
     if (seen.has(identity)) continue;
     seen.add(identity);
     parsed.push(reviewer);

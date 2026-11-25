@@ -43,7 +43,7 @@ export const names: Record<LinkedTracker, string> = { github: "GitHub", jira: "J
 export const unusable = (tracker: LinkedTracker) => new IssueReadFailure("failed", `${names[tracker]} returned an issue Timber could not read; try again later.`);
 const text = z.string().refine(value => value.trim().length > 0);
 
-export async function send(tracker: LinkedTracker, runtime: IssueTrackerRuntime, url: string, init: RequestInit,
+export async function send(tracker: LinkedTracker, runtime: Pick<IssueTrackerRuntime, "fetch">, url: string, init: RequestInit,
   signal: AbortSignal): Promise<Response> {
   try {
     return await runtime.fetch(url, { ...init, redirect: "manual", signal });
@@ -53,8 +53,8 @@ export async function send(tracker: LinkedTracker, runtime: IssueTrackerRuntime,
   }
 }
 
-/** Wording for a 403 and a 404, which depend on what was asked for. */
-export interface MissingWording { forbidden: string; notFound: string }
+/** Wording for a 403 and a 404, which depend on what was asked for; also for a redirect and an unreadable body when not about an issue. */
+export interface MissingWording { forbidden: string; notFound: string; redirected?: string; unreadable?: string }
 
 /** Reads the body as JSON after mapping every non-success status to a reason; error bodies are discarded unread. */
 export async function json(tracker: LinkedTracker, response: Response, allowStatus: (status: number) => boolean = () => false,
@@ -71,11 +71,13 @@ export async function json(tracker: LinkedTracker, response: Response, allowStat
     }
     if (response.status === 403 || response.status === 429) throw new IssueReadFailure("failed", `${name} is rate limiting requests; try again later.`);
     if (response.status >= 300 && response.status < 400) {
-      throw new IssueReadFailure("failed", `${name} redirected the request; the issue may have moved. Link the worktree again with timber open --issue.`);
+      throw new IssueReadFailure("failed", wording?.redirected ?? `${name} redirected the request; the issue may have moved. Link the worktree again with timber open --issue.`);
     }
     throw new IssueReadFailure("failed", `${name} answered with HTTP ${response.status}; try again later.`);
   }
-  try { return await response.json(); } catch { throw unusable(tracker); }
+  try { return await response.json(); } catch {
+    throw wording?.unreadable === undefined ? unusable(tracker) : new IssueReadFailure("failed", wording.unreadable);
+  }
 }
 
 const githubIssue = z.object({
