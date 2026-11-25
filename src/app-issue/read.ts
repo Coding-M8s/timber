@@ -42,7 +42,8 @@ const invalidLink: Record<Exclude<IssueLinkRead, { kind: "linked" | "none" }>["r
   unreadable: "The saved issue link cannot be read; check the permissions of the worktree's private Git metadata.",
 };
 
-async function selectWorktree(trees: readonly WorktreeInventory[], input: string): Promise<WorktreeInventory | undefined> {
+/** The registered worktree at an absolute path or with exactly this branch checked out. */
+export async function selectWorktree(trees: readonly WorktreeInventory[], input: string): Promise<WorktreeInventory | undefined> {
   if (!isAbsolute(input)) return trees.find(tree => tree.branch === input);
   const direct = trees.find(tree => samePath(tree.path, input));
   if (direct) return direct;

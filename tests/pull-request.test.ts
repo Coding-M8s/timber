@@ -84,6 +84,7 @@ function harness(options: {
         const body = init.body === undefined ? undefined : JSON.parse(String(init.body));
         requests.push({ method: String(init.method), url, body });
         events.push(String(init.method));
+        if (options.hang?.(url)) return new Promise<Response>(() => {});
         return options.respond?.(String(init.method), url, body)
           ?? (init.method === "GET" ? Response.json({ values: [] }) : Response.json(bbPull(42, { draft: body.draft }), { status: 201 }));
       } },
@@ -466,7 +467,11 @@ test("an unusable --reviewer is refused before the login is read or anything is 
     [["al--ice"], "user login or org/team", undefined],
     [Array.from({ length: 16 }, (_, index) => `user${index}`), "at most 15", undefined],
     [["other/core"], "owner of the base repository", undefined],
-    [["alice"], "only on github.com", bitbucketRepos],
+    [["Alice Example"], "Atlassian account ID", bitbucketRepos],
+    [["acme/core"], "Atlassian account ID", bitbucketRepos],
+    [["{0b1c}"], "Atlassian account ID", bitbucketRepos],
+    [["a".repeat(129)], "Atlassian account ID", bitbucketRepos],
+    [Array.from({ length: 16 }, (_, index) => `id-${index}`), "at most 15", bitbucketRepos],
   ];
   for (const [reviewers, message, remotes] of cases) {
     const h = harness(remotes === undefined ? {} : { remotes });
@@ -544,4 +549,132 @@ test("each review request failure maps to its fixed diagnostic and the pull requ
     expect(result.report.reviewers[0]!.diagnostic).toContain(message);
     expect(JSON.stringify(result.report) + result.output.stderr).not.toContain("ghp_leak");
   }
+});
+
+const me = { uuid: "{me}", account_id: "557058:me" };
+const kept = { type: "team", uuid: "{kept}" };
+
+/** Bitbucket with one pull request whose reviewer list an update replaces, as Bitbucket does. */
+function bitbucketReviewers(options: { reviewers?: unknown; open?: boolean; respond?: (method: string, body: { reviewers: { account_id?: string }[] }) => Response | undefined } = {}) {
+  let current: unknown = "reviewers" in options ? options.reviewers : [kept];
+  const full = (body: Record<string, unknown> = {}) => bbPull(42, { title: "t", description: "Body **raw**", draft: true, close_source_branch: true, author: me, reviewers: current, ...body });
+  return harness({ remotes: bitbucketRepos, respond: (method, url, body) => {
+    if (!url.endsWith("/pullrequests/42")) {
+      return method === "GET" ? Response.json({ values: options.open ? [bbPull(42)] : [] }) : Response.json(bbPull(42), { status: 201 });
+    }
+    const custom = options.respond?.(method, body as never);
+    if (custom) return custom;
+    if (method === "PUT") {
+      current = (body as { reviewers: { uuid?: string; account_id?: string }[] }).reviewers
+        .map(reviewer => reviewer.uuid === "{kept}" ? kept : reviewer.uuid ? { uuid: reviewer.uuid, account_id: `id-${reviewer.uuid.slice(1, -1)}` }
+          : { uuid: `{${reviewer.account_id!.replace("id-", "")}}`, account_id: reviewer.account_id });
+    }
+    return Response.json(full());
+  } });
+}
+const updates = (requests: { method: string; url: string; body: unknown }[]) => requests.filter(request => request.method === "PUT");
+
+test("--reviewer adds each Bitbucket account to the reviewers already there, on a created or open pull request", async () => {
+  for (const open of [false, true]) {
+    const h = bitbucketReviewers({ open });
+    const result = await h.run({ title: "t", reviewers: ["id-rita", "id-Sam", "id-rita"] });
+    expect(result.error).toBeNull();
+    expect(result.report).toMatchObject({ result: open ? "exists" : "created", number: 42, reviewers: [
+      { kind: "user", name: "id-rita", result: "requested", diagnostic: null },
+      { kind: "user", name: "id-Sam", result: "requested", diagnostic: null }] });
+    // One read, then one update each; everything else an update can change is sent back unchanged.
+    expect(h.requests.filter(request => request.url.endsWith("/pullrequests/42")).map(request => request.method)).toEqual(["GET", "PUT", "PUT"]);
+    const same = { title: "t", description: "Body **raw**", draft: true, close_source_branch: true, destination: { branch: { name: "main" } } };
+    expect(updates(h.requests)).toEqual([
+      { method: "PUT", url: "https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests/42", body: { ...same, reviewers: [{ uuid: "{kept}" }, { account_id: "id-rita" }] } },
+      { method: "PUT", url: "https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests/42", body: { ...same, reviewers: [{ uuid: "{kept}" }, { uuid: "{rita}" }, { account_id: "id-Sam" }] } },
+    ]);
+    expect(h.events.filter(event => event === "login")).toHaveLength(1);
+    expect(result.output.stdout).toContain("Requested review from id-rita, id-Sam.\n");
+  }
+});
+
+test("a Bitbucket reviewer without a uuid is kept by account ID", async () => {
+  const h = bitbucketReviewers({ reviewers: [{ account_id: "id-old" }] });
+  expect((await h.run({ title: "t", reviewers: ["id-rita"] })).report.reviewers).toMatchObject([{ result: "requested" }]);
+  expect(updates(h.requests)[0]!.body).toMatchObject({ reviewers: [{ account_id: "id-old" }, { account_id: "id-rita" }] });
+});
+
+test("a Bitbucket account already reviewing is not sent again and the author is never sent", async () => {
+  const h = bitbucketReviewers({ reviewers: [{ uuid: "{rita}", account_id: "id-rita" }] });
+  const result = await h.run({ title: "t", reviewers: ["id-rita", "557058:me"] });
+  expect(result.report.reviewers).toEqual([
+    { kind: "user", name: "id-rita", result: "requested", diagnostic: null },
+    { kind: "user", name: "557058:me", result: "failed", diagnostic: "The pull request's author cannot review it." }]);
+  expect(updates(h.requests)).toEqual([]);
+});
+
+test("without the current Bitbucket reviewers nothing is updated and the read is not repeated", async () => {
+  for (const reviewers of [undefined, null, [{ display_name: "nobody" }], "x"]) {
+    const h = bitbucketReviewers({ reviewers });
+    const result = await h.run({ title: "t", reviewers: ["id-rita", "id-sam"] });
+    expect(result.code).toBe(0);
+    expect(result.report).toMatchObject({ result: "created", reviewers: [{ result: "failed" }, { result: "failed" }] });
+    expect(result.report.reviewers[0]!.diagnostic).toContain("none were changed");
+    expect(h.requests.filter(request => request.url.endsWith("/pullrequests/42")).map(request => request.method)).toEqual(["GET"]);
+  }
+});
+
+test("a Bitbucket reviewer failure never changes the result, echoes nothing, and leaves the others requested", async () => {
+  const rejecting = bitbucketReviewers({ respond: (method, body) => method === "PUT" && body.reviewers.at(-1)!.account_id === "id-outsider"
+    ? Response.json({ error: { message: "leak ATATT" } }, { status: 400 }) : undefined });
+  const result = await rejecting.run({ title: "t", reviewers: ["id-outsider", "id-rita"] });
+  expect(result.code).toBe(0);
+  expect(result.report).toMatchObject({ result: "created", reviewers: [{ name: "id-outsider", result: "failed" }, { name: "id-rita", result: "requested" }] });
+  expect(result.report.reviewers[0]!.diagnostic).toContain("could not request this reviewer");
+  expect(result.output.stderr).toContain("warning: Could not request review from id-outsider");
+  // A rejected update changed nothing, so the list is not read again and the rejected account is not resent.
+  expect(updates(rejecting.requests).at(-1)!.body).toMatchObject({ reviewers: [{ uuid: "{kept}" }, { account_id: "id-rita" }] });
+
+  const cases: [() => Response, string][] = [
+    [() => new Response("leak ATATT", { status: 401 }), "did not accept the sign-in"],
+    [() => new Response("leak ATATT", { status: 403 }), "denied access or rate limited"],
+    [() => new Response("leak ATATT", { status: 429 }), "denied access or rate limited"],
+    [() => new Response("leak ATATT", { status: 404 }), "could not find the pull request"],
+    [() => new Response("leak ATATT", { status: 500 }), "Bitbucket failed while requesting"],
+    [() => new Response("leak ATATT"), "invalid response"],
+    [() => Response.json(bbPull(43, { title: "t", reviewers: [] })), "invalid response"],
+    [() => Response.json(bbPull(42, { title: "t", reviewers: [] })), "did not add this reviewer"],
+    [() => { throw new TypeError("leak ATATT"); }, "could not be reached"],
+  ];
+  for (const [answer, message] of cases) {
+    const h = bitbucketReviewers({ respond: method => method === "PUT" ? answer() : undefined });
+    const failed = await h.run({ title: "t", reviewers: ["id-rita"] });
+    expect(failed.code).toBe(0);
+    expect(failed.report).toMatchObject({ result: "created", reviewers: [{ result: "failed" }] });
+    expect(failed.report.reviewers[0]!.diagnostic).toContain(message);
+    expect(JSON.stringify(failed)).not.toContain("leak");
+  }
+});
+
+test("after an update whose outcome is unknown the Bitbucket reviewers are read again before the next one", async () => {
+  let first = true;
+  let applied = false;
+  const h = bitbucketReviewers({ respond: method => {
+    if (method === "PUT" && first) { first = false; applied = true; return new Response("leak", { status: 502 }); }
+    if (method === "GET" && applied) return Response.json(bbPull(42, { title: "t", author: me, reviewers: [kept, { uuid: "{rita}", account_id: "id-rita" }] }));
+    return undefined;
+  } });
+  const result = await h.run({ title: "t", reviewers: ["id-rita", "id-sam"] });
+  expect(result.report.reviewers.map(reviewer => reviewer.result)).toEqual(["failed", "requested"]);
+  expect(updates(h.requests).at(-1)!.body).toEqual({ title: "t", draft: false, destination: { branch: { name: "main" } }, reviewers: [{ uuid: "{kept}" }, { uuid: "{rita}" }, { account_id: "id-sam" }] });
+});
+
+test("a Bitbucket review read or update that never answers stops at the deadline with its own wording", async () => {
+  const read = harness({ remotes: bitbucketRepos, hang: url => url.endsWith("/pullrequests/42") });
+  const stopped = await read.run({ title: "t", reviewers: ["id-rita"] });
+  expect(stopped.report).toMatchObject({ result: "created", reviewers: [{ result: "failed" }] });
+  expect(stopped.report.reviewers[0]!.diagnostic).toContain("none were changed");
+
+  let calls = 0;
+  const update = harness({ remotes: bitbucketRepos, hang: url => url.endsWith("/pullrequests/42") && ++calls === 2,
+    respond: (method, url) => url.endsWith("/pullrequests/42") ? Response.json(bbPull(42, { title: "t", author: me, reviewers: [] }))
+      : method === "GET" ? Response.json({ values: [] }) : Response.json(bbPull(42), { status: 201 }) });
+  const unknown = await update.run({ title: "t", reviewers: ["id-rita"] });
+  expect(unknown.report.reviewers[0]!.diagnostic).toContain("the reviewer may have been requested");
 });

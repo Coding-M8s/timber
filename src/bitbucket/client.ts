@@ -15,7 +15,7 @@ export const defaultBitbucketRuntime: BitbucketRuntime = {
 export const bitbucketApi = "https://api.bitbucket.org/2.0";
 
 export interface BitbucketRequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   body?: unknown;
   /** Diagnostic for a timeout; it says what this request leaves behind. */
   timeout: string;

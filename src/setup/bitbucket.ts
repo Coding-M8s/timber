@@ -23,7 +23,7 @@ export function createBitbucketSetupSession(env: NodeJS.ProcessEnv = process.env
       io.stdout(process.platform === "win32"
         ? "Plaintext storage limited by Windows ACLs to your account, SYSTEM and Administrators, shared across repositories. Changes apply on Save.\n"
         : "Personal plaintext, owner-only storage shared across repositories. Changes apply on Save.\n");
-      io.stdout("timber pr uses this login to open pull requests on bitbucket.org. Create an API token with scopes under Atlassian account settings > Security: https://id.atlassian.com/manage-profile/security/api-tokens\nChoose Bitbucket and the scopes read:pullrequest:bitbucket and write:pullrequest:bitbucket. Pushing still uses your Git login.\n");
+      io.stdout("timber pr uses this login to open pull requests on bitbucket.org. Create an API token with scopes under Atlassian account settings > Security: https://id.atlassian.com/manage-profile/security/api-tokens\nChoose Bitbucket and the scopes read:pullrequest:bitbucket and write:pullrequest:bitbucket. Add read:workspace:bitbucket and read:user:bitbucket to let apps suggest reviewers. Pushing still uses your Git login.\n");
       if (env.BITBUCKET_EMAIL !== undefined || env.BITBUCKET_API_TOKEN !== undefined) {
         io.stdout("BITBUCKET_EMAIL and BITBUCKET_API_TOKEN override the saved login at runtime; an incomplete or invalid pair fails without fallback. Unset them to use the saved login.\n");
       }

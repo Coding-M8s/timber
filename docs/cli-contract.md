@@ -207,7 +207,7 @@ go to stderr with control characters escaped.
 ## Open a pull request (#157)
 
 `timber pr <branch-or-worktree> --title <text> [--body <text>] [--base <ref>]
-[--draft] [--reviewer <login|org/team>]...` publishes a registered worktree's branch and opens one pull request
+[--draft] [--reviewer <login|org/team|account-id>]...` publishes a registered worktree's branch and opens one pull request
 for it on github.com or Bitbucket Cloud (bitbucket.org, #175). Selection matches `publish`. The title is required, one
 line and at most 256 characters; the body is at most 65536 characters.
 
@@ -265,15 +265,16 @@ github.com and bitbucket.org are out of scope.
 
 ### Reviewers (#174)
 
-`--reviewer` may be repeated and takes a GitHub user login or `<org>/<team>`
-(the team slug). Values are trimmed and deduplicated case-insensitively in the
-order given; at most 15 remain. Preflight refuses, before the login is read and
-before any push, a value that is not a valid login or `org/team`, more than 15
-reviewers, a team whose org is not the base repository's owner, and any
-`--reviewer` on a bitbucket.org base: reviewers are requested only on
-github.com.
+`--reviewer` may be repeated. On a github.com base it takes a GitHub user login or
+`<org>/<team>` (the team slug); on a bitbucket.org base (#240) it takes an Atlassian
+account ID, because Bitbucket display names are not unique. Values are trimmed and
+deduplicated in the order given, ignoring case on GitHub and exactly on Bitbucket; at
+most 15 remain. Preflight refuses, before the login is read and before any push, a
+value that is not a valid login or `org/team` on GitHub, a value that is not 1 to 128
+letters, digits, `:`, `_` or `-` on Bitbucket, more than 15 reviewers, and a team whose
+org is not the base repository's owner.
 
-Once the pull request is created or found open (including the `exists` result
+On GitHub, once the pull request is created or found open (including the `exists` result
 and the one more lookup after a race), request each reviewer in order with
 `POST /repos/<owner>/<repo>/pulls/<number>/requested_reviewers`, one request per
 reviewer (`reviewers` for a user, `team_reviewers` with the slug for a team),
@@ -286,9 +287,24 @@ A failed request never changes the pull request result or exit code. Each
 failure maps to a fixed diagnostic (422 for a reviewer who cannot be requested,
 such as a non-collaborator or the author; 401; 403/429; 404/410; other
 statuses; an invalid response; the network; a timeout, which says the reviewer
-may have been requested) and is written to stderr as a warning. GitHub's
+may have been requested) and is written to stderr as a warning. The host's
 response bodies and the token are never echoed. Successful requests are listed
 on stdout after the pull request line.
+
+On Bitbucket no call adds one reviewer: an update replaces the whole list. So read
+the pull request once with
+`GET /repositories/<workspace>/<repo>/pullrequests/<id>`, then send one
+`PUT` per reviewer with the current reviewers (by `uuid`, or `account_id` without
+one) and the new `account_id`, plus the title, description, draft state, close-branch
+setting and destination branch as read, and continue from the reviewers in each answer. An account already reviewing is
+`requested` without an update, and the author fails without one. Without a readable
+current list nothing is sent and every remaining reviewer fails. An answer that does
+not list the account fails it. A rejected update (400, 401, 403/429, 404/410) changed
+nothing, so the next reviewer continues from the same list; after a timeout, a network
+failure, a server error or an invalid answer the pull request is read again first, so a
+reviewer that was added is kept. A reviewer someone else adds between the read and an
+update can be removed by it. The deadline, redirect, retry and diagnostic rules above
+apply to both calls.
 
 ### Bitbucket Cloud (#175)
 
@@ -305,7 +321,9 @@ at `${XDG_CONFIG_HOME:-$HOME/.config}/timber/credentials/bitbucket.json`
 pair is sent as HTTP Basic credentials to the fixed `https://api.bitbucket.org/2.0`
 origin. The token is an Atlassian API token with the scopes
 `read:pullrequest:bitbucket` and `write:pullrequest:bitbucket`; pushing still
-uses the user's own Git login.
+uses the user's own Git login. `read:workspace:bitbucket` and `read:user:bitbucket`
+are optional: only [`__app-reviewers`](ide-contract.md#reviewers-for-app-consumers-experimental-v1)
+uses them, to list workspace members and leave out the signed-in user.
 
 After the push, list `GET /repositories/<workspace>/<repo>/pullrequests` with
 `state=OPEN`, `pagelen=50` and a `q` filter on `state = "OPEN"` and the source
@@ -331,8 +349,9 @@ bare `#<n>` names a Bitbucket issue, so a GitHub issue is mentioned as
 `Refs https://github.com/<owner>/<repo>/issues/<n>` when its repository is
 known, and its link or `owner/repo#<n>` count as an existing mention. Without a
 known GitHub repository, no GitHub mention is added. Jira and Linear keys are
-mentioned as `Refs <KEY>`. `__app-pr` reads pull requests from both GitHub and
-Bitbucket Cloud; see the [IDE contract](ide-contract.md).
+mentioned as `Refs <KEY>`. `__app-pr` reads pull requests, and `__app-reviewers`
+lists who can review one, on both GitHub and Bitbucket Cloud; see the
+[IDE contract](ide-contract.md).
 
 ## Saved worktree bases (#79)
 
