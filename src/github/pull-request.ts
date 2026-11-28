@@ -13,6 +13,7 @@ import { defaultBitbucketRuntime, type BitbucketRuntime } from "../bitbucket/cli
 import { createBitbucketPullRequest, findOpenBitbucketPullRequest } from "../bitbucket/pulls";
 import { bitbucketReviewerRequests } from "../bitbucket/reviewers";
 import { parseReviewers, requestReviewer, type ReviewerOutcome, type ReviewerRequest } from "./review-requests";
+import { gitCommand } from "../platform/git-command";
 
 export type PullRequestResult = "created" | "exists" | "refused" | "failed";
 
@@ -85,7 +86,7 @@ function validTitle(title: string | undefined): string {
 async function validBranchName(name: string): Promise<boolean> {
   if (!name || name === "HEAD") return false;
   try {
-    const checked = await execa("git", ["check-ref-format", `refs/heads/${name}`], { stdin: "ignore", reject: false });
+    const checked = await execa(gitCommand(), ["check-ref-format", `refs/heads/${name}`], { stdin: "ignore", reject: false });
     return checked.exitCode === 0;
   } catch { return false; }
 }

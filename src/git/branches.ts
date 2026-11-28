@@ -3,6 +3,7 @@ import type {
   Branch, GitReadOptions, RemoteBranch, RepositoryConfig, RepositoryContext, Resolution, ValidatedBase,
 } from "../types";
 import { isFullCommitHash, refuseAbbreviatedHash, verifyCommitBase } from "./commit-base";
+import { gitCommand } from "../platform/git-command";
 
 type RefRow = { ref: string; symbolic: string; upstream: string };
 
@@ -11,7 +12,7 @@ async function git(
 ): Promise<string> {
   let result;
   try {
-    result = await execa("git", [...args], {
+    result = await execa(gitCommand(), [...args], {
       cwd: repository.primaryWorktreeRoot, reject: false, env: { GIT_OPTIONAL_LOCKS: "0", ...(options?.unattended ? { GIT_TERMINAL_PROMPT: "0" } : {}) },
       ...(options?.unattended ? { stdin: "ignore" as const, timeout: 10_000 } : {}),
       ...(options?.signal === undefined ? {} : { cancelSignal: options.signal, forceKillAfterDelay: 250 }),
@@ -82,7 +83,7 @@ export async function listLiveRemoteHeads(
   for (const remote of repository.remotes.filter(remote => selected === null || remote.name === selected)) {
     let result;
     try {
-      result = await execa("git", ["ls-remote", "--heads", "--", remote.name], {
+      result = await execa(gitCommand(), ["ls-remote", "--heads", "--", remote.name], {
         cwd: repository.primaryWorktreeRoot, reject: false, timeout: 10_000,
         env: { GIT_TERMINAL_PROMPT: "0" }, stdin: "ignore",
       });
@@ -217,9 +218,9 @@ async function unbornRepository(repository: RepositoryContext, rows: readonly Re
   if (rows.length) return false;
   const options = { cwd: repository.primaryWorktreeRoot, reject: false, env: { GIT_OPTIONAL_LOCKS: "0" } } as const;
   try {
-    const head = await execa("git", ["symbolic-ref", "--quiet", "HEAD"], options);
+    const head = await execa(gitCommand(), ["symbolic-ref", "--quiet", "HEAD"], options);
     if (head.exitCode !== 0) return false;
-    const anyRef = await execa("git", ["for-each-ref", "--count=1", "--format=%(refname)"], options);
+    const anyRef = await execa(gitCommand(), ["for-each-ref", "--count=1", "--format=%(refname)"], options);
     return anyRef.exitCode === 0 && anyRef.stdout === "";
   } catch {
     return false;

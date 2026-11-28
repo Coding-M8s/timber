@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RepositoryContext, Worktree } from "../types";
+import { gitCommand } from "../platform/git-command";
 
 export interface ArenaArchive {
   ref: string;
@@ -18,7 +19,7 @@ const identity = {
 };
 
 async function git(cwd: string, args: readonly string[], env: Record<string, string> = {}): Promise<string> {
-  const result = await execa("git", [...args], {
+  const result = await execa(gitCommand(), [...args], {
     cwd, stdin: "ignore", reject: false, timeout: 60_000, env: { GIT_OPTIONAL_LOCKS: "0", ...env },
   });
   if (result.exitCode !== 0) throw new Error(`Git ${args[0]} failed while archiving: ${result.stderr.split("\n")[0] || "no detail"}`);
@@ -26,7 +27,7 @@ async function git(cwd: string, args: readonly string[], env: Record<string, str
 }
 
 async function resolveRef(repository: RepositoryContext, ref: string): Promise<string | null> {
-  const result = await execa("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+  const result = await execa(gitCommand(), ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
     cwd: repository.primaryWorktreeRoot, stdin: "ignore", reject: false, timeout: 8000, env: { GIT_OPTIONAL_LOCKS: "0" },
   });
   return result.exitCode === 0 ? result.stdout.trim() : null;
@@ -68,7 +69,7 @@ export async function archiveArenaAttempt(
     if (existing === commit) return { ref, commit, snapshot };
     if (existing !== null) continue;
     // Empty old value: create only, never replace an archive written meanwhile.
-    const created = await execa("git", ["update-ref", "-m", "timber arena pick", ref, commit, ""], {
+    const created = await execa(gitCommand(), ["update-ref", "-m", "timber arena pick", ref, commit, ""], {
       cwd: repository.primaryWorktreeRoot, stdin: "ignore", reject: false, timeout: 8000,
     });
     if (created.exitCode === 0 && await resolveRef(repository, ref) === commit) return { ref, commit, snapshot };

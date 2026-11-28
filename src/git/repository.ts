@@ -3,10 +3,11 @@ import { samePath } from "../platform/paths";
 import { stat } from "node:fs/promises";
 import { execa } from "execa";
 import type { GitReadOptions, Remote, RepositoryContext } from "../types";
+import { gitCommand } from "../platform/git-command";
 
 /** Discovery only reads; optional locks are never needed and must not block Tab. */
 async function runGit(cwd: string, args: readonly string[], options?: GitReadOptions) {
-  const result = await execa("git", [...args], {
+  const result = await execa(gitCommand(), [...args], {
     cwd, reject: false, env: { GIT_OPTIONAL_LOCKS: "0" },
     ...(options?.signal === undefined ? {} : { cancelSignal: options.signal, forceKillAfterDelay: 250 }),
   });

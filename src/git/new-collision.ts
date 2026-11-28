@@ -3,6 +3,7 @@ import { shellQuoteForDisplay } from "../display";
 import type { RepositoryConfig, RepositoryContext } from "../types";
 import { validateNewBranchName } from "./branches";
 import { listWorktreeInventory } from "./worktrees";
+import { gitCommand } from "../platform/git-command";
 
 export type RemoteHeadState =
   | { kind: "present"; commit: string }
@@ -45,7 +46,7 @@ function short(commit: string | null): string {
 }
 
 async function localCommit(repository: RepositoryContext, ref: string, strict: boolean): Promise<string | null> {
-  const result = await execa("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+  const result = await execa(gitCommand(), ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
     cwd: repository.primaryWorktreeRoot, reject: false, stdin: "ignore", env: { GIT_OPTIONAL_LOCKS: "0" },
   });
   if (result.exitCode === 0 && hash.test(result.stdout.trim())) return result.stdout.trim();
@@ -57,7 +58,7 @@ async function liveHead(repository: RepositoryContext, remote: string, name: str
   const ref = `refs/heads/${name}`;
   let result;
   try {
-    result = await execa("git", ["ls-remote", "--heads", "--", remote, ref], {
+    result = await execa(gitCommand(), ["ls-remote", "--heads", "--", remote, ref], {
       cwd: repository.primaryWorktreeRoot, reject: false, timeout: 10_000,
       env: { GIT_TERMINAL_PROMPT: "0" }, stdin: "ignore",
     });

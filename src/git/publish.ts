@@ -7,6 +7,7 @@ import type { RepositoryConfig, RepositoryContext, Worktree } from "../types";
 import { inspectWorktree, listWorktreeInventory } from "./worktrees";
 import { WorktreeReadPhase } from "./worktree-read-phase";
 import { gitOperation } from "./operations";
+import { gitCommand } from "../platform/git-command";
 
 const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
@@ -46,7 +47,7 @@ const signIn = /terminal prompts disabled|could not read (?:Username|Password)|A
 
 async function git(cwd: string, args: readonly string[]) {
   try {
-    return await execa("git", [...args], { cwd, stdin: "ignore", reject: false, env: environment, stripFinalNewline: false });
+    return await execa(gitCommand(), [...args], { cwd, stdin: "ignore", reject: false, env: environment, stripFinalNewline: false });
   } catch {
     throw operationFailure(new Error("Could not start or complete Git for publish; check Git installation, repository access and network availability. Nothing was forced."));
   }

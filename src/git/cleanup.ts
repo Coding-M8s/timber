@@ -12,6 +12,7 @@ import { hasIntegratedContent, integratedBase } from "./cleanup-integration";
 import { readCleanupEvidence, readCleanupPublication, readCleanupTarget } from "./cleanup-evidence";
 import { discoverRepository } from "./repository";
 import { listWorktreeInventory } from "./worktrees";
+import { gitCommand } from "../platform/git-command";
 import type {
   CleanupInspection, CleanupOptions, CleanupPolicy, CleanupResult, ConfirmCleanupDiscard, RepositoryConfig, RepositoryContext, ValidatedBase, Worktree,
 } from "../types";
@@ -20,7 +21,7 @@ type GitResult = { exitCode: number; stdout: string };
 
 async function runGit(repository: RepositoryContext, args: readonly string[]): Promise<GitResult> {
   try {
-    const result = await execa("git", [...args], {
+    const result = await execa(gitCommand(), [...args], {
       cwd: repository.primaryWorktreeRoot,
       reject: false,
       stdin: "ignore",

@@ -12,6 +12,7 @@ import type { TerminalTextPrompt } from "../selection";
 import { cleanupExpiredBackups, readInventory, reviewBackupDeletion } from "./lifecycle";
 import { describeRetention, isExpired, type BackupSettings } from "./retention";
 import type { RepositoryContext, Worktree, WorktreeInventory } from "../types";
+import { gitCommand } from "../platform/git-command";
 import {
   assertStorageSpace, copySnapshot, restoreSnapshot, sameListing, SnapshotError, snapshotBytes, verifyBlobs, walkWorktree,
 } from "./snapshot";
@@ -206,7 +207,7 @@ export async function createBackup(
   // An interrupt must not leave a private copy of ignored secrets behind.
   const interrupted = (signal: NodeJS.Signals) => {
     rmSync(working, { recursive: true, force: true });
-    if (refCreated) { try { execaSync("git", ["-c", `core.hooksPath=${disabledHooks}`, "update-ref", "-d", ref, commit], { cwd: source.tree.path, stdin: "ignore", reject: false, env: environment }); } catch { /* Best effort. */ } }
+    if (refCreated) { try { execaSync(gitCommand(), ["-c", `core.hooksPath=${disabledHooks}`, "update-ref", "-d", ref, commit], { cwd: source.tree.path, stdin: "ignore", reject: false, env: environment }); } catch { /* Best effort. */ } }
     process.removeListener("SIGINT", onInterrupt); process.removeListener("SIGTERM", onTerminate);
     process.kill(process.pid, signal);
   };

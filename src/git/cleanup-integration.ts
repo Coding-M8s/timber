@@ -1,5 +1,6 @@
 import { execa } from "execa";
 import type { CleanupInspection, ValidatedBase } from "../types";
+import { gitCommand } from "../platform/git-command";
 
 const HASH = /^[0-9a-f]{40,64}$/i;
 
@@ -19,13 +20,13 @@ export async function hasIntegratedContent(cwd: string, base: ValidatedBase, hea
   try {
     // A custom driver can discard feature changes and return the base tree.
     // Reject even unused drivers; an unreadable config is not absence of drivers.
-    const drivers = await execa("git", [
+    const drivers = await execa(gitCommand(), [
       "config", "--get-regexp", "^merge\\.(.*\\.driver|default)$",
     ], options);
     if (drivers.exitCode !== 1) return false;
-    const tree = await execa("git", ["rev-parse", "--verify", "--quiet", `${base.commit}^{tree}`], options);
+    const tree = await execa(gitCommand(), ["rev-parse", "--verify", "--quiet", `${base.commit}^{tree}`], options);
     if (tree.exitCode !== 0 || !HASH.test(tree.stdout)) return false;
-    const merged = await execa("git", [
+    const merged = await execa(gitCommand(), [
       "-c", "merge.renormalize=false", "-c", "merge.renames=true", "-c", "merge.renameLimit=0",
       "merge-tree", "--write-tree", base.commit, head,
     ], options);
@@ -35,9 +36,9 @@ export async function hasIntegratedContent(cwd: string, base: ValidatedBase, hea
     // not patch similarity or a matching snapshot on an unrelated ref.
     if (merged.exitCode !== 0 && merged.exitCode !== 1) return false;
     if (!HASH.test(merged.stdout.split("\n")[0]!)) return false;
-    const headTree = await execa("git", ["rev-parse", "--verify", "--quiet", `${head}^{tree}`], options);
+    const headTree = await execa(gitCommand(), ["rev-parse", "--verify", "--quiet", `${head}^{tree}`], options);
     if (headTree.exitCode !== 0 || !HASH.test(headTree.stdout)) return false;
-    const history = await execa("git", ["log", "--format=%T", base.commit, "--"], options);
+    const history = await execa(gitCommand(), ["log", "--format=%T", base.commit, "--"], options);
     if (history.exitCode !== 0) return false;
     const trees = history.stdout.split("\n");
     return trees.every(value => HASH.test(value)) && trees.includes(headTree.stdout);

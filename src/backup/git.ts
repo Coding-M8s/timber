@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { gitCommand } from "../platform/git-command";
 
 export const backupGitEnvironment = {
   GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "false", SSH_ASKPASS: "false", GCM_INTERACTIVE: "Never",
@@ -9,7 +10,7 @@ export const disabledHooks = process.platform === "win32" ? "NUL" : "/dev/null";
 /** Hooks are repository code; backup commands never run them. */
 export async function backupGit(cwd: string, args: readonly string[]) {
   try {
-    return await execa("git", ["-c", `core.hooksPath=${disabledHooks}`, ...args], { cwd, stdin: "ignore", reject: false, env: backupGitEnvironment });
+    return await execa(gitCommand(), ["-c", `core.hooksPath=${disabledHooks}`, ...args], { cwd, stdin: "ignore", reject: false, env: backupGitEnvironment });
   } catch {
     throw new Error("Could not start Git for backup; check the Git installation and repository access.");
   }

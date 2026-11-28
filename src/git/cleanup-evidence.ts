@@ -8,6 +8,7 @@ import { readBaseAssociation } from "./base-metadata";
 import { hasIntegratedContent } from "./cleanup-integration";
 import { discoverRepository } from "./repository";
 import { inspectWorktree, listWorktreeInventory } from "./worktrees";
+import { gitCommand } from "../platform/git-command";
 import type {
   AncestryState, CleanupInspection, ContentIntegrationState, PublicationState, RepositoryConfig, RepositoryContext,
   ValidatedBase, Worktree, WorktreeInventory,
@@ -52,8 +53,8 @@ async function runGit(
     },
   };
   const result = options.timeout === undefined
-    ? await execa("git", [...args], commandOptions)
-    : await execa("git", [...args], { ...commandOptions, timeout: options.timeout });
+    ? await execa(gitCommand(), [...args], commandOptions)
+    : await execa(gitCommand(), [...args], { ...commandOptions, timeout: options.timeout });
   if (result.exitCode === undefined) throw new Error("Git did not finish.");
   return { exitCode: result.exitCode, stdout: result.stdout };
 }

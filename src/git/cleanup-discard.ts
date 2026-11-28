@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { gitOperation } from "./operations";
 import type { Worktree } from "../types";
+import { gitCommand } from "../platform/git-command";
 
 /** Cancellation is successful at the command boundary and never runs hooks. */
 export class CleanupCancelled extends Error {
@@ -39,7 +40,7 @@ export async function discardFingerprint(tree: Worktree, discardIgnored: boolean
   };
   try {
     const captureRepository = async (cwd: string): Promise<void> => {
-      const run = (args: string[]) => execa("git", args,
+      const run = (args: string[]) => execa(gitCommand(), args,
         { cwd, stdin: "ignore", env: { GIT_OPTIONAL_LOCKS: "0" }, timeout: 10_000 });
       field(cwd);
       // Ignored runtime files are disposable by default. Their path inventory

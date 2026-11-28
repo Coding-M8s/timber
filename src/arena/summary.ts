@@ -4,6 +4,7 @@ import { listWorktreeInventory } from "../git/worktrees";
 import { validateArenaAttempt } from "./storage";
 import type { ArenaAttemptRecord, ArenaManifest } from "./types";
 import type { RepositoryContext } from "../types";
+import { gitCommand } from "../platform/git-command";
 
 export interface DiffStat { files: number; insertions: number; deletions: number }
 
@@ -38,7 +39,7 @@ export async function inspectArenaRemoval(repository: RepositoryContext, attempt
     state.worktree = exists || registered ? "present" : "absent";
   } catch { /* Unknown is not absence. */ }
   try {
-    const result = await execa("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${attempt.branch}`], {
+    const result = await execa(gitCommand(), ["rev-parse", "--verify", "--quiet", `refs/heads/${attempt.branch}`], {
       cwd: repository.primaryWorktreeRoot, stdin: "ignore", reject: false, timeout: 8000,
       env: { GIT_OPTIONAL_LOCKS: "0" },
     });
@@ -63,7 +64,7 @@ export async function summarizeArenaAttempt(
   try {
     const tree = await validateArenaAttempt(repository, manifest, attempt);
     if (tree.status.kind !== "known") throw new Error(`file status is unknown: ${tree.status.reason}`);
-    const run = async (args: string[]) => (await execa("git", args, {
+    const run = async (args: string[]) => (await execa(gitCommand(), args, {
       cwd: tree.path, stdin: "ignore", timeout: 8000, env: { GIT_OPTIONAL_LOCKS: "0" },
     })).stdout;
     const base = manifest.base.commit;

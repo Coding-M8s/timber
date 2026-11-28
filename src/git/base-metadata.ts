@@ -7,6 +7,7 @@ import type { RepositoryContext, Worktree } from "../types";
 import { WorktreeReadPhase, type WorktreeMetadataLocation } from "./worktree-read-phase";
 import { preparePrivateDirectory, readPrivateRecord, replacePrivateFile } from "./private-record";
 import { isFullCommitHash } from "./commit-base";
+import { gitCommand } from "../platform/git-command";
 
 export type BaseAssociationRead =
   | { kind: "assigned"; ref: string }
@@ -62,7 +63,7 @@ async function readAt(place: Location): Promise<BaseAssociationRead> {
 
 async function validRef(cwd: string, ref: string): Promise<boolean> {
   if (!refPattern.test(ref)) return false;
-  const checked = await execa("git", ["check-ref-format", ref], {
+  const checked = await execa(gitCommand(), ["check-ref-format", ref], {
     cwd, reject: false, stdin: "ignore", env: { GIT_OPTIONAL_LOCKS: "0" },
   });
   return checked.exitCode === 0;

@@ -10,6 +10,7 @@ import { nativeArenaTools, nativeArenaToolSpecs, type NativeArenaTool } from "..
 import { attemptState, recordedAgent, type ArenaAttemptState } from "../arena/report";
 import type { ArenaAttemptRecord, ArenaManifest, ArenaStage } from "../arena/types";
 import type { RepositoryConfig, RepositoryContext } from "../types";
+import { gitCommand } from "../platform/git-command";
 
 export interface RepositoryIdentity { commonGitDir: string; primaryWorktreeRoot: string; currentWorktreeRoot: string }
 
@@ -99,7 +100,7 @@ async function identity(repository: RepositoryContext): Promise<RepositoryIdenti
 }
 
 async function refCommit(repository: RepositoryContext, ref: string): Promise<string | null> {
-  const result = await execa("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+  const result = await execa(gitCommand(), ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
     cwd: repository.primaryWorktreeRoot, stdin: "ignore", reject: false, timeout: 8000, env: { GIT_OPTIONAL_LOCKS: "0" },
   });
   return result.exitCode === 0 ? result.stdout.trim() : null;

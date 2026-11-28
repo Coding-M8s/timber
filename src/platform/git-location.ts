@@ -1,6 +1,7 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname } from "node:path";
 import { execa } from "execa";
+import { gitCommand } from "./git-command";
 
 /** Where a path sits relative to Git, judged from its nearest existing ancestor. */
 export type GitLocation = "inside" | "outside" | "unverified";
@@ -24,7 +25,7 @@ export async function gitLocation(path: string, signal?: AbortSignal): Promise<G
     if (parent === ancestor) throw new Error("No existing ancestor directory to check against Git.");
     ancestor = parent;
   }
-  const result = await execa("git", ["rev-parse", "--is-inside-work-tree", "--is-inside-git-dir"], {
+  const result = await execa(gitCommand(), ["rev-parse", "--is-inside-work-tree", "--is-inside-git-dir"], {
     cwd: await realpath(ancestor), reject: false, stdin: "ignore",
     ...(signal ? { cancelSignal: signal } : {}), forceKillAfterDelay: 250, maxBuffer: 16_384,
     env: { GIT_OPTIONAL_LOCKS: "0", GIT_DIR: undefined, GIT_WORK_TREE: undefined, GIT_COMMON_DIR: undefined,

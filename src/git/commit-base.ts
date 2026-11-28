@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { gitCommand } from "../platform/git-command";
 
 const fullHash = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 const shortHash = /^[0-9a-f]{7,63}$/iu;
@@ -29,7 +30,7 @@ export async function verifyCommitBase(cwd: string, input: string, flag: string)
   const hash = input.toLowerCase();
   let commit: string | null = null;
   try {
-    const result = await execa("git", ["rev-parse", "--verify", "--quiet", `${hash}^{commit}`], {
+    const result = await execa(gitCommand(), ["rev-parse", "--verify", "--quiet", `${hash}^{commit}`], {
       cwd, reject: false, stdin: "ignore", env: { GIT_OPTIONAL_LOCKS: "0" },
     });
     if (result.exitCode === 0) commit = result.stdout.trim();
@@ -45,7 +46,7 @@ export async function verifyCommitBase(cwd: string, input: string, flag: string)
 /** True when an existing local or remote-tracking branch is named exactly `input`. */
 async function namesBranch(cwd: string, input: string): Promise<boolean> {
   try {
-    const result = await execa("git", ["for-each-ref", "--count=1", "--format=%(refname)", `refs/heads/${input}`, `refs/remotes/*/${input}`], {
+    const result = await execa(gitCommand(), ["for-each-ref", "--count=1", "--format=%(refname)", `refs/heads/${input}`, `refs/remotes/*/${input}`], {
       cwd, reject: false, stdin: "ignore", env: { GIT_OPTIONAL_LOCKS: "0" },
     });
     return result.exitCode === 0 && result.stdout.trim() !== "";
