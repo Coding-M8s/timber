@@ -2,6 +2,7 @@ import type { Stats } from "node:fs";
 import { lstat, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
+import { assertWindowsPrivateAcl } from "./windows-acl";
 
 /** PowerShell applied via -EncodedCommand so paths and newlines stay literal. */
 const aclScript = String.raw`
@@ -46,7 +47,16 @@ if ($env:TIMBER_PRIVATE_ACTION -eq 'create') {
 Assert-PrivateAcl (Get-Acl -LiteralPath $path)
 `;
 
-async function windowsACL(path: string, action: "create" | "read"): Promise<void> {
+const windowsStorageMessage = "Cannot establish private Windows storage. Use an NTFS directory owned by your account with access limited to you, SYSTEM and Administrators; inspect its ACL privately before retrying.";
+
+/** Read checks run in process; only creating private storage starts PowerShell. */
+async function windowsReadACL(path: string): Promise<void> {
+  try { await assertWindowsPrivateAcl(path); }
+  catch (error) { throw new Error(`${windowsStorageMessage} ${(error as Error).message}`); }
+}
+
+/** Set the private owner and ACL on new storage, then check it in the same script. */
+async function windowsCreateACL(path: string): Promise<void> {
   const powershell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   const encoded = Buffer.from(aclScript, "utf16le").toString("base64");
   try {
@@ -57,16 +67,13 @@ async function windowsACL(path: string, action: "create" | "read"): Promise<void
       timeout: 30_000,
       extendEnv: true,
       // PowerShell 7's inherited modules cannot load in Windows PowerShell 5.1.
-      env: { TIMBER_PRIVATE_PATH: path, TIMBER_PRIVATE_ACTION: action, PSModulePath: join(dirname(powershell), "Modules") },
+      env: { TIMBER_PRIVATE_PATH: path, TIMBER_PRIVATE_ACTION: "create", PSModulePath: join(dirname(powershell), "Modules") },
     });
   } catch (error) {
     const detail = typeof error === "object" && error !== null && "stderr" in error
       ? String((error as { stderr: unknown }).stderr).trim()
       : "";
-    throw new Error(
-      "Cannot establish private Windows storage. Use an NTFS directory owned by your account with access limited to you, SYSTEM and Administrators; inspect its ACL privately before retrying."
-        + (detail ? ` ${detail}` : ""),
-    );
+    throw new Error(windowsStorageMessage + (detail ? ` ${detail}` : ""));
   }
 }
 
@@ -75,13 +82,13 @@ export async function assertPrivateStorage(path: string, info: Stats, directory:
   if (info.isSymbolicLink() || (directory ? !info.isDirectory() : !info.isFile())) {
     throw new Error("Private storage must be a regular file or directory, never a link.");
   }
-  if (process.platform === "win32") await windowsACL(path, "read");
+  if (process.platform === "win32") await windowsReadACL(path);
   else if ((info.mode & 0o077) !== 0) throw new Error("Private storage permissions must exclude other users.");
 }
 
 /** Only call for a new, empty, exclusively created object before writing bytes. */
 export async function protectNewStorage(path: string): Promise<void> {
-  if (process.platform === "win32") await windowsACL(path, "create");
+  if (process.platform === "win32") await windowsCreateACL(path);
 }
 
 export async function privateDirectory(path: string): Promise<void> {
