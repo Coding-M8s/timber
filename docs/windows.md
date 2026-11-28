@@ -154,9 +154,10 @@ enabled = false
 ```
 
 Agents run in the invoking terminal. Orca editor-owned terminals are Linux-only.
-Keep Windows PowerShell installed: Timber uses it to protect private metadata
-and saved credentials with Windows ACLs. Existing unsafe permissions are refused
-rather than silently changed.
+Keep Windows PowerShell installed: Timber uses it to protect new private metadata
+and saved credentials with Windows ACLs. Timber checks existing ones itself,
+without starting PowerShell, so commands such as `timber ls` stay fast. Existing
+unsafe permissions are refused rather than silently changed.
 
 ## Uninstall
 
