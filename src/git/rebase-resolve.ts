@@ -11,6 +11,7 @@ import { gitOperation } from "./operations";
 import { createRebaseReport, rebaseGitEnvironment, recovery, runOwnedGit, type OwnedGitResult } from "./rebase";
 import { buildResolveTask, resolveAgentCommand } from "./rebase-resolve-task";
 import { assertWorktreeIdentity, listWorktreeInventory } from "./worktrees";
+import { gitCommand } from "../platform/git-command";
 
 export type ResolveServices = Pick<CommandServices, "rebaseWorktree" | "createBackup" | "launchAgent">
   & Partial<Pick<CommandServices, "startRebaseRetention">>;
@@ -44,7 +45,7 @@ export function resolveHandoff(config: RepositoryConfig): ResolveHandoff {
 
 async function git(cwd: string, args: readonly string[]) {
   try {
-    return await execa("git", [...args], { cwd, stdin: "ignore", reject: false, env: rebaseGitEnvironment, stripFinalNewline: false });
+    return await execa(gitCommand(), [...args], { cwd, stdin: "ignore", reject: false, env: rebaseGitEnvironment, stripFinalNewline: false });
   } catch {
     throw new Error("Could not run Git to inspect the paused rebase.");
   }

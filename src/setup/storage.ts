@@ -9,11 +9,12 @@ import { discoverRepository } from "../git/repository";
 import type { RepositoryContext } from "../types";
 import { SetupCancelled, SetupChangedError, SetupVisibilityError } from "./types";
 import type { FileSnapshot, SetupTarget } from "./types";
+import { gitCommand } from "../platform/git-command";
 
 const pattern = "/.timber.toml";
 
 async function git(repository: RepositoryContext, args: readonly string[], allowNotFound = false): Promise<string> {
-  const result = await execa("git", [...args], {
+  const result = await execa(gitCommand(), [...args], {
     cwd: repository.primaryWorktreeRoot, env: { GIT_OPTIONAL_LOCKS: "0" }, reject: false,
   });
   if (result.exitCode !== 0 && !(allowNotFound && result.exitCode === 1)) {
@@ -153,7 +154,7 @@ export async function saveSetupConfig(target: SetupTarget, source: string, track
         excludeWritten = next;
       }
       if (!target.tracked) {
-        const ignored = await execa("git", ["check-ignore", "--quiet", "--no-index", "--", ".timber.toml"], {
+        const ignored = await execa(gitCommand(), ["check-ignore", "--quiet", "--no-index", "--", ".timber.toml"], {
           cwd: target.repository!.primaryWorktreeRoot, reject: false, env: { GIT_OPTIONAL_LOCKS: "0" },
         });
         if (ignored.exitCode !== 0) throw new SetupVisibilityError("Repository ignore rules cannot hide .timber.toml. Use timber setup --global or cancel; shared ignore rules were preserved.");

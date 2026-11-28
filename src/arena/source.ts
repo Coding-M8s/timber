@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import type { ArenaSourceProvenance, ArenaSourceSelection } from "./types";
 import { validateArenaName } from "./participants";
+import { gitCommand } from "../platform/git-command";
 
 export function arenaIdentity(
   input: string,
@@ -183,7 +184,7 @@ export async function resolveArenaSource(
       let result;
       try {
         result = await execa(
-          "git",
+          gitCommand(),
           ["ls-remote", "--symref", "--", selected, "HEAD"],
           {
             cwd: repository.primaryWorktreeRoot,

@@ -2,6 +2,7 @@ import { execa } from "execa";
 import { jsonDisplay } from "../display";
 import type { RepositoryConfig, RepositoryContext } from "../types";
 import { parseBitbucketRemoteUrl } from "../bitbucket/repository";
+import { gitCommand } from "../platform/git-command";
 
 export interface GithubRepository { owner: string; name: string }
 const invalid = () => new Error("Selected issue remote must identify one github.com repository. Check its fetch URL or select --remote <name>.");
@@ -17,7 +18,7 @@ export function parseGithubRemoteUrl(input: string): GithubRepository {
 export type RemoteReader = (cwd: string, args: string[]) => Promise<readonly string[]>;
 export const readRemote: RemoteReader = async (cwd, args) => {
   try {
-    const result = await execa("git", args, { cwd, stdin: "ignore", timeout: 10_000,
+    const result = await execa(gitCommand(), args, { cwd, stdin: "ignore", timeout: 10_000,
       maxBuffer: 16_384, env: { GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" } });
     return result.stdout.split(/\r?\n/u);
   } catch { throw invalid(); }

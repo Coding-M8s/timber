@@ -12,6 +12,7 @@ import {
 import { execa } from "execa";
 import { validateNewBranchName } from "./branches";
 import { listWorktreeInventory } from "./worktrees";
+import { gitCommand } from "../platform/git-command";
 import type {
   CreateWorktreeRequest,
   RepositoryConfig,
@@ -84,7 +85,7 @@ export async function git(
   args: readonly string[],
 ): Promise<number> {
   try {
-    const result = await execa("git", [...args], {
+    const result = await execa(gitCommand(), [...args], {
       cwd: repository.primaryWorktreeRoot,
       reject: false,
     });
@@ -145,7 +146,7 @@ export async function planWorktree(
 
   const localRef = `refs/heads/${name}`;
   if (process.platform === "win32") {
-    const refs = (await execa("git", ["for-each-ref", "--format=%(refname)", "refs/heads/"], {
+    const refs = (await execa(gitCommand(), ["for-each-ref", "--format=%(refname)", "refs/heads/"], {
       cwd: repository.primaryWorktreeRoot, env: { GIT_OPTIONAL_LOCKS: "0" }, stdin: "ignore",
     })).stdout.split("\n").filter(Boolean);
     const folded = localRef.toLowerCase();
@@ -168,7 +169,7 @@ export async function planWorktree(
   }
   if (request.kind !== "local") {
     const refs = await execa(
-      "git",
+      gitCommand(),
       ["for-each-ref", "--format=%(refname)", "refs/heads/"],
       {
         cwd: repository.primaryWorktreeRoot,

@@ -4,9 +4,10 @@ import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
 import type { GitReadOptions, RepositoryContext, Worktree, WorktreeInventory, WorktreeStatus } from "../types";
+import { gitCommand } from "../platform/git-command";
 
 async function runGit(cwd: string, args: readonly string[], options?: GitReadOptions) {
-  return execa("git", [...args], {
+  return execa(gitCommand(), [...args], {
     cwd, reject: false, env: { GIT_OPTIONAL_LOCKS: "0" },
     ...(options?.signal === undefined ? {} : { cancelSignal: options.signal, forceKillAfterDelay: 250 }),
   });

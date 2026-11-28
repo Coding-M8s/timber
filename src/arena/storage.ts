@@ -11,6 +11,7 @@ import { effortLevels } from "./effort";
 import { nativeArenaTools } from "./tools";
 import { assertWorktreeIdentity, listWorktrees } from "../git/worktrees";
 import type { RepositoryContext, Worktree } from "../types";
+import { gitCommand } from "../platform/git-command";
 import type {
   ArenaAttemptRecord,
   ArenaManifest,
@@ -598,7 +599,7 @@ export async function reserveArena(
           "Created arena attempt does not match its planned identity or base commit.",
         );
       await assertWorktreeIdentity(repository, worktree);
-      const result = await execa("git", ["rev-parse", "--absolute-git-dir"], {
+      const result = await execa(gitCommand(), ["rev-parse", "--absolute-git-dir"], {
         cwd: worktree.path,
         reject: false,
       });
@@ -650,7 +651,7 @@ export async function validateArenaAttempt(
     if (!worktree || attempt.worktreeGitDir === null)
       throw new Error("missing");
     await assertWorktreeIdentity(repository, worktree);
-    const result = await execa("git", ["rev-parse", "--absolute-git-dir"], {
+    const result = await execa(gitCommand(), ["rev-parse", "--absolute-git-dir"], {
       cwd: worktree.path,
       reject: false,
     });

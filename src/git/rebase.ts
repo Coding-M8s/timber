@@ -14,6 +14,7 @@ import { gitOperation } from "./operations";
 import { readBaseAssociation, writeBaseAssociation } from "./base-metadata";
 import { resolveOpenTarget } from "./open-target";
 import { isFullCommitHash, refuseAbbreviatedHash, verifyCommitBase } from "./commit-base";
+import { gitCommand } from "../platform/git-command";
 
 const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
@@ -58,7 +59,7 @@ export const rebaseGitEnvironment = {
 
 async function git(cwd: string, args: readonly string[], timeout?: number) {
   try {
-    return await execa("git", [...args], {
+    return await execa(gitCommand(), [...args], {
       cwd, stdin: "ignore", reject: false, env: rebaseGitEnvironment, stripFinalNewline: false,
       ...(timeout === undefined ? {} : { timeout }),
     });
@@ -87,7 +88,7 @@ export interface OwnedGitResult {
  */
 export async function runOwnedGit(cwd: string, args: readonly string[]): Promise<OwnedGitResult> {
   let requestedSignal: NodeJS.Signals | null = null;
-  const child = execa("git", [...args], {
+  const child = execa(gitCommand(), [...args], {
     cwd, stdin: "ignore", reject: false, env: rebaseGitEnvironment, detached: process.platform !== "win32",
   });
   // POSIX owns a process group. Windows shares the console for Ctrl-C and

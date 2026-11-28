@@ -1,5 +1,6 @@
 import { execa } from "execa";
 import type { RepositoryContext, ValidatedBase } from "../types";
+import { gitCommand } from "../platform/git-command";
 
 /** Refresh only the selected cleanup base, without following refs into local branches. */
 export async function refreshCleanupBase(
@@ -14,7 +15,7 @@ export async function refreshCleanupBase(
   if (!remote) throw new Error("Cannot refresh the selected remote cleanup base: unknown remote.");
   const name = base.ref.slice(`refs/remotes/${remote.name}/`.length);
   const remoteRef = `refs/heads/${name}`;
-  const run = (args: readonly string[]) => execa("git", [...args], {
+  const run = (args: readonly string[]) => execa(gitCommand(), [...args], {
     cwd: repository.primaryWorktreeRoot, reject: false, stdin: "ignore", timeout: 10_000,
     env: {
       GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0",

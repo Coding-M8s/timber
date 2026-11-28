@@ -2,6 +2,7 @@ import { execa } from "execa";
 import { parseGithubReviewer, type ReviewerRequest } from "../github/review-requests";
 import type { RepositoryContext } from "../types";
 import { isFullCommitHash } from "./commit-base";
+import { gitCommand } from "../platform/git-command";
 
 /** Why the code owners of a branch could not be read; the message is Timber's own wording. */
 export class CodeOwnersFailure extends Error {}
@@ -124,7 +125,7 @@ export function ownersOf(path: string, rules: readonly CodeOwnerRule[], budget: 
 }
 
 async function git(repository: RepositoryContext, args: readonly string[], signal: AbortSignal) {
-  return execa("git", [...args], {
+  return execa(gitCommand(), [...args], {
     cwd: repository.primaryWorktreeRoot, reject: false, stdin: "ignore", cancelSignal: signal, forceKillAfterDelay: 250, maxBuffer: 16 * 1024 * 1024, stripFinalNewline: false,
     // A partial clone must not fetch missing objects; the empty protocol list covers Git without GIT_NO_LAZY_FETCH.
     env: { GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_NO_LAZY_FETCH: "1", GIT_ALLOW_PROTOCOL: "" },
