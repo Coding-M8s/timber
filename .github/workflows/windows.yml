@@ -35,7 +35,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - name: Native Windows source coverage
-        run: bun test --timeout 120000 tests/platform-windows.test.ts tests/windows.integration.test.ts tests/update-windows.test.ts tests/release.test.ts
+        run: bun test --timeout 120000 tests/platform-windows.test.ts tests/windows.integration.test.ts tests/update-windows.test.ts tests/release.test.ts tests/windows-acl.test.ts tests/windows-records.integration.test.ts tests/git-command.test.ts
       - run: bun run build
       - run: bun dist/index.js --help
       - if: github.event_name != 'pull_request'
